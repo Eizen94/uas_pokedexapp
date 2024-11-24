@@ -1,5 +1,7 @@
 // lib/core/config/firebase_config.dart
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 
 class FirebaseConfig {
@@ -9,7 +11,7 @@ class FirebaseConfig {
       if (kDebugMode) {
         print('🔥 Firebase initialized successfully');
       }
-      
+
       // Test Firebase Auth
       final auth = FirebaseAuth.instance;
       if (kDebugMode) {
