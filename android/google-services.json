@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "631128211674",
+    "project_id": "uas-pokedexapp",
+    "storage_bucket": "uas-pokedexapp.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:631128211674:android:f88221525f9e09b7f465e3",
+        "android_client_info": {
+          "package_name": "com.nikolausfranz.uas_pokedexapp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA788aYkne3gRiwAtZLtsVMRl5reUPMcXg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
