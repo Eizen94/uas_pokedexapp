@@ -6,13 +6,24 @@ class FirebaseConfig {
   static Future<void> initializeFirebase() async {
     try {
       await Firebase.initializeApp();
+      if (kDebugMode) {
+        print('🔥 Firebase initialized successfully');
+      }
       
-      // Optional: Enable Firestore offline persistence
-      // FirebaseFirestore.instance.settings = 
-      //   const Settings(persistenceEnabled: true, cacheSizeBytes: 5242880);
+      // Test Firebase Auth
+      final auth = FirebaseAuth.instance;
+      if (kDebugMode) {
+        print('📱 Firebase Auth initialized: ${auth.app.name}');
+      }
+
+      // Test Firestore
+      final firestore = FirebaseFirestore.instance;
+      if (kDebugMode) {
+        print('💾 Firestore initialized: ${firestore.app.name}');
+      }
     } catch (e) {
       if (kDebugMode) {
-        print('Error initializing Firebase: $e');
+        print('❌ Error initializing Firebase: $e');
       }
     }
   }
