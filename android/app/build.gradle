@@ -8,7 +8,7 @@ plugins {
 }
 
 android {
-    namespace = "com.eizen94.uas_pokedexapp"
+    namespace = "com.nikolausfranz.uas_pokedexapp"
     compileSdk = 35
     ndkVersion = flutter.ndkVersion
 
@@ -26,7 +26,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.eizen94.uas_pokedexapp"
+        applicationId = "com.nikolausfranz.uas_pokedexapp"
         minSdk = 26
         targetSdk = 35
         versionCode = 1
