@@ -44,7 +44,6 @@ dependencies:
   provider: ^6.1.1
 
   # UI Components
-  cupertino_icons: ^1.0.8
   cached_network_image: ^3.3.0
   flutter_svg: ^2.0.9
 
