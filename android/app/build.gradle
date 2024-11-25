@@ -21,9 +21,10 @@ android {
         jvmTarget = '17'
     }
 
-    dexOptions {
-        javaMaxHeapSize "4g"
-    }
+    // Hapus dexOptions karena sudah deprecated di Gradle 8.0
+    // dexOptions {
+    //     javaMaxHeapSize "4g"
+    // }
 
     defaultConfig {
         applicationId = "com.nikolausfranz.uas_pokedexapp"
