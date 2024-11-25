@@ -11,15 +11,17 @@ class FirebaseConfig {
         print('📱 Starting Firebase initialization...');
       }
 
-      await Firebase.initializeApp(
-        options: const FirebaseOptions(
-          apiKey: 'AIzaSyA788aYkne3gRiwAtZLtsVMRl5reUPMcXg', 
-          appId: '1:631128211674:android:f88221525f9e09b7f465e3',
-          messagingSenderId: '631128211674',
-          projectId: 'uas-pokedexapp',
-          storageBucket: 'uas-pokedexapp.appspot.com'
-        ),
-      );
+      // Check if Firebase is already initialized
+      if (Firebase.apps.isEmpty) {
+        await Firebase.initializeApp(
+          options: const FirebaseOptions(
+              apiKey: 'AIzaSyA788aYkne3gRiwAtZLtsVMRl5reUPMcXg',
+              appId: '1:631128211674:android:f88221525f9e09b7f465e3',
+              messagingSenderId: '631128211674',
+              projectId: 'uas-pokedexapp',
+              storageBucket: 'uas-pokedexapp.appspot.com'),
+        );
+      }
 
       if (kDebugMode) {
         print('🔥 Firebase Core initialized successfully');
@@ -31,10 +33,17 @@ class FirebaseConfig {
         print('📱 Firebase Auth initialized: ${auth.app.name}');
       }
 
-      // Test Firestore
-      final firestore = FirebaseFirestore.instance;
-      if (kDebugMode) {
-        print('💾 Firestore initialized: ${firestore.app.name}');
+      // Test Firestore with error handling
+      try {
+        final firestore = FirebaseFirestore.instance;
+        await firestore.collection('test').doc('test').get();
+        if (kDebugMode) {
+          print('💾 Firestore initialized and connected');
+        }
+      } catch (e) {
+        if (kDebugMode) {
+          print('❌ Firestore Error: $e');
+        }
       }
     } on FirebaseException catch (e) {
       if (kDebugMode) {
