@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart'; // Tambahkan ini
 import 'package:uas_pokedexapp/core/config/firebase_config.dart';
 import 'package:uas_pokedexapp/features/test/screens/test_screen.dart';
 
@@ -8,13 +9,13 @@ void main() async {
     if (kDebugMode) {
       print('🚀 Starting app initialization...');
     }
-    
+
     await FirebaseConfig.initializeFirebase();
-    
+
     if (kDebugMode) {
       print('✅ App initialization complete');
     }
-    
+
     runApp(const MyApp());
   } catch (e) {
     if (kDebugMode) {
