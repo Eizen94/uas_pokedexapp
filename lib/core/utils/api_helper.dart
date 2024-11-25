@@ -1,6 +1,5 @@
-// lib/core/utils/api_helper.dart
-
 import 'dart:convert';
+import 'dart:async';
 import 'package:http/http.dart' as http;
 
 class ApiResponse<T> {
@@ -19,7 +18,8 @@ class ApiHelper {
   static const int timeoutDuration = 15; // dalam detik
 
   // Parse response JSON dengan error handling
-  static ApiResponse<Map<String, dynamic>> parseResponse(http.Response response) {
+  static ApiResponse<Map<String, dynamic>> parseResponse(
+      http.Response response) {
     try {
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
@@ -38,9 +38,10 @@ class ApiHelper {
   }
 
   // Format URL dengan parameter
-  static String formatUrl(String baseUrl, String endpoint, Map<String, dynamic>? params) {
+  static String formatUrl(
+      String baseUrl, String endpoint, Map<String, dynamic>? params) {
     if (params == null || params.isEmpty) return '$baseUrl$endpoint';
-    
+
     final queryParams = params.entries
         .map((e) => '${e.key}=${Uri.encodeComponent(e.value.toString())}')
         .join('&');
@@ -118,7 +119,8 @@ class ApiHelper {
   };
 
   // Get type effectiveness
-  static double getTypeEffectiveness(String attackType, List<String> defenseTypes) {
+  static double getTypeEffectiveness(
+      String attackType, List<String> defenseTypes) {
     final effectiveness = {
       'normal': {'rock': 0.5, 'ghost': 0, 'steel': 0.5},
       'fire': {
@@ -133,7 +135,7 @@ class ApiHelper {
       },
       // Tambahkan type effectiveness lainnya sesuai kebutuhan
     };
-    
+
     double multiplier = 1.0;
     for (var defenseType in defenseTypes) {
       final typeChart = effectiveness[attackType];
