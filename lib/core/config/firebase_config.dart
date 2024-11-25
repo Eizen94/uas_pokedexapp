@@ -11,7 +11,6 @@ class FirebaseConfig {
         print('📱 Starting Firebase initialization...');
       }
 
-      // Check if Firebase is already initialized
       if (Firebase.apps.isEmpty) {
         await Firebase.initializeApp(
           options: const FirebaseOptions(
