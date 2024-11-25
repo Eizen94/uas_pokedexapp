@@ -1,15 +1,13 @@
-// lib/services/api_service.dart
-
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 class PokeApiService {
   // Base URL untuk PokeAPI
   static const String baseUrl = 'https://pokeapi.co/api/v2';
-  
+
   // Cache untuk menyimpan response API
   final Map<String, dynamic> _cache = {};
-  
+
   // Singleton pattern
   static final PokeApiService _instance = PokeApiService._internal();
   factory PokeApiService() => _instance;
@@ -24,7 +22,7 @@ class PokeApiService {
 
     try {
       final response = await http.get(Uri.parse('$baseUrl$endpoint'));
-      
+
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         _cache[endpoint] = data; // Simpan ke cache
@@ -38,7 +36,8 @@ class PokeApiService {
   }
 
   // Mengambil daftar Pokemon dengan pagination
-  Future<Map<String, dynamic>> getPokemonList({int offset = 0, int limit = 20}) async {
+  Future<Map<String, dynamic>> getPokemonList(
+      {int offset = 0, int limit = 20}) async {
     return _getRequest('/pokemon?offset=$offset&limit=$limit');
   }
 
