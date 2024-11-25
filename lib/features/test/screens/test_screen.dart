@@ -1,22 +1,45 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 
-class YourInitialScreen extends StatelessWidget {
+class YourInitialScreen extends StatefulWidget {
   const YourInitialScreen({super.key});
+
+  @override
+  State<YourInitialScreen> createState() => _YourInitialScreenState();
+}
+
+class _YourInitialScreenState extends State<YourInitialScreen> {
+  String _status = 'Ready to test';
 
   Future<void> _testFirebase() async {
     try {
+      setState(() {
+        _status = 'Testing connection...';
+      });
+
       // Test Auth
       final auth = FirebaseAuth.instance;
-      print('Current user: ${auth.currentUser}');
+      if (kDebugMode) {
+        print('Testing Auth...');
+      }
 
       // Test Firestore
       final testDoc =
           await FirebaseFirestore.instance.collection('test').doc('test').get();
-      print('Firestore test: ${testDoc.exists ? 'Connected' : 'No document'}');
+
+      setState(() {
+        _status =
+            'Connection successful!\nFirestore document exists: ${testDoc.exists}';
+      });
     } catch (e) {
-      print('Test failed: $e');
+      if (kDebugMode) {
+        print('Test failed: $e');
+      }
+      setState(() {
+        _status = 'Test failed: $e';
+      });
     }
   }
 
@@ -27,16 +50,22 @@ class YourInitialScreen extends StatelessWidget {
         title: const Text('Firebase Test'),
       ),
       body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            ElevatedButton(
-              onPressed: _testFirebase,
-              child: const Text('Test Firebase Connection'),
-            ),
-            const SizedBox(height: 20),
-            const Text('Check console for results'),
-          ],
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              ElevatedButton(
+                onPressed: _testFirebase,
+                child: const Text('Test Firebase Connection'),
+              ),
+              const SizedBox(height: 20),
+              Text(
+                _status,
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
         ),
       ),
     );

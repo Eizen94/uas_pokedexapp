@@ -7,20 +7,22 @@ import 'package:flutter/foundation.dart';
 class FirebaseConfig {
   static Future<void> initializeFirebase() async {
     try {
-      // Tambahkan options untuk Android
+      if (kDebugMode) {
+        print('📱 Starting Firebase initialization...');
+      }
+
       await Firebase.initializeApp(
         options: const FirebaseOptions(
-          apiKey:
-              'AIzaSyA788aYkne3gRiwAtZLtsVMRl5reUPMcXg', // dari google-services.json
-          appId:
-              '1:631128211674:android:f88221525f9e09b7f465e3', // dari google-services.json
-          messagingSenderId: '631128211674', // dari google-services.json
-          projectId: 'uas-pokedexapp', // dari google-services.json
+          apiKey: 'AIzaSyA788aYkne3gRiwAtZLtsVMRl5reUPMcXg', 
+          appId: '1:631128211674:android:f88221525f9e09b7f465e3',
+          messagingSenderId: '631128211674',
+          projectId: 'uas-pokedexapp',
+          storageBucket: 'uas-pokedexapp.appspot.com'
         ),
       );
 
       if (kDebugMode) {
-        print('🔥 Firebase initialized successfully');
+        print('🔥 Firebase Core initialized successfully');
       }
 
       // Test Firebase Auth
@@ -33,6 +35,10 @@ class FirebaseConfig {
       final firestore = FirebaseFirestore.instance;
       if (kDebugMode) {
         print('💾 Firestore initialized: ${firestore.app.name}');
+      }
+    } on FirebaseException catch (e) {
+      if (kDebugMode) {
+        print('❌ Firebase Error: ${e.code} - ${e.message}');
       }
     } catch (e) {
       if (kDebugMode) {
