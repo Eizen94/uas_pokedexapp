@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-// Update YourInitialScreen class yang sudah ada
 class YourInitialScreen extends StatelessWidget {
   const YourInitialScreen({super.key});
 

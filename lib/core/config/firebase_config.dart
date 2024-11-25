@@ -7,7 +7,18 @@ import 'package:flutter/foundation.dart';
 class FirebaseConfig {
   static Future<void> initializeFirebase() async {
     try {
-      await Firebase.initializeApp();
+      // Tambahkan options untuk Android
+      await Firebase.initializeApp(
+        options: const FirebaseOptions(
+          apiKey:
+              'AIzaSyA788aYkne3gRiwAtZLtsVMRl5reUPMcXg', // dari google-services.json
+          appId:
+              '1:631128211674:android:f88221525f9e09b7f465e3', // dari google-services.json
+          messagingSenderId: '631128211674', // dari google-services.json
+          projectId: 'uas-pokedexapp', // dari google-services.json
+        ),
+      );
+
       if (kDebugMode) {
         print('🔥 Firebase initialized successfully');
       }
