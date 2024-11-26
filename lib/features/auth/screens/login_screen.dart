@@ -111,12 +111,18 @@ class _LoginScreenState extends State<LoginScreen> {
                       controller: _emailController,
                       keyboardType: TextInputType.emailAddress,
                       textInputAction: TextInputAction.next,
+                      autofocus: false,
+                      enableInteractiveSelection: true,
                       decoration: InputDecoration(
                         labelText: 'Email',
                         border: const OutlineInputBorder(),
                         prefixIcon: const Icon(Icons.email),
                         filled: true,
                         fillColor: Theme.of(context).colorScheme.surface,
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 12,
+                        ),
                       ),
                       validator: (value) {
                         if (value == null || value.isEmpty) {
@@ -133,6 +139,8 @@ class _LoginScreenState extends State<LoginScreen> {
                       controller: _passwordController,
                       obscureText: _obscurePassword,
                       textInputAction: TextInputAction.done,
+                      autofocus: false,
+                      enableInteractiveSelection: true,
                       onFieldSubmitted: (_) => _login(),
                       decoration: InputDecoration(
                         labelText: 'Password',
@@ -152,6 +160,10 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                         filled: true,
                         fillColor: Theme.of(context).colorScheme.surface,
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 12,
+                        ),
                       ),
                       validator: (value) {
                         if (value == null || value.isEmpty) {
@@ -170,6 +182,9 @@ class _LoginScreenState extends State<LoginScreen> {
                         decoration: BoxDecoration(
                           color: Colors.red.withOpacity(0.1),
                           borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: Colors.red.withOpacity(0.5),
+                          ),
                         ),
                         child: Text(
                           _errorMessage,
@@ -188,6 +203,10 @@ class _LoginScreenState extends State<LoginScreen> {
                         padding: const EdgeInsets.symmetric(vertical: 16),
                         backgroundColor: Theme.of(context).colorScheme.primary,
                         foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        elevation: 0,
                       ),
                       child: _isLoading
                           ? const SizedBox(
@@ -202,7 +221,10 @@ class _LoginScreenState extends State<LoginScreen> {
                             )
                           : const Text(
                               'Login',
-                              style: TextStyle(fontSize: 16),
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
                     ),
                     const SizedBox(height: 16),
@@ -217,7 +239,13 @@ class _LoginScreenState extends State<LoginScreen> {
                                 ),
                               );
                             },
-                      child: const Text('Belum punya akun? Daftar disini'),
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                      ),
+                      child: const Text(
+                        'Belum punya akun? Daftar disini',
+                        style: TextStyle(fontWeight: FontWeight.w500),
+                      ),
                     ),
                   ],
                 ),
