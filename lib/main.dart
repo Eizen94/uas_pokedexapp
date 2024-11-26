@@ -9,14 +9,24 @@ import 'package:uas_pokedexapp/features/auth/screens/profile_screen.dart';
 import 'package:uas_pokedexapp/features/pokemon/screens/pokemon_list_screen.dart';
 import 'package:uas_pokedexapp/features/pokemon/screens/pokemon_detail_screen.dart';
 
-void main() async {
+Future<void> main() async {
   try {
     WidgetsFlutterBinding.ensureInitialized();
     if (kDebugMode) {
       print('🚀 Starting app initialization...');
     }
 
-    await FirebaseConfig.initializeFirebase();
+    // Check if Firebase is already initialized
+    if (!Firebase.apps.isNotEmpty) {
+      await Firebase.initializeApp();
+      if (kDebugMode) {
+        print('✅ Firebase initialized');
+      }
+    } else {
+      if (kDebugMode) {
+        print('✅ Firebase already initialized');
+      }
+    }
 
     if (kDebugMode) {
       print('✅ App initialization complete');
