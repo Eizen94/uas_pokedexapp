@@ -1,9 +1,15 @@
+// lib/features/auth/services/auth_service.dart
+
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import '../../../core/config/firebase_config.dart';
 
 class AuthService {
+  static final AuthService _instance = AuthService._internal();
+  factory AuthService() => _instance;
+  AuthService._internal();
+
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
@@ -19,13 +25,15 @@ class AuthService {
     required String password,
   }) async {
     try {
-      // Ensure Firebase is initialized
-      if (!FirebaseConfig.isInitialized) {
-        await FirebaseConfig.initializeFirebase();
-      }
-
       if (kDebugMode) {
         print('📱 Attempting login for email: $email');
+      }
+
+      if (!FirebaseConfig.isInitialized) {
+        if (kDebugMode) {
+          print('🔄 Firebase not initialized, initializing...');
+        }
+        await FirebaseConfig.initializeFirebase();
       }
 
       final credential = await _auth.signInWithEmailAndPassword(
@@ -35,6 +43,11 @@ class AuthService {
 
       if (kDebugMode) {
         print('✅ Login successful for user: ${credential.user?.email}');
+      }
+
+      // Update last login time
+      if (credential.user != null) {
+        await _updateLastLogin(credential.user!);
       }
 
       return credential;
@@ -52,13 +65,15 @@ class AuthService {
     required String password,
   }) async {
     try {
-      // Ensure Firebase is initialized
-      if (!FirebaseConfig.isInitialized) {
-        await FirebaseConfig.initializeFirebase();
-      }
-
       if (kDebugMode) {
         print('📱 Attempting registration for email: $email');
+      }
+
+      if (!FirebaseConfig.isInitialized) {
+        if (kDebugMode) {
+          print('🔄 Firebase not initialized, initializing...');
+        }
+        await FirebaseConfig.initializeFirebase();
       }
 
       final credential = await _auth.createUserWithEmailAndPassword(
@@ -66,8 +81,9 @@ class AuthService {
         password: password,
       );
 
-      // Create user document in Firestore
-      await _createUserDocument(credential.user!);
+      if (credential.user != null) {
+        await _createUserDocument(credential.user!);
+      }
 
       if (kDebugMode) {
         print('✅ Registration successful for user: ${credential.user?.email}');
@@ -105,6 +121,10 @@ class AuthService {
   // Create user document
   Future<void> _createUserDocument(User user) async {
     try {
+      if (kDebugMode) {
+        print('📝 Creating user document for: ${user.email}');
+      }
+
       final userDoc = await _firestore.collection('users').doc(user.uid).get();
 
       if (!userDoc.exists) {
@@ -113,22 +133,39 @@ class AuthService {
           'createdAt': Timestamp.now(),
           'favorites': [],
           'lastLogin': Timestamp.now(),
+          'settings': {
+            'theme': 'light',
+            'language': 'en',
+          }
         });
 
         if (kDebugMode) {
           print('✅ User document created successfully');
         }
-      } else {
-        // Update lastLogin time
-        await _firestore.collection('users').doc(user.uid).update({
-          'lastLogin': Timestamp.now(),
-        });
       }
     } catch (e) {
       if (kDebugMode) {
-        print('❌ Error creating/updating user document: $e');
+        print('❌ Error creating user document: $e');
       }
       // Don't throw here as this is not critical for auth flow
+    }
+  }
+
+  // Update last login time
+  Future<void> _updateLastLogin(User user) async {
+    try {
+      await _firestore.collection('users').doc(user.uid).update({
+        'lastLogin': Timestamp.now(),
+      });
+
+      if (kDebugMode) {
+        print('✅ Last login time updated');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error updating last login: $e');
+      }
+      // Don't throw as this is not critical
     }
   }
 
@@ -144,6 +181,8 @@ class AuthService {
         'operation-not-allowed' => 'Operasi tidak diizinkan',
         'too-many-requests' => 'Terlalu banyak percobaan. Coba lagi nanti',
         'network-request-failed' => 'Koneksi internet bermasalah',
+        'invalid-credential' => 'Data login tidak valid',
+        'user-disabled' => 'Akun telah dinonaktifkan',
         _ => 'Terjadi kesalahan: ${e.message}',
       };
     }
