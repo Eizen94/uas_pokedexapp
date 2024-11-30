@@ -2,6 +2,8 @@
 
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'dart:async';
+import 'package:flutter/foundation.dart';
 import '../models/pokemon_model.dart';
 import '../models/pokemon_detail_model.dart';
 import '../../../core/utils/api_helper.dart';
@@ -10,12 +12,40 @@ class PokemonService {
   static const String baseUrl = 'https://pokeapi.co/api/v2';
   final http.Client _client = http.Client();
   final Map<String, dynamic> _cache = {};
+  final Duration _cacheDuration = const Duration(hours: 24);
+  final Map<String, DateTime> _cacheTimestamps = {};
 
-  Future<List<PokemonModel>> getPokemonList(
-      {int offset = 0, int limit = 20}) async {
+  // Singleton pattern
+  static final PokemonService _instance = PokemonService._internal();
+  factory PokemonService() => _instance;
+  PokemonService._internal();
+
+  Future<List<PokemonModel>> getPokemonList({
+    int offset = 0,
+    int limit = 20,
+  }) async {
     try {
-      final response = await _client.get(
-        Uri.parse('$baseUrl/pokemon?offset=$offset&limit=$limit'),
+      if (kDebugMode) {
+        print('📥 Fetching Pokemon list: offset=$offset, limit=$limit');
+      }
+
+      final cacheKey = 'pokemon_list_${offset}_$limit';
+
+      // Check cache first
+      if (_hasValidCache(cacheKey)) {
+        if (kDebugMode) {
+          print('🗂️ Using cached Pokemon list data');
+        }
+        return _getCachedPokemonList(cacheKey);
+      }
+
+      final response = await _client
+          .get(Uri.parse('$baseUrl/pokemon?offset=$offset&limit=$limit'))
+          .timeout(
+        const Duration(seconds: 10),
+        onTimeout: () {
+          throw Exception('Connection timeout. Please check your internet.');
+        },
       );
 
       if (response.statusCode != 200) {
@@ -24,29 +54,63 @@ class PokemonService {
 
       final data = json.decode(response.body);
       final List<PokemonModel> pokemonList = [];
+      final List<Future<void>> futures = [];
 
       for (var pokemon in data['results']) {
-        final detailResponse = await _client.get(Uri.parse(pokemon['url']));
-        if (detailResponse.statusCode == 200) {
-          final detailData = json.decode(detailResponse.body);
-          pokemonList.add(PokemonModel.fromJson(detailData));
-        }
+        futures.add(_fetchPokemonDetail(pokemon['url']).then((detailData) {
+          if (detailData != null) {
+            pokemonList.add(PokemonModel.fromJson(detailData));
+          }
+        }));
+      }
+
+      await Future.wait(futures);
+
+      // Sort by ID to maintain consistent order
+      pokemonList.sort((a, b) => a.id.compareTo(b.id));
+
+      // Cache the results
+      _cache[cacheKey] = pokemonList.map((p) => p.toJson()).toList();
+      _cacheTimestamps[cacheKey] = DateTime.now();
+
+      if (kDebugMode) {
+        print('✅ Successfully fetched ${pokemonList.length} Pokemon');
       }
 
       return pokemonList;
     } catch (e) {
-      throw ApiHelper.handleError('Error getting pokemon list: $e');
+      if (kDebugMode) {
+        print('❌ Error getting pokemon list: $e');
+      }
+      throw _handleError(e);
     }
   }
 
   Future<PokemonDetailModel> getPokemonDetail(String idOrName) async {
     try {
-      if (_cache.containsKey(idOrName)) {
-        return PokemonDetailModel.fromJson(_cache[idOrName]);
+      if (kDebugMode) {
+        print('📥 Fetching Pokemon detail: $idOrName');
       }
 
-      final response = await _client.get(
+      final cacheKey = 'pokemon_detail_$idOrName';
+
+      // Check cache first
+      if (_hasValidCache(cacheKey)) {
+        if (kDebugMode) {
+          print('🗂️ Using cached Pokemon detail data');
+        }
+        return PokemonDetailModel.fromJson(_cache[cacheKey]);
+      }
+
+      final response = await _client
+          .get(
         Uri.parse('$baseUrl/pokemon/$idOrName'),
+      )
+          .timeout(
+        const Duration(seconds: 10),
+        onTimeout: () {
+          throw Exception('Connection timeout. Please check your internet.');
+        },
       );
 
       if (response.statusCode != 200) {
@@ -55,34 +119,89 @@ class PokemonService {
 
       final data = json.decode(response.body);
 
-      final speciesResponse = await _client.get(
-        Uri.parse(data['species']['url']),
-      );
+      // Fetch species data concurrently
+      final speciesResponse = await _client
+          .get(
+            Uri.parse(data['species']['url']),
+          )
+          .timeout(
+            const Duration(seconds: 10),
+          );
 
       if (speciesResponse.statusCode == 200) {
         final speciesData = json.decode(speciesResponse.body);
-        data['evolution'] =
-            await _getEvolutionChain(speciesData['evolution_chain']['url']);
+        // Fetch evolution chain concurrently
+        data['evolution'] = await _getEvolutionChain(
+          speciesData['evolution_chain']['url'],
+        );
       }
 
-      _cache[idOrName] = data;
+      // Cache the data
+      _cache[cacheKey] = data;
+      _cacheTimestamps[cacheKey] = DateTime.now();
+
+      if (kDebugMode) {
+        print('✅ Successfully fetched Pokemon detail: ${data['name']}');
+      }
+
       return PokemonDetailModel.fromJson(data);
     } catch (e) {
-      throw ApiHelper.handleError('Error getting pokemon detail: $e');
+      if (kDebugMode) {
+        print('❌ Error getting pokemon detail: $e');
+      }
+      throw _handleError(e);
+    }
+  }
+
+  Future<Map<String, dynamic>?> _fetchPokemonDetail(String url) async {
+    try {
+      final response = await _client.get(Uri.parse(url)).timeout(
+            const Duration(seconds: 10),
+          );
+
+      if (response.statusCode == 200) {
+        return json.decode(response.body);
+      }
+      return null;
+    } catch (e) {
+      if (kDebugMode) {
+        print('⚠️ Warning: Failed to fetch individual Pokemon: $e');
+      }
+      return null;
     }
   }
 
   Future<Map<String, dynamic>> _getEvolutionChain(String url) async {
     try {
-      final response = await _client.get(Uri.parse(url));
+      final cacheKey = 'evolution_${url.split('/').last}';
+
+      if (_hasValidCache(cacheKey)) {
+        return _cache[cacheKey];
+      }
+
+      final response = await _client.get(Uri.parse(url)).timeout(
+            const Duration(seconds: 10),
+          );
+
       if (response.statusCode != 200) {
         throw ApiHelper.handleError('Failed to load evolution chain');
       }
 
       final data = json.decode(response.body);
-      return _parseEvolutionChain(data['chain']);
+      final evolutionData = _parseEvolutionChain(data['chain']);
+
+      _cache[cacheKey] = evolutionData;
+      _cacheTimestamps[cacheKey] = DateTime.now();
+
+      return evolutionData;
     } catch (e) {
-      throw ApiHelper.handleError('Error getting evolution chain: $e');
+      if (kDebugMode) {
+        print('⚠️ Warning: Evolution chain fetch failed: $e');
+      }
+      return {
+        'chain_id': 0,
+        'stages': [],
+      };
     }
   }
 
@@ -113,11 +232,47 @@ class PokemonService {
     };
   }
 
-  Future<void> clearCache() async {
-    _cache.clear();
+  bool _hasValidCache(String key) {
+    if (!_cache.containsKey(key) || !_cacheTimestamps.containsKey(key)) {
+      return false;
+    }
+
+    final timestamp = _cacheTimestamps[key]!;
+    return DateTime.now().difference(timestamp) < _cacheDuration;
   }
 
+  List<PokemonModel> _getCachedPokemonList(String key) {
+    final List<dynamic> cachedData = _cache[key];
+    return cachedData.map((item) => PokemonModel.fromJson(item)).toList();
+  }
+
+  Exception _handleError(dynamic e) {
+    if (e is http.ClientException) {
+      return Exception('Network error: Please check your internet connection');
+    } else if (e is FormatException) {
+      return Exception('Data format error: Please try again later');
+    } else if (e is TimeoutException) {
+      return Exception('Connection timeout: Please check your internet');
+    } else {
+      return Exception('An unexpected error occurred: ${e.toString()}');
+    }
+  }
+
+  // Clear specific cache entry
+  void clearCache(String key) {
+    _cache.remove(key);
+    _cacheTimestamps.remove(key);
+  }
+
+  // Clear all cache
+  void clearAllCache() {
+    _cache.clear();
+    _cacheTimestamps.clear();
+  }
+
+  // Dispose resources
   void dispose() {
     _client.close();
+    clearAllCache();
   }
 }
