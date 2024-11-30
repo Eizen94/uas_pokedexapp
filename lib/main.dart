@@ -24,14 +24,12 @@ Future<void> main() async {
     }
 
     // Initialize Firebase with proper error handling
-    if (!Firebase.apps.isNotEmpty) {
-      await FirebaseConfig.initializeFirebase().timeout(
-        const Duration(seconds: 10),
-        onTimeout: () {
-          throw Exception('Firebase initialization timeout');
-        },
-      );
-    }
+    await FirebaseConfig.instance.initializeApp().timeout(
+      const Duration(seconds: 10),
+      onTimeout: () {
+        throw Exception('Firebase initialization timeout');
+      },
+    );
 
     if (kDebugMode) {
       print('✅ App initialization complete');
