@@ -5,15 +5,22 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 
 class AuthService {
+  // Singleton implementation with factory constructor
+  static AuthService? _instance;
+  final FirebaseAuth _auth;
+  final FirebaseFirestore _firestore;
+
+  // Factory constructor for singleton
+  factory AuthService() {
+    _instance ??= AuthService._internal(
+      FirebaseAuth.instance,
+      FirebaseFirestore.instance,
+    );
+    return _instance!;
+  }
+
   // Private constructor
-  AuthService._();
-
-  // Singleton instance
-  static final AuthService instance = AuthService._();
-
-  // Firebase instances
-  final FirebaseAuth _auth = FirebaseAuth.instance;
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  AuthService._internal(this._auth, this._firestore);
 
   // Stream of auth state changes with error handling
   Stream<User?> get authStateChanges => _auth.authStateChanges().handleError(
@@ -252,7 +259,7 @@ class AuthService {
   }
 
   // Password reset functionality
-  Future<void> resetPassword(String email) async {
+  Future<void> sendPasswordResetEmail(String email) async {
     try {
       if (kDebugMode) {
         print('📧 Sending password reset email to: $email');
@@ -301,7 +308,7 @@ class AuthService {
     }
   }
 
-  // Verify email
+  // Email verification
   Future<void> sendEmailVerification() async {
     try {
       final user = currentUser;
@@ -320,7 +327,7 @@ class AuthService {
     }
   }
 
-  // Delete account with confirmation
+  // Delete account
   Future<void> deleteAccount(String password) async {
     try {
       final user = currentUser;
