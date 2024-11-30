@@ -1,13 +1,15 @@
+// lib/providers/auth_provider.dart
+
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_auth/firebase_auth.dart' hide AuthProvider;
 import '../features/auth/services/auth_service.dart';
 
-class AuthProvider extends ChangeNotifier {
+class AppAuthProvider extends ChangeNotifier {
   final AuthService _authService = AuthService();
   User? _user;
   bool _isLoading = false;
 
-  AuthProvider() {
+  AppAuthProvider() {
     _init();
   }
 
