@@ -3,9 +3,7 @@
 plugins {
     id "com.android.application"
     id "kotlin-android"
-    // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id "dev.flutter.flutter-gradle-plugin"
-    // Add Firebase Gradle plugin
     id 'com.google.gms.google-services'
 }
 
@@ -23,11 +21,6 @@ android {
         jvmTarget = '17'
     }
 
-    // Hapus dexOptions karena sudah deprecated di Gradle 8.0
-    // dexOptions {
-    //     javaMaxHeapSize "4g"
-    // }
-
     defaultConfig {
         applicationId = "com.nikolausfranz.uas_pokedexapp"
         minSdk = 26
@@ -36,7 +29,7 @@ android {
         versionName = "1.0.0"
         multiDexEnabled true
 
-       // Add MIUI optimization
+        // Add MIUI optimization
         ndk {
             abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86_64'
         }
@@ -44,25 +37,19 @@ android {
 
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.debug
-
-            // Add optimization for release
             minifyEnabled true
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
 
         debug {
-            // Debug configuration
             minifyEnabled false
             shrinkResources false
             signingConfig = signingConfigs.debug
         }
     }
 
-    // Add packaging options
     packagingOptions {
         exclude 'META-INF/DEPENDENCIES'
         exclude 'META-INF/LICENSE'
@@ -88,7 +75,7 @@ dependencies {
     implementation 'com.google.firebase:firebase-auth'
     implementation 'com.google.firebase:firebase-firestore'
 
-    // Add multidex support if needed
+    // Add multidex support
     implementation 'androidx.multidex:multidex:2.0.1'
 
     // Add MIUI optimization
