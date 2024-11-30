@@ -1,3 +1,5 @@
+// lib/features/pokemon/screens/pokemon_detail_screen.dart
+
 import 'package:flutter/material.dart';
 import '../models/pokemon_detail_model.dart';
 import '../services/pokemon_service.dart';

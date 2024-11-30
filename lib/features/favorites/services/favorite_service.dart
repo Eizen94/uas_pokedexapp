@@ -1,4 +1,5 @@
 // lib/features/favorites/services/favorite_service.dart
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 class FavoriteService {
