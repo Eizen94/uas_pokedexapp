@@ -2,6 +2,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../models/pokemon_model.dart';
 import '../services/pokemon_service.dart';
 import '../widgets/pokemon_card.dart';
@@ -23,6 +24,7 @@ class _PokemonListScreenState extends State<PokemonListScreen> {
   bool _isLoading = false;
   bool _isSearching = false;
   bool _hasMore = true;
+  bool _isInit = true;
   int _currentPage = 0;
   String _errorMessage = '';
 
@@ -32,7 +34,6 @@ class _PokemonListScreenState extends State<PokemonListScreen> {
     if (kDebugMode) {
       print('🔄 Initializing Pokemon List Screen');
     }
-    _loadPokemon();
     _scrollController.addListener(_scrollListener);
   }
 
@@ -43,9 +44,18 @@ class _PokemonListScreenState extends State<PokemonListScreen> {
     super.dispose();
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_isInit) {
+      _loadPokemon(showLoading: true);
+      _isInit = false;
+    }
+  }
+
   void _scrollListener() {
     if (_scrollController.offset >=
-            _scrollController.position.maxScrollExtent &&
+            _scrollController.position.maxScrollExtent - 200 &&
         !_scrollController.position.outOfRange &&
         !_isLoading &&
         _hasMore) {
@@ -53,12 +63,12 @@ class _PokemonListScreenState extends State<PokemonListScreen> {
     }
   }
 
-  Future<void> _loadPokemon() async {
+  Future<void> _loadPokemon({bool showLoading = false}) async {
     if (_isLoading) return;
 
     setState(() {
       _isLoading = true;
-      _errorMessage = '';
+      if (showLoading) _errorMessage = '';
     });
 
     try {
@@ -82,6 +92,7 @@ class _PokemonListScreenState extends State<PokemonListScreen> {
           _currentPage++;
           _hasMore = newPokemon.length == 20;
           _isLoading = false;
+          _errorMessage = '';
         });
       }
 
@@ -95,9 +106,9 @@ class _PokemonListScreenState extends State<PokemonListScreen> {
       if (mounted) {
         setState(() {
           _isLoading = false;
-          _errorMessage = 'Failed to load Pokemon: $e';
+          _errorMessage = e.toString();
         });
-        _showError(_errorMessage);
+        _showError(e.toString());
       }
     }
   }
@@ -126,7 +137,7 @@ class _PokemonListScreenState extends State<PokemonListScreen> {
         action: SnackBarAction(
           label: 'Retry',
           textColor: Colors.white,
-          onPressed: _loadPokemon,
+          onPressed: () => _loadPokemon(showLoading: true),
         ),
       ),
     );
@@ -139,8 +150,10 @@ class _PokemonListScreenState extends State<PokemonListScreen> {
       _currentPage = 0;
       _hasMore = true;
       _errorMessage = '';
+      _isSearching = false;
+      _searchController.clear();
     });
-    await _loadPokemon();
+    await _loadPokemon(showLoading: true);
   }
 
   @override
@@ -202,72 +215,99 @@ class _PokemonListScreenState extends State<PokemonListScreen> {
               ),
             ),
             Expanded(
-              child: _filteredList.isEmpty && !_isLoading
-                  ? Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.catching_pokemon,
-                            size: 64,
-                            color: Colors.grey[400],
-                          ),
-                          const SizedBox(height: 16),
-                          Text(
-                            _isSearching
-                                ? 'No Pokemon found'
-                                : 'Loading Pokemon...',
-                            style: TextStyle(
-                              color: Colors.grey[600],
-                              fontSize: 16,
-                            ),
-                          ),
-                          if (_errorMessage.isNotEmpty) ...[
-                            const SizedBox(height: 8),
-                            TextButton(
-                              onPressed: _refreshPokemonList,
-                              child: const Text('Tap to retry'),
-                            ),
-                          ],
-                        ],
-                      ),
-                    )
-                  : GridView.builder(
-                      controller: _scrollController,
-                      padding: const EdgeInsets.all(16),
-                      gridDelegate:
-                          const SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 2,
-                        childAspectRatio: 0.85,
-                        crossAxisSpacing: 16,
-                        mainAxisSpacing: 16,
-                      ),
-                      itemCount: _filteredList.length + (_isLoading ? 1 : 0),
-                      itemBuilder: (context, index) {
-                        if (index >= _filteredList.length) {
-                          return Center(
-                            child: CircularProgressIndicator(
-                              valueColor: AlwaysStoppedAnimation<Color>(
-                                Theme.of(context).colorScheme.primary,
-                              ),
-                            ),
-                          );
-                        }
-
-                        return PokemonCard(
-                          pokemon: _filteredList[index],
-                          onTap: () => Navigator.pushNamed(
-                            context,
-                            '/pokemon/detail',
-                            arguments: _filteredList[index],
-                          ),
-                        );
-                      },
-                    ),
+              child: _buildPokemonGrid(),
             ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildPokemonGrid() {
+    if (_isInit && _isLoading) {
+      return const Center(
+        child: CircularProgressIndicator(),
+      );
+    }
+
+    if (_errorMessage.isNotEmpty && _pokemonList.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.error_outline,
+              size: 64,
+              color: Colors.grey[400],
+            ),
+            const SizedBox(height: 16),
+            Text(
+              _errorMessage,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Colors.grey[600],
+                fontSize: 16,
+              ),
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: () => _loadPokemon(showLoading: true),
+              child: const Text('Retry'),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (_filteredList.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.search_off,
+              size: 64,
+              color: Colors.grey[400],
+            ),
+            const SizedBox(height: 16),
+            Text(
+              _isSearching ? 'No Pokemon found' : 'No Pokemon available',
+              style: TextStyle(
+                color: Colors.grey[600],
+                fontSize: 16,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return GridView.builder(
+      controller: _scrollController,
+      padding: const EdgeInsets.all(16),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 2,
+        childAspectRatio: 0.85,
+        crossAxisSpacing: 16,
+        mainAxisSpacing: 16,
+      ),
+      itemCount: _filteredList.length + (_hasMore ? 1 : 0),
+      itemBuilder: (context, index) {
+        if (index >= _filteredList.length) {
+          return const Center(
+            child: CircularProgressIndicator(),
+          );
+        }
+
+        return PokemonCard(
+          pokemon: _filteredList[index],
+          onTap: () => Navigator.pushNamed(
+            context,
+            '/pokemon/detail',
+            arguments: {'id': _filteredList[index].id},
+          ),
+        );
+      },
     );
   }
 }
