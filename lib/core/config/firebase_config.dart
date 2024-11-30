@@ -7,27 +7,31 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 
 class FirebaseConfig {
-  // Private constructor
+  // Private constructor and instance
   FirebaseConfig._();
+  static final FirebaseConfig _instance = FirebaseConfig._();
 
-  // Singleton instance
-  static final FirebaseConfig instance = FirebaseConfig._();
+  // Getter for instance
+  static FirebaseConfig get instance => _instance;
 
-  // State tracking
-  static bool _initialized = false;
-  static bool _initializing = false;
-  static final _initCompleter = Completer<void>();
+  // State management
+  bool _initialized = false;
+  bool _initializing = false;
+  Completer<void>? _initCompleter;
 
-  // Stream controllers for service status
+  // Service status controllers
   final _authStatusController = StreamController<bool>.broadcast();
   final _firestoreStatusController = StreamController<bool>.broadcast();
 
-  // Getters for status streams
+  // Getters
+  bool get isInitialized => _initialized;
+  bool get isInitializing => _initializing;
   Stream<bool> get authStatus => _authStatusController.stream;
   Stream<bool> get firestoreStatus => _firestoreStatusController.stream;
 
   // Initialize Firebase with retry mechanism
   Future<void> initializeApp({int maxRetries = 3}) async {
+    // If already initialized, return immediately
     if (_initialized) {
       if (kDebugMode) {
         print('🔥 Firebase already initialized');
@@ -35,16 +39,19 @@ class FirebaseConfig {
       return;
     }
 
+    // If initialization is in progress, wait for it
     if (_initializing) {
       if (kDebugMode) {
         print('⏳ Firebase initialization in progress, waiting...');
       }
-      return _initCompleter.future;
+      return _initCompleter?.future;
     }
 
+    // Start initialization
     _initializing = true;
-    int retryCount = 0;
+    _initCompleter = Completer<void>();
 
+    int retryCount = 0;
     while (retryCount < maxRetries) {
       try {
         if (kDebugMode) {
@@ -57,11 +64,11 @@ class FirebaseConfig {
             print('♻️ Using existing Firebase app');
           }
           _initialized = true;
-          _initCompleter.complete();
+          _initCompleter?.complete();
           return;
         }
 
-        // Initialize Firebase
+        // Initialize Firebase with configuration
         await Firebase.initializeApp(
           options: const FirebaseOptions(
             apiKey: 'AIzaSyA788aYkne3gRiwAtZLtsVMRl5reUPMcXg',
@@ -72,16 +79,15 @@ class FirebaseConfig {
           ),
         );
 
-        // Initialize and verify services
+        // Initialize services
         await _initializeServices();
 
         _initialized = true;
-        _initCompleter.complete();
+        _initCompleter?.complete();
 
         if (kDebugMode) {
           print('✅ Firebase initialized successfully');
         }
-
         return;
       } catch (e) {
         retryCount++;
@@ -90,21 +96,22 @@ class FirebaseConfig {
         }
 
         if (retryCount == maxRetries) {
-          _initCompleter.completeError(e);
-          throw FirebaseException(
+          final error = FirebaseException(
             plugin: 'core',
             message:
                 'Failed to initialize Firebase after $maxRetries attempts: $e',
           );
+          _initCompleter?.completeError(error);
+          throw error;
         }
 
-        // Wait before retrying
-        await Future.delayed(Duration(seconds: retryCount));
+        // Wait before retrying with exponential backoff
+        await Future.delayed(Duration(seconds: retryCount * 2));
       }
     }
   }
 
-  // Initialize individual Firebase services
+  // Initialize Firebase services
   Future<void> _initializeServices() async {
     try {
       // Initialize Auth
@@ -115,13 +122,15 @@ class FirebaseConfig {
         print('✅ Firebase Auth initialized');
       }
 
-      // Initialize Firestore
+      // Initialize Firestore with offline persistence
       final firestore = FirebaseFirestore.instance;
+      await firestore
+          .enablePersistence(const PersistenceSettings(synchronizeTabs: true));
       await firestore.collection('test').doc('test').get();
       _firestoreStatusController.add(true);
 
       if (kDebugMode) {
-        print('✅ Firestore initialized');
+        print('✅ Firestore initialized with persistence');
       }
     } catch (e) {
       if (kDebugMode) {
@@ -131,29 +140,26 @@ class FirebaseConfig {
     }
   }
 
-  // Reset Firebase instance (useful for testing and error recovery)
+  // Reset Firebase configuration
   Future<void> reset() async {
     if (kDebugMode) {
       print('🔄 Resetting Firebase configuration...');
     }
 
-    _initialized = false;
-    _initializing = false;
-
-    // Create new completer if the old one was completed
-    if (_initCompleter.isCompleted) {
-      _initCompleter = Completer<void>();
-    }
-
-    // Reset service status
-    _authStatusController.add(false);
-    _firestoreStatusController.add(false);
-
     try {
+      _initialized = false;
+      _initializing = false;
+      _initCompleter = null;
+
+      // Reset service status
+      _authStatusController.add(false);
+      _firestoreStatusController.add(false);
+
+      // Delete all apps
       final apps = Firebase.apps;
-      for (final app in apps) {
-        await app.delete();
-      }
+      await Future.wait(
+        apps.map((app) => app.delete()),
+      );
 
       if (kDebugMode) {
         print('✅ Firebase reset successful');
@@ -166,14 +172,18 @@ class FirebaseConfig {
     }
   }
 
-  // Clean up resources
+  // Cleanup resources
   Future<void> dispose() async {
-    await _authStatusController.close();
-    await _firestoreStatusController.close();
+    await Future.wait([
+      _authStatusController.close(),
+      _firestoreStatusController.close(),
+    ]);
+    _initialized = false;
+    _initializing = false;
+    _initCompleter = null;
   }
 
-  // Utility methods
-  bool get isInitialized => _initialized;
-  bool get isInitializing => _initializing;
-  Future<void> get initializationComplete => _initCompleter.future;
+  // Get initialization status
+  Future<void> get initializationComplete =>
+      _initCompleter?.future ?? Future.value();
 }
