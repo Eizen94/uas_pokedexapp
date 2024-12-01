@@ -154,7 +154,7 @@ class AppAuthProvider extends ChangeNotifier {
       _setLoading(true);
       _clearError();
 
-      if (!_isAuthenticated) {
+      if (!isAuthenticated) {
         throw Exception('User must be authenticated to update settings');
       }
 
@@ -231,7 +231,7 @@ class AppAuthProvider extends ChangeNotifier {
       _setLoading(true);
       _clearError();
 
-      if (!_isAuthenticated) {
+      if (!isAuthenticated) {
         throw Exception('User must be authenticated to verify email');
       }
 
@@ -250,7 +250,7 @@ class AppAuthProvider extends ChangeNotifier {
       _setLoading(true);
       _clearError();
 
-      if (!_isAuthenticated) {
+      if (!isAuthenticated) {
         throw Exception('User must be authenticated to delete account');
       }
 
