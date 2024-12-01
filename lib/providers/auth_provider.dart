@@ -2,19 +2,24 @@
 
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart' hide AuthProvider;
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../features/auth/services/auth_service.dart';
 
 class AppAuthProvider extends ChangeNotifier {
   final AuthService _authService = AuthService();
   User? _user;
   bool _isLoading = false;
+  bool _isInitialized = false;
   String? _error;
+  Map<String, dynamic>? _settings;
 
   // Getters
   User? get user => _user;
   bool get isLoading => _isLoading;
+  bool get isInitialized => _isInitialized;
   bool get isAuthenticated => _user != null;
   String? get error => _error;
+  Map<String, dynamic>? get settings => _settings;
 
   // Constructor
   AppAuthProvider() {
@@ -23,14 +28,53 @@ class AppAuthProvider extends ChangeNotifier {
 
   // Initialize the provider
   Future<void> _init() async {
-    _user = _authService.currentUser;
-    notifyListeners();
-
-    // Listen to auth state changes
-    FirebaseAuth.instance.authStateChanges().listen((User? user) {
-      _user = user;
+    try {
+      _isLoading = true;
       notifyListeners();
-    });
+
+      _user = _authService.currentUser;
+
+      // Listen to auth state changes
+      _authService.authStateChanges.listen(_handleAuthStateChange);
+
+      // Listen to user settings if authenticated
+      if (_user != null) {
+        await _loadUserSettings();
+      }
+
+      _isInitialized = true;
+    } catch (e) {
+      _setError(e.toString());
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  // Handle auth state changes
+  void _handleAuthStateChange(User? user) async {
+    _user = user;
+    if (user != null) {
+      await _loadUserSettings();
+    } else {
+      _settings = null;
+    }
+    notifyListeners();
+  }
+
+  // Load user settings
+  Future<void> _loadUserSettings() async {
+    try {
+      final doc = await _authService.getUserDocument();
+      if (doc != null && doc.exists) {
+        _settings = doc.data()?['settings'] as Map<String, dynamic>?;
+        notifyListeners();
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error loading user settings: $e');
+      }
+    }
   }
 
   // Sign in with email and password
@@ -43,6 +87,8 @@ class AppAuthProvider extends ChangeNotifier {
         email: email,
         password: password,
       );
+
+      await _loadUserSettings();
     } catch (e) {
       _setError(e.toString());
       rethrow;
@@ -61,6 +107,8 @@ class AppAuthProvider extends ChangeNotifier {
         email: email,
         password: password,
       );
+
+      await _loadUserSettings();
     } catch (e) {
       _setError(e.toString());
       rethrow;
@@ -76,12 +124,61 @@ class AppAuthProvider extends ChangeNotifier {
       _clearError();
 
       await _authService.signOut();
+      _settings = null;
       _user = null;
     } catch (e) {
       _setError(e.toString());
       rethrow;
     } finally {
       _setLoading(false);
+    }
+  }
+
+  // Update user settings
+  Future<void> updateSettings(Map<String, dynamic> newSettings) async {
+    try {
+      _setLoading(true);
+      _clearError();
+
+      await _authService.updateUserSettings(newSettings);
+      _settings = newSettings;
+      notifyListeners();
+    } catch (e) {
+      _setError(e.toString());
+      rethrow;
+    } finally {
+      _setLoading(false);
+    }
+  }
+
+  // Toggle theme
+  Future<void> toggleTheme() async {
+    if (_settings != null) {
+      final newTheme = _settings!['theme'] == 'dark' ? 'light' : 'dark';
+      await updateSettings({
+        ..._settings!,
+        'theme': newTheme,
+      });
+    }
+  }
+
+  // Update language
+  Future<void> updateLanguage(String language) async {
+    if (_settings != null) {
+      await updateSettings({
+        ..._settings!,
+        'language': language,
+      });
+    }
+  }
+
+  // Toggle notifications
+  Future<void> toggleNotifications() async {
+    if (_settings != null) {
+      await updateSettings({
+        ..._settings!,
+        'notifications': !(_settings!['notifications'] ?? true),
+      });
     }
   }
 
@@ -92,30 +189,6 @@ class AppAuthProvider extends ChangeNotifier {
       _clearError();
 
       await _authService.sendPasswordResetEmail(email);
-    } catch (e) {
-      _setError(e.toString());
-      rethrow;
-    } finally {
-      _setLoading(false);
-    }
-  }
-
-  // Update profile
-  Future<void> updateProfile({
-    String? displayName,
-    String? photoURL,
-  }) async {
-    try {
-      _setLoading(true);
-      _clearError();
-
-      await _authService.updateProfile(
-        displayName: displayName,
-        photoURL: photoURL,
-      );
-
-      _user = _authService.currentUser;
-      notifyListeners();
     } catch (e) {
       _setError(e.toString());
       rethrow;
@@ -147,6 +220,7 @@ class AppAuthProvider extends ChangeNotifier {
 
       await _authService.deleteAccount(password);
       _user = null;
+      _settings = null;
     } catch (e) {
       _setError(e.toString());
       rethrow;
@@ -155,7 +229,7 @@ class AppAuthProvider extends ChangeNotifier {
     }
   }
 
-  // Helper methods
+  // State management helpers
   void _setLoading(bool value) {
     _isLoading = value;
     notifyListeners();
@@ -171,33 +245,20 @@ class AppAuthProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  // Check if user needs to verify email
-  bool get needsEmailVerification {
-    return _user != null && !_user!.emailVerified;
-  }
-
-  // Get user display name or email
-  String get userDisplayName {
-    if (_user?.displayName?.isNotEmpty ?? false) {
-      return _user!.displayName!;
-    }
-    return _user?.email ?? 'Guest User';
-  }
-
-  // Check if user has profile photo
-  bool get hasProfilePhoto {
-    return _user?.photoURL?.isNotEmpty ?? false;
-  }
-
-  // Get profile photo URL
+  // Utility getters
+  bool get isDarkMode => _settings?['theme'] == 'dark';
+  String get currentLanguage => _settings?['language'] ?? 'en';
+  bool get notificationsEnabled => _settings?['notifications'] ?? true;
+  bool get needsEmailVerification => _user?.emailVerified == false;
+  String get userDisplayName =>
+      _user?.displayName ?? _user?.email ?? 'Guest User';
+  bool get hasProfilePhoto => _user?.photoURL?.isNotEmpty ?? false;
   String? get profilePhotoUrl => _user?.photoURL;
-
-  // Check if user is anonymous
   bool get isAnonymous => _user?.isAnonymous ?? true;
-
-  // Get user creation time
   DateTime? get userCreationTime => _user?.metadata.creationTime;
-
-  // Get last sign in time
   DateTime? get lastSignInTime => _user?.metadata.lastSignInTime;
+
+  // Listen to settings changes
+  Stream<DocumentSnapshot> get userSettingsStream =>
+      _authService.userSettingsStream();
 }
