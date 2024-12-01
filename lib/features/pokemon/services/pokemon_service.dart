@@ -40,28 +40,41 @@ class PokemonService {
       }
 
       final response = await _client
-          .get(Uri.parse('$baseUrl/pokemon?offset=$offset&limit=$limit'))
+          .get(
+        Uri.parse('$baseUrl/pokemon?offset=$offset&limit=$limit'),
+      )
           .timeout(
         const Duration(seconds: 10),
         onTimeout: () {
-          throw Exception('Connection timeout. Please check your internet.');
+          throw TimeoutException(
+              'Connection timeout. Please check your internet.');
         },
       );
 
       if (response.statusCode != 200) {
-        throw ApiHelper.handleError('Failed to load pokemon list');
+        throw HttpException('Failed to load pokemon list');
       }
 
-      final data = json.decode(response.body);
+      final data = json.decode(response.body) as Map<String, dynamic>;
+      final List<dynamic> results = data['results'] as List<dynamic>;
       final List<PokemonModel> pokemonList = [];
       final List<Future<void>> futures = [];
 
-      for (var pokemon in data['results']) {
-        futures.add(_fetchPokemonDetail(pokemon['url']).then((detailData) {
-          if (detailData != null) {
-            pokemonList.add(PokemonModel.fromJson(detailData));
-          }
-        }));
+      for (var pokemon in results) {
+        if (pokemon is Map<String, dynamic> && pokemon['url'] != null) {
+          futures.add(
+              _fetchPokemonDetail(pokemon['url'] as String).then((detailData) {
+            if (detailData != null) {
+              try {
+                pokemonList.add(PokemonModel.fromJson(detailData));
+              } catch (e) {
+                if (kDebugMode) {
+                  print('⚠️ Error parsing Pokemon data: $e');
+                }
+              }
+            }
+          }));
+        }
       }
 
       await Future.wait(futures);
@@ -99,7 +112,8 @@ class PokemonService {
         if (kDebugMode) {
           print('🗂️ Using cached Pokemon detail data');
         }
-        return PokemonDetailModel.fromJson(_cache[cacheKey]);
+        return PokemonDetailModel.fromJson(
+            _cache[cacheKey] as Map<String, dynamic>);
       }
 
       final response = await _client
@@ -109,31 +123,32 @@ class PokemonService {
           .timeout(
         const Duration(seconds: 10),
         onTimeout: () {
-          throw Exception('Connection timeout. Please check your internet.');
+          throw TimeoutException(
+              'Connection timeout. Please check your internet.');
         },
       );
 
       if (response.statusCode != 200) {
-        throw ApiHelper.handleError('Failed to load pokemon detail');
+        throw HttpException('Failed to load pokemon detail');
       }
 
-      final data = json.decode(response.body);
+      final data = json.decode(response.body) as Map<String, dynamic>;
 
-      // Fetch species data concurrently
-      final speciesResponse = await _client
-          .get(
-            Uri.parse(data['species']['url']),
-          )
-          .timeout(
-            const Duration(seconds: 10),
-          );
+      // Fetch species data
+      final speciesUrl = data['species']['url'] as String;
+      final speciesResponse = await _client.get(Uri.parse(speciesUrl));
 
       if (speciesResponse.statusCode == 200) {
-        final speciesData = json.decode(speciesResponse.body);
-        // Fetch evolution chain concurrently
-        data['evolution'] = await _getEvolutionChain(
-          speciesData['evolution_chain']['url'],
-        );
+        final speciesData =
+            json.decode(speciesResponse.body) as Map<String, dynamic>;
+        if (speciesData['evolution_chain']?['url'] != null) {
+          // Fetch evolution chain
+          data['evolution'] = await _getEvolutionChain(
+            speciesData['evolution_chain']['url'] as String,
+          );
+        } else {
+          data['evolution'] = null;
+        }
       }
 
       // Cache the data
@@ -160,7 +175,7 @@ class PokemonService {
           );
 
       if (response.statusCode == 200) {
-        return json.decode(response.body);
+        return json.decode(response.body) as Map<String, dynamic>;
       }
       return null;
     } catch (e) {
@@ -176,7 +191,7 @@ class PokemonService {
       final cacheKey = 'evolution_${url.split('/').last}';
 
       if (_hasValidCache(cacheKey)) {
-        return _cache[cacheKey];
+        return _cache[cacheKey] as Map<String, dynamic>;
       }
 
       final response = await _client.get(Uri.parse(url)).timeout(
@@ -184,11 +199,12 @@ class PokemonService {
           );
 
       if (response.statusCode != 200) {
-        throw ApiHelper.handleError('Failed to load evolution chain');
+        throw HttpException('Failed to load evolution chain');
       }
 
-      final data = json.decode(response.body);
-      final evolutionData = _parseEvolutionChain(data['chain']);
+      final data = json.decode(response.body) as Map<String, dynamic>;
+      final evolutionData =
+          _parseEvolutionChain(data['chain'] as Map<String, dynamic>);
 
       _cache[cacheKey] = evolutionData;
       _cacheTimestamps[cacheKey] = DateTime.now();
@@ -200,30 +216,30 @@ class PokemonService {
       }
       return {
         'chain_id': 0,
-        'stages': [],
+        'stages': <Map<String, dynamic>>[],
       };
     }
   }
 
   Map<String, dynamic> _parseEvolutionChain(Map<String, dynamic> chain) {
-    List<Map<String, dynamic>> stages = [];
+    final List<Map<String, dynamic>> stages = [];
     var current = chain;
 
     while (current != null) {
-      final speciesUrl = current['species']['url'];
+      final speciesUrl = current['species']['url'] as String;
       final pokemonId = int.parse(speciesUrl.split('/')[6]);
 
       stages.add({
         'pokemon_id': pokemonId,
         'name': current['species']['name'],
-        'min_level': current['evolution_details']?.isEmpty == true
+        'min_level': (current['evolution_details'] as List).isEmpty
             ? 1
-            : current['evolution_details'][0]['min_level'] ?? 1,
+            : (current['evolution_details'][0]['min_level'] ?? 1),
       });
 
-      current = current['evolves_to']?.isEmpty == true
+      current = (current['evolves_to'] as List).isEmpty
           ? null
-          : current['evolves_to'][0];
+          : current['evolves_to'][0] as Map<String, dynamic>;
     }
 
     return {
@@ -242,17 +258,19 @@ class PokemonService {
   }
 
   List<PokemonModel> _getCachedPokemonList(String key) {
-    final List<dynamic> cachedData = _cache[key];
-    return cachedData.map((item) => PokemonModel.fromJson(item)).toList();
+    final List<dynamic> cachedData = _cache[key] as List<dynamic>;
+    return cachedData
+        .map((item) => PokemonModel.fromJson(item as Map<String, dynamic>))
+        .toList();
   }
 
   Exception _handleError(dynamic e) {
-    if (e is http.ClientException) {
-      return Exception('Network error: Please check your internet connection');
+    if (e is TimeoutException) {
+      return Exception('Connection timeout: Please check your internet');
+    } else if (e is HttpException) {
+      return Exception('Network error: ${e.message}');
     } else if (e is FormatException) {
       return Exception('Data format error: Please try again later');
-    } else if (e is TimeoutException) {
-      return Exception('Connection timeout: Please check your internet');
     } else {
       return Exception('An unexpected error occurred: ${e.toString()}');
     }
