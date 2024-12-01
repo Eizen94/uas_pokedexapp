@@ -1,8 +1,10 @@
 // lib/providers/theme_provider.dart
 
+// lib/providers/theme_provider.dart
+
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
-import 'package:shared_preferences.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../features/auth/services/auth_service.dart';
 import './auth_provider.dart';
 
