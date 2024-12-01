@@ -1,6 +1,7 @@
 // lib/providers/auth_provider.dart
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:firebase_auth/firebase_auth.dart' hide AuthProvider;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../features/auth/services/auth_service.dart';
@@ -11,7 +12,11 @@ class AppAuthProvider extends ChangeNotifier {
   bool _isLoading = false;
   bool _isInitialized = false;
   String? _error;
-  Map<String, dynamic>? _settings;
+  Map<String, dynamic> _settings = {
+    'theme': 'light',
+    'language': 'en',
+    'notifications': true
+  };
 
   // Getters
   User? get user => _user;
@@ -19,7 +24,7 @@ class AppAuthProvider extends ChangeNotifier {
   bool get isInitialized => _isInitialized;
   bool get isAuthenticated => _user != null;
   String? get error => _error;
-  Map<String, dynamic>? get settings => _settings;
+  Map<String, dynamic> get settings => _settings;
 
   // Constructor
   AppAuthProvider() {
@@ -57,9 +62,14 @@ class AppAuthProvider extends ChangeNotifier {
     if (user != null) {
       await _loadUserSettings();
     } else {
-      _settings = null;
+      _resetSettings();
     }
     notifyListeners();
+  }
+
+  // Reset settings to default
+  void _resetSettings() {
+    _settings = {'theme': 'light', 'language': 'en', 'notifications': true};
   }
 
   // Load user settings
@@ -67,13 +77,17 @@ class AppAuthProvider extends ChangeNotifier {
     try {
       final doc = await _authService.getUserDocument();
       if (doc != null && doc.exists) {
-        _settings = doc.data()?['settings'] as Map<String, dynamic>?;
-        notifyListeners();
+        final data = doc.data() as Map<String, dynamic>?;
+        if (data != null && data['settings'] != null) {
+          _settings = Map<String, dynamic>.from(data['settings']);
+          notifyListeners();
+        }
       }
     } catch (e) {
       if (kDebugMode) {
         print('Error loading user settings: $e');
       }
+      _resetSettings();
     }
   }
 
@@ -124,7 +138,7 @@ class AppAuthProvider extends ChangeNotifier {
       _clearError();
 
       await _authService.signOut();
-      _settings = null;
+      _resetSettings();
       _user = null;
     } catch (e) {
       _setError(e.toString());
@@ -140,8 +154,12 @@ class AppAuthProvider extends ChangeNotifier {
       _setLoading(true);
       _clearError();
 
+      if (!_isAuthenticated) {
+        throw Exception('User must be authenticated to update settings');
+      }
+
       await _authService.updateUserSettings(newSettings);
-      _settings = newSettings;
+      _settings = Map<String, dynamic>.from(newSettings);
       notifyListeners();
     } catch (e) {
       _setError(e.toString());
@@ -153,32 +171,42 @@ class AppAuthProvider extends ChangeNotifier {
 
   // Toggle theme
   Future<void> toggleTheme() async {
-    if (_settings != null) {
-      final newTheme = _settings!['theme'] == 'dark' ? 'light' : 'dark';
+    try {
+      final newTheme = _settings['theme'] == 'dark' ? 'light' : 'dark';
       await updateSettings({
-        ..._settings!,
+        ..._settings,
         'theme': newTheme,
       });
+    } catch (e) {
+      _setError(e.toString());
+      rethrow;
     }
   }
 
   // Update language
   Future<void> updateLanguage(String language) async {
-    if (_settings != null) {
+    try {
       await updateSettings({
-        ..._settings!,
+        ..._settings,
         'language': language,
       });
+    } catch (e) {
+      _setError(e.toString());
+      rethrow;
     }
   }
 
   // Toggle notifications
   Future<void> toggleNotifications() async {
-    if (_settings != null) {
+    try {
+      final currentValue = _settings['notifications'] as bool? ?? true;
       await updateSettings({
-        ..._settings!,
-        'notifications': !(_settings!['notifications'] ?? true),
+        ..._settings,
+        'notifications': !currentValue,
       });
+    } catch (e) {
+      _setError(e.toString());
+      rethrow;
     }
   }
 
@@ -203,6 +231,10 @@ class AppAuthProvider extends ChangeNotifier {
       _setLoading(true);
       _clearError();
 
+      if (!_isAuthenticated) {
+        throw Exception('User must be authenticated to verify email');
+      }
+
       await _authService.sendEmailVerification();
     } catch (e) {
       _setError(e.toString());
@@ -218,9 +250,13 @@ class AppAuthProvider extends ChangeNotifier {
       _setLoading(true);
       _clearError();
 
+      if (!_isAuthenticated) {
+        throw Exception('User must be authenticated to delete account');
+      }
+
       await _authService.deleteAccount(password);
+      _resetSettings();
       _user = null;
-      _settings = null;
     } catch (e) {
       _setError(e.toString());
       rethrow;
@@ -246,9 +282,9 @@ class AppAuthProvider extends ChangeNotifier {
   }
 
   // Utility getters
-  bool get isDarkMode => _settings?['theme'] == 'dark';
-  String get currentLanguage => _settings?['language'] ?? 'en';
-  bool get notificationsEnabled => _settings?['notifications'] ?? true;
+  bool get isDarkMode => _settings['theme'] == 'dark';
+  String get currentLanguage => _settings['language'] as String? ?? 'en';
+  bool get notificationsEnabled => _settings['notifications'] as bool? ?? true;
   bool get needsEmailVerification => _user?.emailVerified == false;
   String get userDisplayName =>
       _user?.displayName ?? _user?.email ?? 'Guest User';
