@@ -28,42 +28,50 @@ class PokemonDetailModel extends PokemonModel {
     try {
       // Parse abilities
       final abilitiesList = (json['abilities'] as List?)?.map((ability) {
-        if (ability is Map<String, dynamic>) {
-          return Ability.fromJson(ability);
-        }
-        throw FormatException('Invalid ability format');
-      }).toList() ?? [];
+            if (ability is Map<String, dynamic>) {
+              return Ability.fromJson(ability);
+            }
+            throw FormatException('Invalid ability format');
+          }).toList() ??
+          [];
 
       // Parse stats
       final statsList = (json['stats'] as List?)?.map((stat) {
-        if (stat is Map<String, dynamic>) {
-          return Stat.fromJson(stat);
-        }
-        throw FormatException('Invalid stat format');
-      }).toList() ?? [];
+            if (stat is Map<String, dynamic>) {
+              return Stat.fromJson(stat);
+            }
+            throw FormatException('Invalid stat format');
+          }).toList() ??
+          [];
 
       // Parse moves
       final movesList = (json['moves'] as List?)?.map((move) {
-        if (move is Map<String, dynamic> &&
-            move['move'] is Map<String, dynamic> &&
-            move['move']['name'] is String) {
-          return move['move']['name'] as String;
-        }
-        return 'unknown';
-      }).toList() ?? [];
+            if (move is Map<String, dynamic> &&
+                move['move'] is Map<String, dynamic> &&
+                move['move']['name'] is String) {
+              return move['move']['name'] as String;
+            }
+            return 'unknown';
+          }).toList() ??
+          [];
 
       return PokemonDetailModel(
         id: json['id'] as int,
         name: json['name'] as String,
-        imageUrl: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/${json['id']}.png',
-        types: (json['types'] as List).map((type) => type['type']['name'] as String).toList(),
+        imageUrl:
+            'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/${json['id']}.png',
+        types: (json['types'] as List)
+            .map((type) => type['type']['name'] as String)
+            .toList(),
         height: json['height'] as int,
         weight: json['weight'] as int,
         abilities: abilitiesList,
         stats: statsList,
         moves: movesList,
         species: json['species']['name'] as String,
-        evolution: json['evolution'] != null ? Evolution.fromJson(json['evolution'] as Map<String, dynamic>) : null,
+        evolution: json['evolution'] != null
+            ? Evolution.fromJson(json['evolution'] as Map<String, dynamic>)
+            : null,
       );
     } catch (e) {
       throw FormatException('Error parsing Pokemon detail data: $e');
@@ -147,9 +155,10 @@ class Ability {
   String toString() => json.encode(toJson());
 
   String getFormattedName() {
-    return name.split('-').map((word) => 
-      word.substring(0, 1).toUpperCase() + word.substring(1)
-    ).join(' ');
+    return name
+        .split('-')
+        .map((word) => word.substring(0, 1).toUpperCase() + word.substring(1))
+        .join(' ');
   }
 }
 
@@ -190,9 +199,10 @@ class Stat {
   String toString() => json.encode(toJson());
 
   String getFormattedName() {
-    return name.split('-').map((word) => 
-      word.substring(0, 1).toUpperCase() + word.substring(1)
-    ).join(' ');
+    return name
+        .split('-')
+        .map((word) => word.substring(0, 1).toUpperCase() + word.substring(1))
+        .join(' ');
   }
 
   // Get color based on stat value
@@ -221,7 +231,8 @@ class Evolution {
       return Evolution(
         chainId: json['chain_id'] as int? ?? 0,
         stages: (json['stages'] as List)
-            .map((stage) => EvolutionStage.fromJson(stage as Map<String, dynamic>))
+            .map((stage) =>
+                EvolutionStage.fromJson(stage as Map<String, dynamic>))
             .toList(),
       );
     } catch (e) {
@@ -238,9 +249,10 @@ class Evolution {
   String toString() => json.encode(toJson());
 
   bool hasMultipleStages() => stages.length > 1;
-  
+
   EvolutionStage? getNextEvolution(int currentId) {
-    final currentIndex = stages.indexWhere((stage) => stage.pokemonId == currentId);
+    final currentIndex =
+        stages.indexWhere((stage) => stage.pokemonId == currentId);
     if (currentIndex != -1 && currentIndex < stages.length - 1) {
       return stages[currentIndex + 1];
     }
@@ -248,7 +260,8 @@ class Evolution {
   }
 
   EvolutionStage? getPreviousEvolution(int currentId) {
-    final currentIndex = stages.indexWhere((stage) => stage.pokemonId == currentId);
+    final currentIndex =
+        stages.indexWhere((stage) => stage.pokemonId == currentId);
     if (currentIndex > 0) {
       return stages[currentIndex - 1];
     }
