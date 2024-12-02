@@ -34,8 +34,7 @@ class AppAuthProvider extends ChangeNotifier {
   // Initialize the provider
   Future<void> _init() async {
     try {
-      _isLoading = true;
-      notifyListeners();
+      _setLoading(true);
 
       _user = _authService.currentUser;
 
@@ -51,8 +50,7 @@ class AppAuthProvider extends ChangeNotifier {
     } catch (e) {
       _setError(e.toString());
     } finally {
-      _isLoading = false;
-      notifyListeners();
+      _setLoading(false);
     }
   }
 
@@ -166,47 +164,6 @@ class AppAuthProvider extends ChangeNotifier {
       rethrow;
     } finally {
       _setLoading(false);
-    }
-  }
-
-  // Toggle theme
-  Future<void> toggleTheme() async {
-    try {
-      final newTheme = _settings['theme'] == 'dark' ? 'light' : 'dark';
-      await updateSettings({
-        ..._settings,
-        'theme': newTheme,
-      });
-    } catch (e) {
-      _setError(e.toString());
-      rethrow;
-    }
-  }
-
-  // Update language
-  Future<void> updateLanguage(String language) async {
-    try {
-      await updateSettings({
-        ..._settings,
-        'language': language,
-      });
-    } catch (e) {
-      _setError(e.toString());
-      rethrow;
-    }
-  }
-
-  // Toggle notifications
-  Future<void> toggleNotifications() async {
-    try {
-      final currentValue = _settings['notifications'] as bool? ?? true;
-      await updateSettings({
-        ..._settings,
-        'notifications': !currentValue,
-      });
-    } catch (e) {
-      _setError(e.toString());
-      rethrow;
     }
   }
 
