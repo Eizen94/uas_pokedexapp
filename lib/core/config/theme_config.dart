@@ -38,7 +38,7 @@ class ThemeConfig {
     // AppBar Theme
     appBarTheme: AppBarTheme(
       backgroundColor: AppColors.primary,
-      foregroundColor: AppColors.textDark,
+      foregroundColor: AppColors.textPrimaryDark,
       elevation: 0,
       centerTitle: true,
       shape: const RoundedRectangleBorder(
@@ -133,7 +133,7 @@ class ThemeConfig {
     // AppBar Theme
     appBarTheme: AppBarTheme(
       backgroundColor: AppColors.backgroundDark,
-      foregroundColor: AppColors.textDark,
+      foregroundColor: AppColors.textPrimaryDark,
       elevation: 0,
       centerTitle: true,
       shape: const RoundedRectangleBorder(
