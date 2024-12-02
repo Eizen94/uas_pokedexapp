@@ -1,8 +1,11 @@
 // lib/widgets/error_dialog.dart
 
+import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:uas_pokedexapp/core/constants/colors.dart';
 import 'package:uas_pokedexapp/core/constants/text_styles.dart';
+import 'package:uas_pokedexapp/core/utils/api_helper.dart';
 
 class ErrorDialog extends StatelessWidget {
   final String title;
