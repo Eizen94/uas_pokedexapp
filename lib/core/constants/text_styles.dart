@@ -9,38 +9,38 @@ class AppTextStyles {
         fontSize: 32,
         fontWeight: FontWeight.bold,
         letterSpacing: -0.5,
-        color: AppColors.textLight,
+        color: AppColors.textPrimaryLight,
       );
 
   static TextStyle get headlineMedium => TextStyle(
         fontSize: 24,
         fontWeight: FontWeight.bold,
-        color: AppColors.textLight,
+        color: AppColors.textPrimaryLight,
       );
 
   static TextStyle get headlineSmall => TextStyle(
         fontSize: 20,
         fontWeight: FontWeight.w600,
-        color: AppColors.textLight,
+        color: AppColors.textPrimaryLight,
       );
 
   // Body text
   static TextStyle get bodyLarge => TextStyle(
         fontSize: 16,
         fontWeight: FontWeight.normal,
-        color: AppColors.textLight,
+        color: AppColors.textPrimaryLight,
       );
 
   static TextStyle get bodyMedium => TextStyle(
         fontSize: 14,
         fontWeight: FontWeight.normal,
-        color: AppColors.textLight,
+        color: AppColors.textPrimaryLight,
       );
 
   static TextStyle get bodySmall => TextStyle(
         fontSize: 12,
         fontWeight: FontWeight.normal,
-        color: AppColors.textLight,
+        color: AppColors.textPrimaryLight,
       );
 
   // Special styles
@@ -55,14 +55,14 @@ class AppTextStyles {
         fontSize: 12,
         fontWeight: FontWeight.w500,
         letterSpacing: 0.4,
-        color: AppColors.textLight,
+        color: AppColors.textSecondaryLight,
       );
 
   // List text styles
   static TextStyle get listTitle => TextStyle(
         fontSize: 16,
         fontWeight: FontWeight.w600,
-        color: AppColors.textLight,
+        color: AppColors.textPrimaryLight,
       );
 
   static TextStyle get listSubtitle => const TextStyle(
@@ -76,7 +76,7 @@ class AppTextStyles {
         fontSize: 20,
         fontWeight: FontWeight.bold,
         letterSpacing: 0.5,
-        color: AppColors.textLight,
+        color: AppColors.textPrimaryLight,
       );
 
   static TextStyle get pokemonNumber => const TextStyle(
@@ -94,7 +94,26 @@ class AppTextStyles {
   static TextStyle get pokemonStat => TextStyle(
         fontSize: 14,
         fontWeight: FontWeight.w500,
-        color: AppColors.textLight,
+        color: AppColors.textPrimaryLight,
+      );
+
+  // Title styles
+  static TextStyle get titleLarge => TextStyle(
+        fontSize: 22,
+        fontWeight: FontWeight.bold,
+        color: AppColors.textPrimaryLight,
+      );
+
+  static TextStyle get titleMedium => TextStyle(
+        fontSize: 18,
+        fontWeight: FontWeight.w600,
+        color: AppColors.textPrimaryLight,
+      );
+
+  static TextStyle get titleSmall => TextStyle(
+        fontSize: 16,
+        fontWeight: FontWeight.w500,
+        color: AppColors.textPrimaryLight,
       );
 
   // Error and info styles
@@ -112,38 +131,38 @@ class AppTextStyles {
 
   // Dark theme variants
   static TextStyle get headlineLargeDark => headlineLarge.copyWith(
-        color: AppColors.textDark,
+        color: AppColors.textPrimaryDark,
       );
 
   static TextStyle get headlineMediumDark => headlineMedium.copyWith(
-        color: AppColors.textDark,
+        color: AppColors.textPrimaryDark,
       );
 
   static TextStyle get headlineSmallDark => headlineSmall.copyWith(
-        color: AppColors.textDark,
+        color: AppColors.textPrimaryDark,
       );
 
   static TextStyle get bodyLargeDark => bodyLarge.copyWith(
-        color: AppColors.textDark,
+        color: AppColors.textPrimaryDark,
       );
 
   static TextStyle get bodyMediumDark => bodyMedium.copyWith(
-        color: AppColors.textDark,
+        color: AppColors.textPrimaryDark,
       );
 
   static TextStyle get bodySmallDark => bodySmall.copyWith(
-        color: AppColors.textDark,
+        color: AppColors.textPrimaryDark,
       );
 
   static TextStyle get listTitleDark => listTitle.copyWith(
-        color: AppColors.textDark,
+        color: AppColors.textPrimaryDark,
       );
 
   static TextStyle get pokemonNameDark => pokemonName.copyWith(
-        color: AppColors.textDark,
+        color: AppColors.textPrimaryDark,
       );
 
   static TextStyle get pokemonStatDark => pokemonStat.copyWith(
-        color: AppColors.textDark,
+        color: AppColors.textPrimaryDark,
       );
 }
