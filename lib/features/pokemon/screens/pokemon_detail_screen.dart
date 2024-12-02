@@ -5,9 +5,11 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/foundation.dart';
 import '../models/pokemon_detail_model.dart';
 import '../services/pokemon_service.dart';
+import '../../../core/constants/colors.dart';
+import '../../../core/constants/text_styles.dart';
 
 class PokemonDetailScreen extends StatefulWidget {
-  const PokemonDetailScreen({Key? key}) : super(key: key);
+  const PokemonDetailScreen({super.key});
 
   @override
   State<PokemonDetailScreen> createState() => _PokemonDetailScreenState();
@@ -71,27 +73,7 @@ class _PokemonDetailScreenState extends State<PokemonDetailScreen> {
   }
 
   Color _getTypeColor(String type) {
-    return switch (type.toLowerCase()) {
-      'normal' => Colors.brown.shade400,
-      'fire' => Colors.red,
-      'water' => Colors.blue,
-      'electric' => Colors.amber,
-      'grass' => Colors.green,
-      'ice' => Colors.cyan,
-      'fighting' => Colors.orange.shade900,
-      'poison' => Colors.purple,
-      'ground' => Colors.brown,
-      'flying' => Colors.indigo,
-      'psychic' => Colors.pink,
-      'bug' => Colors.lightGreen,
-      'rock' => Colors.grey,
-      'ghost' => Colors.deepPurple,
-      'dragon' => Colors.indigo.shade900,
-      'dark' => Colors.blueGrey.shade900,
-      'steel' => Colors.blueGrey,
-      'fairy' => Colors.pinkAccent,
-      _ => Colors.grey,
-    };
+    return AppColors.typeColors[type.toLowerCase()] ?? Colors.grey;
   }
 
   @override
@@ -106,7 +88,7 @@ class _PokemonDetailScreenState extends State<PokemonDetailScreen> {
               const SizedBox(height: 16),
               Text(
                 'Loading Pokemon details...',
-                style: Theme.of(context).textTheme.bodyLarge,
+                style: AppTextStyles.bodyLarge,
               ),
             ],
           ),
@@ -131,13 +113,13 @@ class _PokemonDetailScreenState extends State<PokemonDetailScreen> {
                 const SizedBox(height: 16),
                 Text(
                   'Error loading Pokemon',
-                  style: Theme.of(context).textTheme.titleLarge,
+                  style: AppTextStyles.headlineMedium,
                 ),
                 const SizedBox(height: 8),
                 Text(
                   _errorMessage,
                   textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.bodyMedium,
+                  style: AppTextStyles.bodyMedium,
                 ),
                 const SizedBox(height: 24),
                 ElevatedButton.icon(
@@ -167,7 +149,7 @@ class _PokemonDetailScreenState extends State<PokemonDetailScreen> {
             flexibleSpace: FlexibleSpaceBar(
               title: Text(
                 _pokemon.name.toUpperCase(),
-                style: const TextStyle(
+                style: AppTextStyles.headlineMedium.copyWith(
                   color: Colors.white,
                   fontWeight: FontWeight.bold,
                 ),
@@ -240,9 +222,9 @@ class _PokemonDetailScreenState extends State<PokemonDetailScreen> {
           children: [
             Text(
               'Pokemon #${_pokemon.id.toString().padLeft(3, '0')}',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    color: Colors.grey[600],
-                  ),
+              style: AppTextStyles.titleMedium.copyWith(
+                color: Colors.grey[600],
+              ),
             ),
             const SizedBox(height: 8),
             Row(
@@ -251,20 +233,19 @@ class _PokemonDetailScreenState extends State<PokemonDetailScreen> {
                 _buildInfoItem(
                   icon: Icons.straighten,
                   title: 'Height',
-                  value: '${(_pokemon.height / 10).toStringAsFixed(1)}m',
+                  value: _pokemon.getFormattedHeight(),
                 ),
                 _buildInfoItem(
                   icon: Icons.fitness_center,
                   title: 'Weight',
-                  value: '${(_pokemon.weight / 10).toStringAsFixed(1)}kg',
+                  value: _pokemon.getFormattedWeight(),
                 ),
               ],
             ),
             const SizedBox(height: 16),
-            const Text(
+            Text(
               'Types',
-              style: TextStyle(
-                fontSize: 16,
+              style: AppTextStyles.titleMedium.copyWith(
                 fontWeight: FontWeight.bold,
               ),
             ),
@@ -275,10 +256,7 @@ class _PokemonDetailScreenState extends State<PokemonDetailScreen> {
                 return Chip(
                   label: Text(
                     type.toUpperCase(),
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                    ),
+                    style: AppTextStyles.pokemonType,
                   ),
                   backgroundColor: _getTypeColor(type),
                 );
@@ -301,16 +279,14 @@ class _PokemonDetailScreenState extends State<PokemonDetailScreen> {
         const SizedBox(height: 4),
         Text(
           title,
-          style: TextStyle(
+          style: AppTextStyles.caption.copyWith(
             color: Colors.grey[600],
-            fontSize: 12,
           ),
         ),
         Text(
           value,
-          style: const TextStyle(
+          style: AppTextStyles.bodyLarge.copyWith(
             fontWeight: FontWeight.bold,
-            fontSize: 16,
           ),
         ),
       ],
@@ -326,23 +302,22 @@ class _PokemonDetailScreenState extends State<PokemonDetailScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
+            Text(
               'Base Stats',
-              style: TextStyle(
-                fontSize: 18,
+              style: AppTextStyles.titleLarge.copyWith(
                 fontWeight: FontWeight.bold,
               ),
             ),
             const SizedBox(height: 16),
-            ..._pokemon.stats.map((stat) {
+            ..._pokemon.statsList.map((stat) {
               return Padding(
                 padding: const EdgeInsets.only(bottom: 12),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      stat.name.toUpperCase(),
-                      style: TextStyle(
+                      stat.getFormattedName(),
+                      style: AppTextStyles.bodyMedium.copyWith(
                         color: Colors.grey[700],
                         fontWeight: FontWeight.w500,
                       ),
@@ -354,7 +329,9 @@ class _PokemonDetailScreenState extends State<PokemonDetailScreen> {
                           width: 40,
                           child: Text(
                             stat.baseStat.toString(),
-                            style: const TextStyle(fontWeight: FontWeight.bold),
+                            style: AppTextStyles.bodyMedium.copyWith(
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                         ),
                         Expanded(
@@ -364,7 +341,7 @@ class _PokemonDetailScreenState extends State<PokemonDetailScreen> {
                               value: stat.baseStat / 255,
                               backgroundColor: Colors.grey[200],
                               valueColor: AlwaysStoppedAnimation<Color>(
-                                _getStatColor(stat.baseStat),
+                                stat.getStatColor(),
                               ),
                               minHeight: 8,
                             ),
@@ -382,13 +359,6 @@ class _PokemonDetailScreenState extends State<PokemonDetailScreen> {
     );
   }
 
-  Color _getStatColor(int value) {
-    if (value < 50) return Colors.red;
-    if (value < 100) return Colors.orange;
-    if (value < 150) return Colors.green;
-    return Colors.teal;
-  }
-
   Widget _buildAbilitiesSection() {
     return Card(
       elevation: 2,
@@ -398,10 +368,9 @@ class _PokemonDetailScreenState extends State<PokemonDetailScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
+            Text(
               'Abilities',
-              style: TextStyle(
-                fontSize: 18,
+              style: AppTextStyles.titleLarge.copyWith(
                 fontWeight: FontWeight.bold,
               ),
             ),
@@ -409,16 +378,17 @@ class _PokemonDetailScreenState extends State<PokemonDetailScreen> {
             ..._pokemon.abilities.map((ability) {
               return ListTile(
                 title: Text(
-                  ability.name.replaceAll('-', ' ').toUpperCase(),
-                  style: const TextStyle(fontWeight: FontWeight.w500),
+                  ability.getFormattedName(),
+                  style: AppTextStyles.titleMedium.copyWith(
+                    fontWeight: FontWeight.w500,
+                  ),
                 ),
                 trailing: ability.isHidden
                     ? Chip(
-                        label: const Text(
+                        label: Text(
                           'HIDDEN',
-                          style: TextStyle(
+                          style: AppTextStyles.caption.copyWith(
                             color: Colors.white,
-                            fontSize: 12,
                           ),
                         ),
                         backgroundColor: Colors.grey[600],
@@ -441,10 +411,9 @@ class _PokemonDetailScreenState extends State<PokemonDetailScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
+            Text(
               'Evolution Chain',
-              style: TextStyle(
-                fontSize: 18,
+              style: AppTextStyles.titleLarge.copyWith(
                 fontWeight: FontWeight.bold,
               ),
             ),
@@ -475,15 +444,16 @@ class _PokemonDetailScreenState extends State<PokemonDetailScreen> {
                             const Icon(Icons.error),
                       ),
                       Text(
-                        stage.name.toUpperCase(),
-                        style: const TextStyle(fontWeight: FontWeight.w500),
+                        stage.getFormattedName(),
+                        style: AppTextStyles.titleMedium.copyWith(
+                          fontWeight: FontWeight.w500,
+                        ),
                       ),
                       if (stage.minLevel > 1)
                         Text(
                           'Level ${stage.minLevel}',
-                          style: TextStyle(
+                          style: AppTextStyles.caption.copyWith(
                             color: Colors.grey[600],
-                            fontSize: 12,
                           ),
                         ),
                     ],
