@@ -1,16 +1,20 @@
-// lib/widgets/loading_idicator.dart
+// lib/widgets/loading_indicator.dart
 
 import 'package:flutter/material.dart';
+import '../core/constants/colors.dart';
+import '../core/constants/text_styles.dart';
 
 class LoadingIndicator extends StatelessWidget {
   final String? message;
   final Color? color;
+  final double size;
 
   const LoadingIndicator({
-    Key? key,
+    super.key,
     this.message,
     this.color,
-  }) : super(key: key);
+    this.size = 24.0,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -18,9 +22,14 @@ class LoadingIndicator extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          CircularProgressIndicator(
-            valueColor: AlwaysStoppedAnimation<Color>(
-              color ?? Theme.of(context).primaryColor,
+          SizedBox(
+            width: size,
+            height: size,
+            child: CircularProgressIndicator(
+              strokeWidth: size / 8,
+              valueColor: AlwaysStoppedAnimation<Color>(
+                color ?? AppColors.primary,
+              ),
             ),
           ),
           if (message != null) ...[
@@ -28,7 +37,9 @@ class LoadingIndicator extends StatelessWidget {
             Text(
               message!,
               textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodyMedium,
+              style: AppTextStyles.bodyMedium.copyWith(
+                color: Theme.of(context).textTheme.bodyMedium?.color,
+              ),
             ),
           ],
         ],
