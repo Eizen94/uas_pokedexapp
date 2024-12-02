@@ -121,7 +121,7 @@ class ApiHelper {
     }
     return ApiResponse(
       status: ApiStatus.error,
-      error: const TimeoutException('Request timed out'),
+      error: TimeoutException('Request timed out'),
     );
   }
 
@@ -246,7 +246,7 @@ class ApiHelper {
 
     // Calculate total cache size
     for (final key in keys) {
-      totalSize += (_prefs.getString(key)?.length ?? 0);
+      totalSize += (_prefs.getString(key)?.length.toInt() ?? 0);
     }
 
     // Remove oldest entries if size exceeds limit
