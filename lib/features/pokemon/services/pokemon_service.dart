@@ -3,6 +3,7 @@
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import '../models/pokemon_model.dart';
 import '../models/pokemon_detail_model.dart';
@@ -203,8 +204,8 @@ class PokemonService {
       }
 
       final data = json.decode(response.body) as Map<String, dynamic>;
-      final evolutionData =
-          _parseEvolutionChain(data['chain'] as Map<String, dynamic>);
+      final chain = data['chain'] as Map<String, dynamic>?;
+      final evolutionData = _parseEvolutionChain(chain);
 
       _cache[cacheKey] = evolutionData;
       _cacheTimestamps[cacheKey] = DateTime.now();
@@ -221,25 +222,38 @@ class PokemonService {
     }
   }
 
-  Map<String, dynamic> _parseEvolutionChain(Map<String, dynamic> chain) {
+  Map<String, dynamic> _parseEvolutionChain(Map<String, dynamic>? chain) {
+    if (chain == null) {
+      return {
+        'chain_id': 0,
+        'stages': <Map<String, dynamic>>[],
+      };
+    }
+
     final List<Map<String, dynamic>> stages = [];
-    var current = chain;
+    Map<String, dynamic>? current = chain;
 
     while (current != null) {
-      final speciesUrl = current['species']['url'] as String;
+      final speciesData = current['species'] as Map<String, dynamic>?;
+      if (speciesData == null) break;
+
+      final speciesUrl = speciesData['url'] as String;
       final pokemonId = int.parse(speciesUrl.split('/')[6]);
 
       stages.add({
         'pokemon_id': pokemonId,
-        'name': current['species']['name'],
-        'min_level': (current['evolution_details'] as List).isEmpty
+        'name': speciesData['name'] as String? ?? 'unknown',
+        'min_level': (current['evolution_details'] as List?)?.isEmpty ?? true
             ? 1
-            : (current['evolution_details'][0]['min_level'] ?? 1),
+            : ((current['evolution_details'] as List).first
+                    as Map<String, dynamic>)['min_level'] as int? ??
+                1,
       });
 
-      current = (current['evolves_to'] as List).isEmpty
-          ? null
-          : current['evolves_to'][0] as Map<String, dynamic>;
+      final evolvesTo = current['evolves_to'] as List?;
+      current = evolvesTo?.isNotEmpty == true
+          ? evolvesTo!.first as Map<String, dynamic>?
+          : null;
     }
 
     return {
