@@ -2,7 +2,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:shared_preferences.dart';
 import '../core/config/theme_config.dart';
 import '../core/constants/colors.dart';
 
@@ -12,16 +12,16 @@ class ThemeProvider extends ChangeNotifier {
   late SharedPreferences _prefs;
   bool _isInitialized = false;
 
-  ThemeProvider() {
-    _loadThemePreference();
-  }
-
   // Getters
   bool get isDarkMode => _isDarkMode;
   bool get isInitialized => _isInitialized;
   ThemeData get currentTheme =>
       _isDarkMode ? ThemeConfig.darkTheme : ThemeConfig.lightTheme;
   Color get primaryColor => AppColors.primary;
+
+  ThemeProvider() {
+    _loadThemePreference();
+  }
 
   // Initialize theme preference
   Future<void> _loadThemePreference() async {
@@ -114,4 +114,10 @@ class ThemeProvider extends ChangeNotifier {
       }
     }
   }
+
+  // Get current theme mode as string
+  String getCurrentThemeMode() => _isDarkMode ? 'dark' : 'light';
+
+  // Check if theme is initialized
+  bool isThemeLoaded() => _isInitialized;
 }
