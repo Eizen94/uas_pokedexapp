@@ -6,9 +6,7 @@ import 'pokemon_model.dart';
 
 class PokemonDetailModel extends PokemonModel {
   final List<Ability> abilities;
-  @override // Explicitly mark as override
-  final Map<String, dynamic> stats; // Changed to match parent type
-  final List<Stat> statsList; // New field for typed stats
+  final List<Stat> statsList;
   final List<String> moves;
   final String species;
   final Evolution? evolution;
@@ -21,13 +19,20 @@ class PokemonDetailModel extends PokemonModel {
     required super.height,
     required super.weight,
     required this.abilities,
-    required Map<String, dynamic> stats,
     required this.statsList,
     required this.moves,
     required this.species,
     this.evolution,
-  })  : stats = stats,
-        super(stats: stats);
+  }) : super(stats: _convertStatsToMap(statsList));
+
+  // Helper method to convert statsList to map for parent class
+  static Map<String, dynamic> _convertStatsToMap(List<Stat> statsList) {
+    final Map<String, dynamic> statsMap = {};
+    for (var stat in statsList) {
+      statsMap[stat.name] = stat.baseStat;
+    }
+    return statsMap;
+  }
 
   factory PokemonDetailModel.fromJson(Map<String, dynamic> json) {
     try {
@@ -48,12 +53,6 @@ class PokemonDetailModel extends PokemonModel {
             throw FormatException('Invalid stat format');
           }).toList() ??
           [];
-
-      // Convert stats to Map format for parent class
-      final statsMap = <String, dynamic>{};
-      for (var stat in statsList) {
-        statsMap[stat.name] = stat.baseStat;
-      }
 
       // Parse moves
       final movesList = (json['moves'] as List?)?.map((move) {
@@ -77,7 +76,6 @@ class PokemonDetailModel extends PokemonModel {
         height: json['height'] as int,
         weight: json['weight'] as int,
         abilities: abilitiesList,
-        stats: statsMap,
         statsList: statsList,
         moves: movesList,
         species: json['species']['name'] as String,
@@ -94,7 +92,6 @@ class PokemonDetailModel extends PokemonModel {
   Map<String, dynamic> toJson() => {
         ...super.toJson(),
         'abilities': abilities.map((ability) => ability.toJson()).toList(),
-        'stats': stats,
         'statsList': statsList.map((stat) => stat.toJson()).toList(),
         'moves': moves,
         'species': species,
@@ -119,12 +116,6 @@ class PokemonDetailModel extends PokemonModel {
         .where((ability) => ability.isHidden)
         .map((ability) => ability.name)
         .toList();
-  }
-
-  Map<String, int> getStatsMap() {
-    return {
-      for (var stat in statsList) stat.name: stat.baseStat,
-    };
   }
 
   bool hasEvolution() => evolution != null && evolution!.stages.length > 1;
@@ -218,7 +209,6 @@ class Stat {
         .join(' ');
   }
 
-  // Get color based on stat value
   Color getStatColor() {
     if (baseStat < 50) return Colors.red;
     if (baseStat < 100) return Colors.orange;

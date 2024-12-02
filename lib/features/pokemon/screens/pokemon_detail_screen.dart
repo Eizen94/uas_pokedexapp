@@ -148,7 +148,7 @@ class _PokemonDetailScreenState extends State<PokemonDetailScreen> {
             pinned: true,
             flexibleSpace: FlexibleSpaceBar(
               title: Text(
-                _pokemon.name.toUpperCase(),
+                _pokemon.getFormattedName(),
                 style: AppTextStyles.headlineMedium.copyWith(
                   color: Colors.white,
                   fontWeight: FontWeight.bold,
@@ -162,10 +162,8 @@ class _PokemonDetailScreenState extends State<PokemonDetailScreen> {
                       gradient: LinearGradient(
                         begin: Alignment.topCenter,
                         end: Alignment.bottomCenter,
-                        colors: [
-                          _getTypeColor(_pokemon.types.first),
-                          _getTypeColor(_pokemon.types.first).withOpacity(0.7),
-                        ],
+                        colors: AppColors.getTypeGradient(
+                            _pokemon.getPrimaryType()),
                       ),
                     ),
                   ),
@@ -198,7 +196,8 @@ class _PokemonDetailScreenState extends State<PokemonDetailScreen> {
                   _buildStatsSection(),
                   const SizedBox(height: 16),
                   _buildAbilitiesSection(),
-                  if (_pokemon.evolution != null) ...[
+                  if (_pokemon.evolution != null &&
+                      _pokemon.evolution!.hasMultipleStages()) ...[
                     const SizedBox(height: 16),
                     _buildEvolutionSection(),
                   ],
@@ -221,7 +220,7 @@ class _PokemonDetailScreenState extends State<PokemonDetailScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Pokemon #${_pokemon.id.toString().padLeft(3, '0')}',
+              _pokemon.getFormattedId(),
               style: AppTextStyles.titleMedium.copyWith(
                 color: Colors.grey[600],
               ),
@@ -338,7 +337,7 @@ class _PokemonDetailScreenState extends State<PokemonDetailScreen> {
                           child: ClipRRect(
                             borderRadius: BorderRadius.circular(4),
                             child: LinearProgressIndicator(
-                              value: stat.baseStat / 255,
+                              value: _pokemon.getStatPercentage(stat.name),
                               backgroundColor: Colors.grey[200],
                               valueColor: AlwaysStoppedAnimation<Color>(
                                 stat.getStatColor(),
@@ -422,7 +421,7 @@ class _PokemonDetailScreenState extends State<PokemonDetailScreen> {
               height: 120,
               child: ListView.separated(
                 scrollDirection: Axis.horizontal,
-                itemCount: _pokemon.evolution!.stages.length,
+                itemCount: _pokemon.evolution?.stages.length ?? 0,
                 separatorBuilder: (context, index) {
                   return const Padding(
                     padding: EdgeInsets.symmetric(horizontal: 8.0),
