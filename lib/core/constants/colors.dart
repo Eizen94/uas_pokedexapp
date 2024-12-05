@@ -95,8 +95,9 @@ class AppColors {
   // Gradient colors for type backgrounds
   static List<Color> getTypeGradient(String type) {
     final mainColor = typeColors[type.toLowerCase()] ?? typeColors['normal']!;
-    final lightColor = _lighten(mainColor);
-    return [mainColor, lightColor];
+    final darkColor = _darken(mainColor, 0.1);
+    final lightColor = _lighten(mainColor, 0.1);
+    return [darkColor, mainColor, lightColor];
   }
 
   // Helper method to lighten a color
