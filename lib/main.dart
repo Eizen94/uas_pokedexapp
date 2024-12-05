@@ -12,6 +12,7 @@ import 'package:uas_pokedexapp/features/auth/screens/profile_screen.dart';
 import 'package:uas_pokedexapp/features/pokemon/screens/pokemon_list_screen.dart';
 import 'package:uas_pokedexapp/features/pokemon/screens/pokemon_detail_screen.dart';
 import 'package:uas_pokedexapp/widgets/loading_indicator.dart';
+import 'package:uas_pokedexapp/widgets/error_dialog.dart';
 import 'package:uas_pokedexapp/providers/auth_provider.dart';
 import 'package:uas_pokedexapp/providers/theme_provider.dart';
 
@@ -48,7 +49,6 @@ Future<void> main() async {
     if (kDebugMode) {
       print('❌ Fatal error in main: $e');
     }
-    // Show error UI instead of crashing
     runApp(ErrorApp(error: e.toString()));
   }
 }
