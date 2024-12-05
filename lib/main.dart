@@ -2,7 +2,6 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
-import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart' hide AuthProvider;
 import 'package:provider/provider.dart';
 import 'package:uas_pokedexapp/core/config/firebase_config.dart';
@@ -11,8 +10,6 @@ import 'package:uas_pokedexapp/features/auth/screens/register_screen.dart';
 import 'package:uas_pokedexapp/features/auth/screens/profile_screen.dart';
 import 'package:uas_pokedexapp/features/pokemon/screens/pokemon_list_screen.dart';
 import 'package:uas_pokedexapp/features/pokemon/screens/pokemon_detail_screen.dart';
-import 'package:uas_pokedexapp/widgets/loading_indicator.dart';
-import 'package:uas_pokedexapp/widgets/error_dialog.dart';
 import 'package:uas_pokedexapp/providers/auth_provider.dart';
 import 'package:uas_pokedexapp/providers/theme_provider.dart';
 
