@@ -126,20 +126,11 @@ class FirebaseConfig {
       // Initialize Firestore with optimized settings
       final firestore = FirebaseFirestore.instance;
 
-      // Enable offline persistence with optimized settings
-      await firestore.enablePersistence(
-        const PersistenceSettings(
-          synchronizeTabs: true,
-          cacheSizeBytes: 10485760, // 10MB cache size
-        ),
-      );
-
-      // Optimize Firestore settings
+      // Configure Firestore settings
       firestore.settings = const Settings(
         persistenceEnabled: true,
         cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
         sslEnabled: true,
-        persistenceEnabled: true,
       );
 
       // Test connection
@@ -172,9 +163,6 @@ class FirebaseConfig {
       _authStatusController.add(false);
       _firestoreStatusController.add(false);
 
-      // Clear local persistence
-      await FirebaseFirestore.instance.clearPersistence();
-
       // Sign out user
       await FirebaseAuth.instance.signOut();
 
@@ -206,7 +194,7 @@ class FirebaseConfig {
     _initCompleter = null;
   }
 
-  // Check initialization status
+  // Get initialization status
   Future<void> get initializationComplete =>
       _initCompleter?.future ?? Future.value();
 }
