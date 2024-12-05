@@ -53,7 +53,7 @@ Future<void> main() async {
 class ErrorApp extends StatelessWidget {
   final String error;
 
-  const ErrorApp({Key? key, required this.error}) : super(key: key);
+  const ErrorApp({super.key, required this.error});
 
   @override
   Widget build(BuildContext context) {
@@ -146,10 +146,7 @@ class MyApp extends StatelessWidget {
 class LoadingScreen extends StatelessWidget {
   final String message;
 
-  const LoadingScreen({
-    Key? key,
-    required this.message,
-  }) : super(key: key);
+  const LoadingScreen({super.key, required this.message});
 
   @override
   Widget build(BuildContext context) {
@@ -172,11 +169,7 @@ class ErrorScreen extends StatelessWidget {
   final String error;
   final VoidCallback onRetry;
 
-  const ErrorScreen({
-    Key? key,
-    required this.error,
-    required this.onRetry,
-  }) : super(key: key);
+  const ErrorScreen({super.key, required this.error, required this.onRetry});
 
   @override
   Widget build(BuildContext context) {
