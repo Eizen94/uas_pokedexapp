@@ -151,6 +151,35 @@ class ErrorDialog extends StatelessWidget {
     );
   }
 
+  // Helper method untuk menampilkan error dari ApiResponse
+  static Future<void> showFromResponse(
+    BuildContext context,
+    ApiResponse response, {
+    String? title,
+    VoidCallback? onRetry,
+  }) {
+    String errorMessage;
+
+    if (response.error is NoInternetException) {
+      errorMessage =
+          'No internet connection. Please check your connection and try again.';
+    } else if (response.error is TimeoutException) {
+      errorMessage = 'Request timed out. Please try again.';
+    } else if (response.error is HttpException) {
+      errorMessage = 'Failed to connect to server. Please try again later.';
+    } else {
+      errorMessage = response.message ?? 'An unexpected error occurred';
+    }
+
+    return show(
+      context,
+      title: title ?? 'Error',
+      message: errorMessage,
+      onRetry: onRetry,
+      showRetryButton: onRetry != null,
+    );
+  }
+
   // Helper method untuk menampilkan error dari exception
   static Future<void> showException(
     BuildContext context,

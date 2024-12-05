@@ -79,7 +79,7 @@ class FirebaseConfig {
           ),
         );
 
-        // Initialize services
+        // Initialize services with optimized settings
         await _initializeServices();
 
         _initialized = true;
@@ -111,32 +111,49 @@ class FirebaseConfig {
     }
   }
 
-  // Initialize Firebase services
+  // Initialize Firebase services with optimized settings
   Future<void> _initializeServices() async {
     try {
-      // Initialize Auth
+      // Initialize Auth with persistence
       final auth = FirebaseAuth.instance;
+      await auth.setPersistence(Persistence.LOCAL);
       _authStatusController.add(true);
 
       if (kDebugMode) {
-        print('✅ Firebase Auth initialized');
+        print('✅ Firebase Auth initialized with local persistence');
       }
 
-      // Initialize Firestore with offline persistence
+      // Initialize Firestore with optimized settings
       final firestore = FirebaseFirestore.instance;
-      await firestore
-          .enablePersistence(const PersistenceSettings(synchronizeTabs: true));
+
+      // Enable offline persistence with optimized settings
+      await firestore.enablePersistence(
+        const PersistenceSettings(
+          synchronizeTabs: true,
+          cacheSizeBytes: 10485760, // 10MB cache size
+        ),
+      );
+
+      // Optimize Firestore settings
+      firestore.settings = const Settings(
+        persistenceEnabled: true,
+        cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
+        sslEnabled: true,
+        persistenceEnabled: true,
+      );
+
+      // Test connection
       await firestore.collection('test').doc('test').get();
       _firestoreStatusController.add(true);
 
       if (kDebugMode) {
-        print('✅ Firestore initialized with persistence');
+        print('✅ Firestore initialized with optimized persistence');
       }
     } catch (e) {
       if (kDebugMode) {
         print('⚠️ Service initialization warning: $e');
       }
-      // Don't throw here - services can be initialized later if needed
+      // Don't throw - services can be initialized later if needed
     }
   }
 
@@ -154,6 +171,12 @@ class FirebaseConfig {
       // Reset service status
       _authStatusController.add(false);
       _firestoreStatusController.add(false);
+
+      // Clear local persistence
+      await FirebaseFirestore.instance.clearPersistence();
+
+      // Sign out user
+      await FirebaseAuth.instance.signOut();
 
       // Delete all apps
       final apps = Firebase.apps;
@@ -183,7 +206,7 @@ class FirebaseConfig {
     _initCompleter = null;
   }
 
-  // Get initialization status
+  // Check initialization status
   Future<void> get initializationComplete =>
       _initCompleter?.future ?? Future.value();
 }

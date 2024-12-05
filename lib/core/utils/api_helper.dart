@@ -261,7 +261,7 @@ class ApiHelper {
 
       for (final key in keys) {
         if (totalSize <= maxDiskCacheSize) break;
-        final size = _prefs.getString(key)?.length ?? 0;
+        final size = _prefs.getString(key)?.length.toInt() ?? 0;
         _prefs.remove(key);
         _prefs.remove('${key}_timestamp');
         totalSize -= size;
