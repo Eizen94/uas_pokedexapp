@@ -1,23 +1,8 @@
 // lib/widgets/loading_indicator.dart
 
 import 'package:flutter/material.dart';
-import 'package:uas_pokedexapp/core/constants/colors.dart';
-import 'package:uas_pokedexapp/core/constants/text_styles.dart';
-
-class LoadingScreen extends StatelessWidget {
-  final String message;
-
-  const LoadingScreen({super.key, required this.message});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: Center(
-        child: LoadingIndicator(message: message),
-      ),
-    );
-  }
-}
+import '../core/constants/colors.dart';
+import '../core/constants/text_styles.dart';
 
 class LoadingIndicator extends StatelessWidget {
   final String? message;
@@ -58,6 +43,21 @@ class LoadingIndicator extends StatelessWidget {
             ),
           ],
         ],
+      ),
+    );
+  }
+}
+
+class LoadingScreen extends StatelessWidget {
+  final String message;
+
+  const LoadingScreen({super.key, required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Center(
+        child: LoadingIndicator(message: message),
       ),
     );
   }
