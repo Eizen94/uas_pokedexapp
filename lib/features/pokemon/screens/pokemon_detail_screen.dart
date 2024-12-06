@@ -307,7 +307,7 @@ class _PokemonDetailScreenState extends State<PokemonDetailScreen> {
                   ],
                 ),
               );
-            }).toList(),
+            }).,
           ],
         ),
       ),
@@ -350,7 +350,7 @@ class _PokemonDetailScreenState extends State<PokemonDetailScreen> {
                       )
                     : null,
               );
-            }).toList(),
+            }),
           ],
         ),
       ),
