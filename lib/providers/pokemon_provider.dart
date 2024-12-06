@@ -10,8 +10,8 @@ class PokemonProvider extends ChangeNotifier {
   final PokemonService _pokemonService = PokemonService();
 
   final List<PokemonModel> _pokemonList = [];
-  final List<PokemonModel> _filteredList = [];
-  Map<int, PokemonDetailModel> _pokemonDetails = {};
+  List<PokemonModel> _filteredList = [];
+  final Map<int, PokemonDetailModel> _pokemonDetails = {};
 
   bool _isLoading = false;
   bool _isLoadingMore = false;
@@ -22,7 +22,7 @@ class PokemonProvider extends ChangeNotifier {
 
   // Cancellation tokens
   CancellationToken? _listToken;
-  Map<String, CancellationToken> _detailTokens = {};
+  final Map<String, CancellationToken> _detailTokens = {};
 
   // Getters
   List<PokemonModel> get pokemonList => _filteredList;
