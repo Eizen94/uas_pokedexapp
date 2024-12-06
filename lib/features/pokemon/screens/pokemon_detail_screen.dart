@@ -307,7 +307,7 @@ class _PokemonDetailScreenState extends State<PokemonDetailScreen> {
                   ],
                 ),
               );
-            }).,
+            }),
           ],
         ),
       ),
