@@ -5,7 +5,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../../features/auth/screens/login_screen.dart';
 import '../../features/pokemon/screens/pokemon_list_screen.dart';
 import '../../widgets/loading_indicator.dart';
-import '../../widgets/error_dialog.dart';
 import 'package:flutter/foundation.dart';
 
 class AuthStateWrapper extends StatefulWidget {

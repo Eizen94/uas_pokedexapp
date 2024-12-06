@@ -1,6 +1,7 @@
 // lib/features/auth/services/auth_service.dart
 
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_auth_platform_interface/firebase_auth_platform_interface.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 
@@ -63,6 +64,18 @@ class AuthService {
         print('❌ Firebase Auth error: ${e.code} - ${e.message}');
       }
       throw _handleAuthError(e);
+    } on PlatformException catch (e) {
+      if (kDebugMode) {
+        print('❌ Platform error: ${e.code} - ${e.message}');
+      }
+      // Handle PigeonUserDetails error
+      if (e.code == 'ERROR_INVALID_CREDENTIAL') {
+        throw FirebaseAuthException(
+          code: 'invalid-credential',
+          message: 'The supplied auth credential is invalid.',
+        );
+      }
+      throw _handleAuthError(e);
     } catch (e) {
       if (kDebugMode) {
         print('❌ Unexpected error during login: $e');
@@ -123,6 +136,11 @@ class AuthService {
       if (kDebugMode) {
         print(
             '❌ Firebase Auth error during registration: ${e.code} - ${e.message}');
+      }
+      throw _handleAuthError(e);
+    } on PlatformException catch (e) {
+      if (kDebugMode) {
+        print('❌ Platform error: ${e.code} - ${e.message}');
       }
       throw _handleAuthError(e);
     } catch (e) {
@@ -247,6 +265,13 @@ class AuthService {
       return FirebaseAuthException(
         code: error.code,
         message: message,
+      );
+    }
+
+    if (error is PlatformException) {
+      return FirebaseAuthException(
+        code: error.code,
+        message: error.message ?? 'Platform error occurred',
       );
     }
 
