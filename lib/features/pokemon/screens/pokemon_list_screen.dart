@@ -3,8 +3,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
-import 'package:cached_network_image/cached_network_image.dart';
-import '../models/pokemon_model.dart';
 import '../widgets/pokemon_card.dart';
 import '../../../widgets/loading_indicator.dart';
 import '../../../widgets/error_dialog.dart';
