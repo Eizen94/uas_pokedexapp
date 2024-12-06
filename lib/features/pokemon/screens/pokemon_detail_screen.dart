@@ -1,7 +1,6 @@
 // lib/features/pokemon/screens/pokemon_detail_screen.dart
 
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../models/pokemon_detail_model.dart';
@@ -25,7 +24,7 @@ class _PokemonDetailScreenState extends State<PokemonDetailScreen> {
     final args =
         ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
     if (args != null && args['id'] != null) {
-      _loadPokemonDetail(args['id'].toString());
+      _loadPokemonDetail(args['id']);
     } else {
       _showError('Pokemon ID not provided');
     }
@@ -44,10 +43,10 @@ class _PokemonDetailScreenState extends State<PokemonDetailScreen> {
     super.dispose();
   }
 
-  Future<void> _loadPokemonDetail(String id) async {
+  Future<void> _loadPokemonDetail(int id) async {
     try {
       final provider = context.read<PokemonProvider>();
-      await provider.getPokemonDetail(int.parse(id));
+      await provider.getPokemonDetail(id);
     } catch (e) {
       if (mounted) {
         _showError(e.toString());
@@ -64,7 +63,7 @@ class _PokemonDetailScreenState extends State<PokemonDetailScreen> {
         final args =
             ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
         if (args != null && args['id'] != null) {
-          _loadPokemonDetail(args['id'].toString());
+          _loadPokemonDetail(args['id']);
         }
       },
     );
@@ -85,7 +84,7 @@ class _PokemonDetailScreenState extends State<PokemonDetailScreen> {
         }
 
         final int pokemonId = args['id'];
-        final pokemon = provider._pokemonDetails[pokemonId];
+        final pokemon = provider.getPokemonById(pokemonId);
 
         if (pokemon == null) {
           return const Scaffold(

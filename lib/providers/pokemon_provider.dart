@@ -26,6 +26,8 @@ class PokemonProvider extends ChangeNotifier {
 
   // Getters
   List<PokemonModel> get pokemonList => _filteredList;
+  Map<int, PokemonDetailModel> get pokemonDetails =>
+      Map.unmodifiable(_pokemonDetails);
   bool get isLoading => _isLoading;
   bool get isLoadingMore => _isLoadingMore;
   bool get hasMore => _hasMore;
@@ -33,6 +35,10 @@ class PokemonProvider extends ChangeNotifier {
   bool get hasError => _error.isNotEmpty;
   String get searchQuery => _searchQuery;
   int get currentPage => _currentPage;
+
+  // Methods for accessing details
+  PokemonDetailModel? getPokemonById(int id) => _pokemonDetails[id];
+  bool hasDetailsFor(int id) => _pokemonDetails.containsKey(id);
 
   // Initialize
   Future<void> initializePokemonList() async {
