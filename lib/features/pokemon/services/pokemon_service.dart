@@ -43,41 +43,42 @@ class PokemonService {
       final requestToken = cancellationToken ?? CancellationToken();
       _activeTokens['pokemon_list_$offset'] = requestToken;
 
-      final response = await _apiHelper.get<List<PokemonModel>>(
+      final pokemonList = <PokemonModel>[];
+
+      final response = await _apiHelper.get<List<dynamic>>(
         '$baseUrl/pokemon?offset=$offset&limit=$limit',
         cancellationToken: requestToken,
-        parser: (data) {
-          final List<dynamic> results = data['results'] as List<dynamic>;
-          final List<PokemonModel> pokemonList = [];
-
-          for (var pokemon in results) {
-            if (pokemon is Map<String, dynamic> && pokemon['url'] != null) {
-              final detailData =
-                  _fetchPokemonDetail(pokemon['url'] as String, requestToken);
-              if (detailData != null) {
-                pokemonList.add(PokemonModel.fromJson(detailData));
-              }
-            }
-          }
-
-          pokemonList.sort((a, b) => a.id.compareTo(b.id));
-          return pokemonList;
-        },
+        parser: (data) => data['results'] as List<dynamic>,
       );
 
       if (response.isCancelled) {
         throw const RequestCancelledException();
       }
 
-      if (response.isSuccess && response.data != null) {
-        final pokemonList = response.data!;
-        if (kDebugMode) {
-          print('✅ Successfully fetched ${pokemonList.length} Pokemon');
-        }
-        return pokemonList;
+      if (!response.isSuccess || response.data == null) {
+        throw response.error ?? 'Failed to load pokemon list';
       }
 
-      throw response.error ?? 'Failed to load pokemon list';
+      // Fetch details for each Pokemon
+      for (var pokemon in response.data!) {
+        if (pokemon is Map<String, dynamic> && pokemon['url'] != null) {
+          final detailData = await _fetchPokemonDetail(
+            pokemon['url'] as String,
+            requestToken,
+          );
+          if (detailData != null) {
+            pokemonList.add(PokemonModel.fromJson(detailData));
+          }
+        }
+      }
+
+      pokemonList.sort((a, b) => a.id.compareTo(b.id));
+
+      if (kDebugMode) {
+        print('✅ Successfully fetched ${pokemonList.length} Pokemon');
+      }
+
+      return pokemonList;
     } on RequestCancelledException {
       if (kDebugMode) {
         print('🚫 Pokemon list request cancelled');
@@ -176,20 +177,22 @@ class PokemonService {
     }
   }
 
-  Map<String, dynamic>? _fetchPokemonDetail(
+  Future<Map<String, dynamic>?> _fetchPokemonDetail(
     String url,
     CancellationToken token,
-  ) {
+  ) async {
     try {
-      final response = _apiHelper.get<Map<String, dynamic>>(
+      final response = await _apiHelper.get<Map<String, dynamic>>(
         url,
         cancellationToken: token,
         parser: (data) => data,
       );
 
-      if (response is ApiResponse<Map<String, dynamic>> &&
-          response.isSuccess &&
-          response.data != null) {
+      if (response.isCancelled) {
+        return null;
+      }
+
+      if (response.isSuccess && response.data != null) {
         return response.data;
       }
       return null;
@@ -216,14 +219,18 @@ class PokemonService {
       );
 
       if (response.isCancelled) {
-        throw const RequestCancelledException();
+        return {
+          'chain_id': 0,
+          'stages': <Map<String, dynamic>>[],
+        };
       }
 
-      if (response.isSuccess && response.data != null) {
-        return response.data!;
-      }
-
-      throw response.error ?? 'Failed to load evolution chain';
+      // Ensure we always return non-null Map
+      return response.data ??
+          {
+            'chain_id': 0,
+            'stages': <Map<String, dynamic>>[],
+          };
     } catch (e) {
       if (kDebugMode) {
         print('⚠️ Warning: Evolution chain fetch failed: $e');
