@@ -22,7 +22,8 @@ class _PokemonDetailScreenState extends State<PokemonDetailScreen> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
+    final args =
+        ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
     if (args != null && args['id'] != null) {
       _loadPokemonDetail(args['id'].toString());
     } else {
@@ -34,7 +35,8 @@ class _PokemonDetailScreenState extends State<PokemonDetailScreen> {
   void dispose() {
     // Cancel any ongoing requests when leaving the screen
     if (mounted) {
-      final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
+      final args =
+          ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
       if (args != null && args['id'] != null) {
         context.read<PokemonProvider>().cancelPokemonDetailRequest(args['id']);
       }
@@ -59,7 +61,8 @@ class _PokemonDetailScreenState extends State<PokemonDetailScreen> {
       title: 'Error',
       message: message,
       onRetry: () {
-        final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
+        final args =
+            ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
         if (args != null && args['id'] != null) {
           _loadPokemonDetail(args['id'].toString());
         }
@@ -71,7 +74,8 @@ class _PokemonDetailScreenState extends State<PokemonDetailScreen> {
   Widget build(BuildContext context) {
     return Consumer<PokemonProvider>(
       builder: (context, provider, child) {
-        final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
+        final args =
+            ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
         if (args == null || args['id'] == null) {
           return const Scaffold(
             body: Center(
@@ -113,7 +117,8 @@ class _PokemonDetailScreenState extends State<PokemonDetailScreen> {
                           gradient: LinearGradient(
                             begin: Alignment.topCenter,
                             end: Alignment.bottomCenter,
-                            colors: AppColors.getTypeGradient(pokemon.getPrimaryType()),
+                            colors: AppColors.getTypeGradient(
+                                pokemon.getPrimaryType()),
                           ),
                         ),
                       ),
