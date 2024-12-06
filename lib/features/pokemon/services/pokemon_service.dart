@@ -43,28 +43,23 @@ class PokemonService {
       final requestToken = cancellationToken ?? CancellationToken();
       _activeTokens['pokemon_list_$offset'] = requestToken;
 
-      final response = await _apiHelper.get(
+      final response = await _apiHelper.get<List<PokemonModel>>(
         '$baseUrl/pokemon?offset=$offset&limit=$limit',
         cancellationToken: requestToken,
-        parser: (data) async {
+        parser: (data) {
           final List<dynamic> results = data['results'] as List<dynamic>;
           final List<PokemonModel> pokemonList = [];
-          final List<Future<void>> futures = [];
 
           for (var pokemon in results) {
             if (pokemon is Map<String, dynamic> && pokemon['url'] != null) {
-              futures.add(
-                _fetchPokemonDetail(pokemon['url'] as String, requestToken)
-                    .then((detailData) {
-                  if (detailData != null) {
-                    pokemonList.add(PokemonModel.fromJson(detailData));
-                  }
-                }),
-              );
+              final detailData =
+                  _fetchPokemonDetail(pokemon['url'] as String, requestToken);
+              if (detailData != null) {
+                pokemonList.add(PokemonModel.fromJson(detailData));
+              }
             }
           }
 
-          await Future.wait(futures);
           pokemonList.sort((a, b) => a.id.compareTo(b.id));
           return pokemonList;
         },
@@ -75,10 +70,11 @@ class PokemonService {
       }
 
       if (response.isSuccess && response.data != null) {
+        final pokemonList = response.data!;
         if (kDebugMode) {
-          print('✅ Successfully fetched ${response.data!.length} Pokemon');
+          print('✅ Successfully fetched ${pokemonList.length} Pokemon');
         }
-        return response.data!;
+        return pokemonList;
       }
 
       throw response.error ?? 'Failed to load pokemon list';
@@ -111,22 +107,23 @@ class PokemonService {
       final requestToken = cancellationToken ?? CancellationToken();
       _activeTokens['pokemon_detail_$idOrName'] = requestToken;
 
-      final response = await _apiHelper.get(
+      final response = await _apiHelper.get<PokemonDetailModel>(
         '$baseUrl/pokemon/$idOrName',
         cancellationToken: requestToken,
         parser: (data) async {
-          // Fetch species data
           final speciesUrl = data['species']['url'] as String;
-          final speciesResponse = await _apiHelper.get(
+
+          // Fetch species data
+          final speciesResponse = await _apiHelper.get<Map<String, dynamic>>(
             speciesUrl,
             cancellationToken: requestToken,
             parser: (speciesData) async {
               if (speciesData['evolution_chain']?['url'] != null) {
-                // Fetch evolution chain
-                data['evolution'] = await _getEvolutionChain(
+                final evolutionChain = await _getEvolutionChain(
                   speciesData['evolution_chain']['url'] as String,
                   requestToken,
                 );
+                data['evolution'] = evolutionChain;
               } else {
                 data['evolution'] = null;
               }
@@ -151,11 +148,11 @@ class PokemonService {
       }
 
       if (response.isSuccess && response.data != null) {
+        final pokemon = response.data!;
         if (kDebugMode) {
-          print(
-              '✅ Successfully fetched Pokemon detail: ${response.data!.name}');
+          print('✅ Successfully fetched Pokemon detail: ${pokemon.name}');
         }
-        return response.data!;
+        return pokemon;
       }
 
       throw response.error ?? 'Failed to load pokemon detail';
@@ -174,20 +171,20 @@ class PokemonService {
     }
   }
 
-  Future<Map<String, dynamic>?> _fetchPokemonDetail(
+  Map<String, dynamic>? _fetchPokemonDetail(
     String url,
     CancellationToken token,
-  ) async {
+  ) {
     try {
-      final response = await _apiHelper.get(
+      final response = _apiHelper.get<Map<String, dynamic>>(
         url,
         cancellationToken: token,
         parser: (data) => data,
       );
 
-      if (response.isCancelled) return null;
-
-      if (response.isSuccess) {
+      if (response is ApiResponse<Map<String, dynamic>> &&
+          response.isSuccess &&
+          response.data != null) {
         return response.data;
       }
       return null;
@@ -204,7 +201,7 @@ class PokemonService {
     CancellationToken token,
   ) async {
     try {
-      final response = await _apiHelper.get(
+      final response = await _apiHelper.get<Map<String, dynamic>>(
         url,
         cancellationToken: token,
         parser: (data) {
@@ -218,7 +215,7 @@ class PokemonService {
       }
 
       if (response.isSuccess && response.data != null) {
-        return response.data;
+        return response.data!;
       }
 
       throw response.error ?? 'Failed to load evolution chain';
