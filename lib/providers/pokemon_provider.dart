@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import '../features/pokemon/models/pokemon_model.dart';
 import '../features/pokemon/models/pokemon_detail_model.dart';
 import '../features/pokemon/services/pokemon_service.dart';
+import '../core/utils/request_manager.dart';
 
 class PokemonProvider extends ChangeNotifier {
   final PokemonService _pokemonService = PokemonService();
@@ -12,12 +13,17 @@ class PokemonProvider extends ChangeNotifier {
   List<PokemonModel> _pokemonList = [];
   List<PokemonModel> _filteredList = [];
   Map<int, PokemonDetailModel> _pokemonDetails = {};
+
   bool _isLoading = false;
   bool _isLoadingMore = false;
   bool _hasMore = true;
   String _error = '';
   int _currentPage = 0;
   String _searchQuery = '';
+
+  // Cancellation tokens
+  CancellationToken? _listToken;
+  Map<String, CancellationToken> _detailTokens = {};
 
   // Getters
   List<PokemonModel> get pokemonList => _filteredList;
@@ -27,11 +33,13 @@ class PokemonProvider extends ChangeNotifier {
   String get error => _error;
   bool get hasError => _error.isNotEmpty;
   String get searchQuery => _searchQuery;
+  int get currentPage => _currentPage;
 
   // Initialize
   Future<void> initializePokemonList() async {
-    if (_pokemonList.isNotEmpty) return;
-    await loadPokemon(showLoading: true);
+    if (_pokemonList.isEmpty) {
+      await loadPokemon(showLoading: true);
+    }
   }
 
   // Load Pokemon List
@@ -47,9 +55,14 @@ class PokemonProvider extends ChangeNotifier {
       }
       notifyListeners();
 
+      // Cancel previous request if exists
+      _listToken?.cancel();
+      _listToken = CancellationToken();
+
       final newPokemon = await _pokemonService.getPokemonList(
         offset: _currentPage * 20,
         limit: 20,
+        cancellationToken: _listToken,
       );
 
       if (!showLoading && _pokemonList.isEmpty) {
@@ -63,9 +76,11 @@ class PokemonProvider extends ChangeNotifier {
       _hasMore = newPokemon.length == 20;
       _error = '';
     } catch (e) {
-      _error = e.toString();
-      if (kDebugMode) {
-        print('Error loading Pokemon: $_error');
+      if (e is! RequestCancelledException) {
+        _error = e.toString();
+        if (kDebugMode) {
+          print('Error loading Pokemon: $_error');
+        }
       }
     } finally {
       _setLoading(false);
@@ -76,20 +91,34 @@ class PokemonProvider extends ChangeNotifier {
 
   // Load Pokemon Detail
   Future<PokemonDetailModel?> getPokemonDetail(int id) async {
-    try {
-      if (_pokemonDetails.containsKey(id)) {
-        return _pokemonDetails[id];
-      }
+    if (_pokemonDetails.containsKey(id)) {
+      return _pokemonDetails[id];
+    }
 
-      final detail = await _pokemonService.getPokemonDetail(id.toString());
+    try {
+      // Cancel previous request for this ID if exists
+      _detailTokens[id.toString()]?.cancel();
+      final token = CancellationToken();
+      _detailTokens[id.toString()] = token;
+
+      final detail = await _pokemonService.getPokemonDetail(
+        id.toString(),
+        cancellationToken: token,
+      );
+
       _pokemonDetails[id] = detail;
+      notifyListeners();
       return detail;
     } catch (e) {
-      _error = e.toString();
-      if (kDebugMode) {
-        print('Error loading Pokemon detail: $_error');
+      if (e is! RequestCancelledException) {
+        _error = e.toString();
+        if (kDebugMode) {
+          print('Error loading Pokemon detail: $_error');
+        }
       }
       return null;
+    } finally {
+      _detailTokens.remove(id.toString());
     }
   }
 
@@ -122,8 +151,31 @@ class PokemonProvider extends ChangeNotifier {
     _hasMore = true;
     _error = '';
     _searchQuery = '';
+
+    // Cancel all ongoing requests
+    cancelAllRequests();
+
     notifyListeners();
     await loadPokemon(showLoading: true);
+  }
+
+  // Cancel specific Pokemon detail request
+  void cancelPokemonDetailRequest(int id) {
+    final token = _detailTokens[id.toString()];
+    if (token != null) {
+      token.cancel();
+      _detailTokens.remove(id.toString());
+    }
+  }
+
+  // Cancel all requests
+  void cancelAllRequests() {
+    _listToken?.cancel();
+    for (var token in _detailTokens.values) {
+      token.cancel();
+    }
+    _detailTokens.clear();
+    _pokemonService.cancelAllRequests();
   }
 
   // Clear Pokemon Details Cache
@@ -140,7 +192,6 @@ class PokemonProvider extends ChangeNotifier {
     }
   }
 
-  // Error Handling
   void clearError() {
     _error = '';
     notifyListeners();
@@ -165,7 +216,7 @@ class PokemonProvider extends ChangeNotifier {
 
   @override
   void dispose() {
-    _pokemonService.dispose();
+    cancelAllRequests();
     super.dispose();
   }
 }
