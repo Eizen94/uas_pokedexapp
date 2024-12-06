@@ -3,6 +3,7 @@
 import 'dart:async';
 import 'dart:collection';
 import 'package:flutter/foundation.dart';
+import 'package:uas_pokedexapp/core/constants/api_paths.dart';
 
 class RequestManager {
   // Singleton instance
@@ -11,7 +12,7 @@ class RequestManager {
   RequestManager._internal();
 
   // Rate limiting configuration
-  static const int _maxRequestsPerMinute = 100;
+  static const int _maxRequestsPerMinute = ApiPaths.publicApiLimit;
   static const Duration _timeWindow = Duration(minutes: 1);
 
   // Request tracking
