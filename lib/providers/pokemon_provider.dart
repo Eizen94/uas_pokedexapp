@@ -1,6 +1,5 @@
 // lib/providers/pokemon_provider.dart
 
-import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import '../features/pokemon/models/pokemon_model.dart';
 import '../features/pokemon/models/pokemon_detail_model.dart';
