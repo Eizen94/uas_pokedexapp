@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'request_manager.dart';
 
 class ApiHelper {
   static final ApiHelper _instance = ApiHelper._internal();
@@ -14,6 +15,7 @@ class ApiHelper {
   late final SharedPreferences _prefs;
   final Map<String, dynamic> _memoryCache = {};
   final Map<String, DateTime> _cacheTimestamps = {};
+  final RequestManager _requestManager = RequestManager();
 
   // Constants
   static const Duration defaultTimeout = Duration(seconds: 15);
@@ -38,66 +40,81 @@ class ApiHelper {
     bool forceRefresh = false,
     bool useCache = true,
     Duration timeout = defaultTimeout,
+    CancellationToken? cancellationToken,
     required T Function(Map<String, dynamic>) parser,
   }) async {
+    final requestId = '${endpoint}_${DateTime.now().millisecondsSinceEpoch}';
+
     try {
-      // Check connectivity first
-      final connectivityResult = await Connectivity().checkConnectivity();
-      final bool isOffline = connectivityResult == ConnectivityResult.none;
+      return await _requestManager.executeRequest(
+        requestId: requestId,
+        timeout: timeout,
+        cancellationToken: cancellationToken,
+        requestFn: () async {
+          // Check connectivity first
+          final connectivityResult = await Connectivity().checkConnectivity();
+          final bool isOffline = connectivityResult == ConnectivityResult.none;
 
-      // Handle offline scenario
-      if (isOffline) {
-        final cachedData = await _getCachedData(endpoint);
-        if (cachedData != null) {
-          if (kDebugMode) {
-            print('📦 Using offline cached data for: $endpoint');
+          // Handle offline scenario
+          if (isOffline) {
+            final cachedData = await _getCachedData(endpoint);
+            if (cachedData != null) {
+              if (kDebugMode) {
+                print('📦 Using offline cached data for: $endpoint');
+              }
+              return ApiResponse(
+                data: parser(cachedData),
+                source: DataSource.cache,
+                status: ApiStatus.success,
+              );
+            }
+            throw const NoInternetException();
           }
-          return ApiResponse(
-            data: parser(cachedData),
-            source: DataSource.cache,
-            status: ApiStatus.success,
-          );
-        }
-        throw const NoInternetException();
-      }
 
-      // Check memory cache if not forcing refresh
-      if (!forceRefresh && useCache && _hasValidMemoryCache(endpoint)) {
-        if (kDebugMode) {
-          print('💾 Using memory cache for: $endpoint');
-        }
-        return ApiResponse(
-          data: parser(_memoryCache[endpoint]),
-          source: DataSource.memoryCache,
-          status: ApiStatus.success,
-        );
-      }
+          // Check memory cache if not forcing refresh
+          if (!forceRefresh && useCache && _hasValidMemoryCache(endpoint)) {
+            if (kDebugMode) {
+              print('💾 Using memory cache for: $endpoint');
+            }
+            return ApiResponse(
+              data: parser(_memoryCache[endpoint]),
+              source: DataSource.memoryCache,
+              status: ApiStatus.success,
+            );
+          }
 
-      // Make network request
-      final response = await _client
-          .get(Uri.parse(endpoint), headers: headers)
-          .timeout(timeout);
+          // Make network request
+          final response =
+              await _client.get(Uri.parse(endpoint), headers: headers);
 
-      if (response.statusCode == 200) {
-        final jsonData = json.decode(response.body) as Map<String, dynamic>;
+          if (response.statusCode == 200) {
+            final jsonData = json.decode(response.body) as Map<String, dynamic>;
 
-        // Cache successful response
-        if (useCache) {
-          await _cacheData(endpoint, jsonData);
-        }
+            // Cache successful response
+            if (useCache) {
+              await _cacheData(endpoint, jsonData);
+            }
 
-        return ApiResponse(
-          data: parser(jsonData),
-          source: DataSource.network,
-          status: ApiStatus.success,
-        );
-      } else {
-        throw HttpException('Server error: ${response.statusCode}');
-      }
+            return ApiResponse(
+              data: parser(jsonData),
+              source: DataSource.network,
+              status: ApiStatus.success,
+            );
+          } else {
+            throw HttpException('Server error: ${response.statusCode}');
+          }
+        },
+      );
     } on TimeoutException {
       return _handleTimeoutError(endpoint, parser);
     } on SocketException {
       return _handleConnectionError(endpoint, parser);
+    } on RequestCancelledException {
+      return ApiResponse(
+        status: ApiStatus.cancelled,
+        error: const RequestCancelledException(),
+        message: 'Request was cancelled',
+      );
     } catch (e) {
       return _handleGeneralError(e, endpoint, parser);
     }
@@ -261,7 +278,7 @@ class ApiHelper {
 
       for (final key in keys) {
         if (totalSize <= maxDiskCacheSize) break;
-        final size = _prefs.getString(key)?.length.toInt() ?? 0;
+        final size = (_prefs.getString(key)?.length.toInt() ?? 0);
         _prefs.remove(key);
         _prefs.remove('${key}_timestamp');
         totalSize -= size;
@@ -294,7 +311,13 @@ class ApiHelper {
     }
   }
 
-  // Public methods for cache management
+  // Cancel specific request
+  void cancelRequest(String endpoint) {
+    final requestId = '${endpoint}_${DateTime.now().millisecondsSinceEpoch}';
+    _requestManager.cancelAllRequests();
+  }
+
+  // Clear specific cache
   Future<void> clearCache(String endpoint) async {
     final cacheKey = _generateCacheKey(endpoint);
     _memoryCache.remove(endpoint);
@@ -303,6 +326,7 @@ class ApiHelper {
     await _prefs.remove('${cacheKey}_timestamp');
   }
 
+  // Clear all cache
   Future<void> clearAllCache() async {
     _memoryCache.clear();
     _cacheTimestamps.clear();
@@ -315,6 +339,7 @@ class ApiHelper {
   }
 
   void dispose() {
+    _requestManager.dispose();
     _client.close();
   }
 }
@@ -337,11 +362,12 @@ class ApiResponse<T> {
 
   bool get isSuccess => status == ApiStatus.success;
   bool get isError => status == ApiStatus.error;
+  bool get isCancelled => status == ApiStatus.cancelled;
   bool get isCached =>
       source == DataSource.cache || source == DataSource.memoryCache;
 }
 
-enum ApiStatus { success, error }
+enum ApiStatus { success, error, cancelled }
 
 enum DataSource { network, cache, memoryCache }
 
