@@ -66,8 +66,7 @@ class _TestScreenState extends State<TestScreen> {
         print('Testing Firebase connection...');
       }
 
-      // Basic Firebase test
-      if (FirebaseAuth.instance.app != null) {
+      if (FirebaseAuth.instance.app.name.isNotEmpty) {
         setState(() => _testResults['firebase'] = TestStatus.success);
         if (kDebugMode) {
           print('Firebase test passed');
@@ -92,11 +91,8 @@ class _TestScreenState extends State<TestScreen> {
         print('Testing Auth connection...');
       }
 
-      // Test if Auth is initialized
       final auth = FirebaseAuth.instance;
-      final isInitialized = auth.app != null;
-
-      if (isInitialized) {
+      if (auth.app.name.isNotEmpty) {
         setState(() => _testResults['auth'] = TestStatus.success);
         if (kDebugMode) {
           print('Auth test passed. Current user: ${auth.currentUser?.email}');
@@ -180,23 +176,19 @@ class _TestScreenState extends State<TestScreen> {
       final apiHelper = ApiHelper();
       await apiHelper.initialize();
 
-      // Test cache write and read
       const testKey = 'test_cache_key';
-      final testData = {
-        'test': 'data',
-        'timestamp': DateTime.now().toIso8601String()
-      };
 
       await apiHelper.clearCache(testKey);
 
-      // Write to cache
+      // Write and read from cache test
       await apiHelper.get<Map<String, dynamic>>(
         testKey,
-        parser: (data) => data,
+        parser: (data) =>
+            {'test': 'data', 'timestamp': DateTime.now().toIso8601String()},
         useCache: true,
       );
 
-      // Read from cache
+      // Verify cache
       final cachedResponse = await apiHelper.get<Map<String, dynamic>>(
         testKey,
         parser: (data) => data,
