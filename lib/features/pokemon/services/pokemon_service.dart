@@ -107,55 +107,60 @@ class PokemonService {
       final requestToken = cancellationToken ?? CancellationToken();
       _activeTokens['pokemon_detail_$idOrName'] = requestToken;
 
-      final response = await _apiHelper.get<PokemonDetailModel>(
+      // Get base Pokemon data
+      final response = await _apiHelper.get<Map<String, dynamic>>(
         '$baseUrl/pokemon/$idOrName',
         cancellationToken: requestToken,
-        parser: (data) async {
-          final speciesUrl = data['species']['url'] as String;
-
-          // Fetch species data
-          final speciesResponse = await _apiHelper.get<Map<String, dynamic>>(
-            speciesUrl,
-            cancellationToken: requestToken,
-            parser: (speciesData) async {
-              if (speciesData['evolution_chain']?['url'] != null) {
-                final evolutionChain = await _getEvolutionChain(
-                  speciesData['evolution_chain']['url'] as String,
-                  requestToken,
-                );
-                data['evolution'] = evolutionChain;
-              } else {
-                data['evolution'] = null;
-              }
-              return data;
-            },
-          );
-
-          if (speciesResponse.isCancelled) {
-            throw const RequestCancelledException();
-          }
-
-          if (speciesResponse.isSuccess && speciesResponse.data != null) {
-            return PokemonDetailModel.fromJson(speciesResponse.data!);
-          }
-
-          throw speciesResponse.error ?? 'Failed to load species data';
-        },
+        parser: (data) => data,
       );
 
       if (response.isCancelled) {
         throw const RequestCancelledException();
       }
 
-      if (response.isSuccess && response.data != null) {
-        final pokemon = response.data!;
-        if (kDebugMode) {
-          print('✅ Successfully fetched Pokemon detail: ${pokemon.name}');
-        }
-        return pokemon;
+      if (!response.isSuccess || response.data == null) {
+        throw response.error ?? 'Failed to load pokemon detail';
       }
 
-      throw response.error ?? 'Failed to load pokemon detail';
+      final pokemonData = response.data!;
+      final speciesUrl = pokemonData['species']['url'] as String;
+
+      // Fetch species data
+      final speciesResponse = await _apiHelper.get<Map<String, dynamic>>(
+        speciesUrl,
+        cancellationToken: requestToken,
+        parser: (data) => data,
+      );
+
+      if (speciesResponse.isCancelled) {
+        throw const RequestCancelledException();
+      }
+
+      if (!speciesResponse.isSuccess || speciesResponse.data == null) {
+        throw speciesResponse.error ?? 'Failed to load species data';
+      }
+
+      final speciesData = speciesResponse.data!;
+
+      // Get evolution chain if available
+      if (speciesData['evolution_chain']?['url'] != null) {
+        final evolutionChain = await _getEvolutionChain(
+          speciesData['evolution_chain']['url'] as String,
+          requestToken,
+        );
+        pokemonData['evolution'] = evolutionChain;
+      } else {
+        pokemonData['evolution'] = null;
+      }
+
+      // Create Pokemon detail model
+      final pokemon = PokemonDetailModel.fromJson(pokemonData);
+
+      if (kDebugMode) {
+        print('✅ Successfully fetched Pokemon detail: ${pokemon.name}');
+      }
+
+      return pokemon;
     } on RequestCancelledException {
       if (kDebugMode) {
         print('🚫 Pokemon detail request cancelled');
