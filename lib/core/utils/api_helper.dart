@@ -314,6 +314,11 @@ class ApiHelper {
   // Cancel specific request
   void cancelRequest(String endpoint) {
     final requestId = '${endpoint}_${DateTime.now().millisecondsSinceEpoch}';
+    _requestManager.cancelRequest(requestId);
+  }
+
+  // Cancel all requests
+  void cancelAllRequests() {
     _requestManager.cancelAllRequests();
   }
 

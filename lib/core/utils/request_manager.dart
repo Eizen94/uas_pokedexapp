@@ -182,6 +182,24 @@ class RequestManager {
     }
   }
 
+  // Cancel specific request
+  void cancelRequest(String requestId) {
+    final activeRequest = _activeRequests[requestId];
+    if (activeRequest != null && !activeRequest.isCompleted) {
+      activeRequest.completeError(const RequestCancelledException());
+      _activeRequests.remove(requestId);
+    }
+
+    // Also remove from queue if exists
+    _requestQueue.removeWhere((request) {
+      if (request.id == requestId) {
+        request.completer.completeError(const RequestCancelledException());
+        return true;
+      }
+      return false;
+    });
+  }
+
   // Cancel all requests
   void cancelAllRequests() {
     for (final request in _activeRequests.values) {
