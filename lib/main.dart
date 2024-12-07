@@ -125,7 +125,6 @@ class MyApp extends StatelessWidget {
         '/profile': (context) => const ProfileScreen(),
         '/home': (context) => const PokemonListScreen(),
         '/pokemon/detail': (context) => const PokemonDetailScreen(),
-        '/favorites': (context) => const FavoritesScreen(),
         '/test': (context) => const TestScreen(), // Route for testing screen
       },
     );
