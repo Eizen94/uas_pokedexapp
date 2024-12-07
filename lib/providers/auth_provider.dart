@@ -42,32 +42,27 @@ class AppAuthProvider extends ChangeNotifier {
 
   Future<void> _initializeAuth() async {
     try {
-      _user = _authService.currentUser ;
+      _user = _authService.currentUser;
 
       // Setup auth state listener
       _authStateSubscription =
-          FirebaseAuth.instance.authStateChanges().listen((User ? user) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          _user = user;
-          if (user != null) {
-            _loadUser Settings().then((_) {
-              _setupSettingsListener();
-              if (!_disposed) {
-                notifyListeners();
-              }
-            });
-          } else {
-            _resetSettings();
-            _settingsSubscription?.cancel();
-            if (!_disposed) {
-              notifyListeners();
-            }
-          }
-        });
+          FirebaseAuth.instance.authStateChanges().listen((User? user) async {
+        _user = user;
+        if (user != null) {
+          await _loadUserSettings();
+          _setupSettingsListener();
+        } else {
+          _resetSettings();
+          await _settingsSubscription?.cancel();
+        }
+        // Only notify if the provider hasn't been disposed
+        if (!_disposed) {
+          notifyListeners();
+        }
       });
 
       if (_user != null) {
-        await _loadUser Settings();
+        await _loadUserSettings();
         _setupSettingsListener();
       }
 
@@ -76,12 +71,10 @@ class AppAuthProvider extends ChangeNotifier {
         notifyListeners();
       }
     } catch (e) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _error = e.toString();
-        if (!_disposed) {
-          notifyListeners();
-        }
-      });
+      _error = e.toString();
+      if (!_disposed) {
+        notifyListeners();
+      }
     }
   }
 
@@ -114,11 +107,11 @@ class AppAuthProvider extends ChangeNotifier {
     _settings = {'theme': 'light', 'language': 'en', 'notifications': true};
   }
 
-  Future<void> _loadUser Settings() async {
+  Future<void> _loadUserSettings() async {
     if (_user == null) return;
 
     try {
-      final doc = await _authService.getUser Document();
+      final doc = await _authService.getUserDocument();
       if (doc != null && doc.exists) {
         final data = doc.data() as Map<String, dynamic>?;
         if (data != null && data['settings'] != null) {
@@ -141,7 +134,7 @@ class AppAuthProvider extends ChangeNotifier {
 
     try {
       _isLoading = true;
-      if (!_disposed) notifyListeners();
+      notifyListeners();
 
       await _authService.signInWithEmailAndPassword(
         email: email,
@@ -164,8 +157,8 @@ class AppAuthProvider extends ChangeNotifier {
     if (_disposed) return;
 
     try {
-            _isLoading = true;
-      if (!_disposed) notifyListeners();
+      _isLoading = true;
+      notifyListeners();
 
       await _authService.registerWithEmailAndPassword(
         email: email,
@@ -189,7 +182,7 @@ class AppAuthProvider extends ChangeNotifier {
 
     try {
       _isLoading = true;
-      if (!_disposed) notifyListeners();
+      notifyListeners();
 
       await _authService.signOut();
       // Auth state changes will handle the rest
@@ -209,7 +202,7 @@ class AppAuthProvider extends ChangeNotifier {
 
     try {
       _isLoading = true;
-      if (!_disposed) notifyListeners();
+      notifyListeners();
 
       await _authService.sendPasswordResetEmail(email);
       _error = null;
@@ -229,7 +222,7 @@ class AppAuthProvider extends ChangeNotifier {
 
     try {
       _isLoading = true;
-      if (!_disposed) notifyListeners();
+      notifyListeners();
 
       await _authService.sendEmailVerification();
       _error = null;
@@ -249,7 +242,7 @@ class AppAuthProvider extends ChangeNotifier {
 
     try {
       _isLoading = true;
-      if (!_disposed) notifyListeners();
+      notifyListeners();
 
       await _authService.deleteAccount(password);
       // Auth state changes will handle the rest
@@ -270,9 +263,9 @@ class AppAuthProvider extends ChangeNotifier {
 
     try {
       _isLoading = true;
-      if (!_disposed) notifyListeners();
+      notifyListeners();
 
-      await _authService.updateUser Settings(newSettings);
+      await _authService.updateUserSettings(newSettings);
       _settings = Map<String, dynamic>.from(newSettings);
       _error = null;
     } catch (e) {
