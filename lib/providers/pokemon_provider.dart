@@ -137,7 +137,7 @@ class PokemonProvider extends ChangeNotifier {
       _requestTokens['pokemon_list'] = token;
 
       final newPokemon = await _executeRequest(
-        'pokemon_list_${_currentPage}',
+        'pokemon_list_$_currentPage',
         () => _pokemonService.getPokemonList(
           offset: _currentPage * 20,
           limit: 20,
