@@ -71,7 +71,8 @@ class FirebaseService {
       final doc = await _usersRef.doc(user.uid).get();
       if (!doc.exists) return null;
 
-      return UserModel.fromFirestore(doc as DocumentSnapshot<Map<String, dynamic>>);
+      return UserModel.fromFirestore(
+          doc as DocumentSnapshot<Map<String, dynamic>>);
     } catch (e) {
       if (kDebugMode) {
         print('❌ Error getting current user: $e');
@@ -104,12 +105,13 @@ class FirebaseService {
   Future<void> addToFavorites(String userId, FavoriteModel favorite) async {
     try {
       final docRef = _favoritesRef.doc(favorite.id);
-      
+
       await docRef.set(
-        favorite.toMap()..addAll({
-          'addedAt': FieldValue.serverTimestamp(),
-          'userId': userId,
-        }),
+        favorite.toMap()
+          ..addAll({
+            'addedAt': FieldValue.serverTimestamp(),
+            'userId': userId,
+          }),
       );
 
       // Update local cache
@@ -129,10 +131,10 @@ class FirebaseService {
       await _favoritesRef.doc(favoriteId).delete();
 
       // Update local cache
-      if (_cache['favorites_$userId'] != null) {
-        (_cache['favorites_$userId] as List).removeWhere(
-          (f) => f.id == favoriteId,
-        );
+      if (_cache.containsKey('favorites_$userId')) {
+        final favorites = _cache['favorites_$userId'] as List;
+        favorites.removeWhere((favorite) => favorite.id == favoriteId);
+        _cache['favorites_$userId'] = favorites;
       }
     } catch (e) {
       if (kDebugMode) {
@@ -176,7 +178,8 @@ class FirebaseService {
       if (!doc.exists) {
         return _getDefaultSettings();
       }
-      return (doc.data() as Map<String, dynamic>)['settings'] ?? _getDefaultSettings();
+      return (doc.data() as Map<String, dynamic>)['settings'] ??
+          _getDefaultSettings();
     } catch (e) {
       if (kDebugMode) {
         print('❌ Error getting user settings: $e');
@@ -252,7 +255,7 @@ class FirebaseService {
     Future<void> Function(WriteBatch batch) operations,
   ) async {
     final batch = _firestore.batch();
-    
+
     try {
       await operations(batch);
       await batch.commit();
@@ -287,7 +290,7 @@ class FirebaseService {
   }
 
   // Stream Transformers
-  
+
   // Transform snapshot to model
   Stream<T> transformSnapshot<T>(
     Stream<DocumentSnapshot> snapshot,
@@ -297,7 +300,7 @@ class FirebaseService {
   }
 
   // Error Handling
-  
+
   // Handle Firebase exceptions
   Exception handleFirebaseException(dynamic error) {
     if (error is FirebaseException) {
