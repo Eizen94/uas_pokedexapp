@@ -6,16 +6,19 @@ import 'package:firebase_auth/firebase_auth.dart' hide AuthProvider;
 import 'package:provider/provider.dart';
 import 'package:uas_pokedexapp/core/config/firebase_config.dart';
 import 'package:uas_pokedexapp/core/config/theme_config.dart';
+import 'package:uas_pokedexapp/core/wrappers/auth_state_wrapper.dart';
 import 'package:uas_pokedexapp/features/auth/screens/login_screen.dart';
 import 'package:uas_pokedexapp/features/auth/screens/register_screen.dart';
 import 'package:uas_pokedexapp/features/auth/screens/profile_screen.dart';
 import 'package:uas_pokedexapp/features/pokemon/screens/pokemon_list_screen.dart';
 import 'package:uas_pokedexapp/features/pokemon/screens/pokemon_detail_screen.dart';
+import 'package:uas_pokedexapp/features/favorites/screens/favorites_screen.dart';
 import 'package:uas_pokedexapp/features/test/screens/test_screen.dart';
 import 'package:uas_pokedexapp/providers/auth_provider.dart';
 import 'package:uas_pokedexapp/providers/theme_provider.dart';
 import 'package:uas_pokedexapp/providers/pokemon_provider.dart';
 import 'package:uas_pokedexapp/widgets/loading_indicator.dart';
+import 'package:uas_pokedexapp/widgets/error_dialog.dart';
 
 Future<void> main() async {
   try {
@@ -122,6 +125,7 @@ class MyApp extends StatelessWidget {
         '/profile': (context) => const ProfileScreen(),
         '/home': (context) => const PokemonListScreen(),
         '/pokemon/detail': (context) => const PokemonDetailScreen(),
+        '/favorites': (context) => const FavoritesScreen(),
         '/test': (context) => const TestScreen(), // Route for testing screen
       },
     );
