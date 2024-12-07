@@ -7,128 +7,295 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
-import 'request_manager.dart';
+import '../constants/api_paths.dart';
 
+/// Handles all API requests with caching, error handling and offline support.
+/// This is a standalone service that other components can use without circular dependencies.
 class ApiHelper {
+  // Singleton pattern
   static final ApiHelper _instance = ApiHelper._internal();
-  final http.Client _client = http.Client();
-  late final SharedPreferences _prefs;
-  final Map<String, dynamic> _memoryCache = {};
-  final Map<String, DateTime> _cacheTimestamps = {};
-  final RequestManager _requestManager = RequestManager();
-
-  // Constants
-  static const Duration defaultTimeout = Duration(seconds: 15);
-  static const Duration cacheDuration = Duration(hours: 24);
-
-  // Cache size limits
-  static const int maxMemoryCacheItems = 100;
-  static const int maxDiskCacheSize = 50 * 1024 * 1024; // 50MB
-
   factory ApiHelper() => _instance;
-
   ApiHelper._internal();
 
+  // Core components
+  final _client = http.Client();
+  late final SharedPreferences _prefs;
+  final _connectivity = Connectivity();
+
+  // Cache components with size limits and TTL
+  final _memoryCache = _LruCache<String, dynamic>(maxSize: 100);
+  final _requestQueue = <String, Completer<dynamic>>{};
+
+  // State management
+  bool _isInitialized = false;
+  bool _isDisposed = false;
+
+  // Constants
+  static const _defaultTimeout = Duration(seconds: 15);
+  static const _defaultCacheDuration = Duration(hours: 24);
+  static const _maxRetries = 3;
+  static const _retryDelay = Duration(seconds: 2);
+
+  /// Initialize the API helper with required configurations
   Future<void> initialize() async {
-    _prefs = await SharedPreferences.getInstance();
-    await _cleanOldCache();
+    if (_isInitialized) return;
+
+    try {
+      _prefs = await SharedPreferences.getInstance();
+      await _cleanExpiredCache();
+      _isInitialized = true;
+
+      if (kDebugMode) {
+        print('✅ ApiHelper initialized');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ ApiHelper initialization failed: $e');
+      }
+      rethrow;
+    }
   }
 
-  Future<ApiResponse<T>> get<T>(
-    String endpoint, {
+  /// Make a GET request with caching and error handling
+  Future<ApiResponse<T>> get<T>({
+    required String endpoint,
+    required T Function(Map<String, dynamic>) parser,
     Map<String, String>? headers,
     bool forceRefresh = false,
     bool useCache = true,
-    Duration timeout = defaultTimeout,
-    CancellationToken? cancellationToken,
-    required T Function(Map<String, dynamic>) parser,
+    Duration timeout = _defaultTimeout,
+    Duration cacheDuration = _defaultCacheDuration,
+    int maxRetries = _maxRetries,
   }) async {
-    final requestId = '${endpoint}_${DateTime.now().millisecondsSinceEpoch}';
+    if (!_isInitialized) {
+      throw StateError('ApiHelper not initialized');
+    }
+
+    final cacheKey = _generateCacheKey(endpoint);
 
     try {
-      return await _requestManager.executeRequest(
-        requestId: requestId,
-        timeout: timeout,
-        cancellationToken: cancellationToken,
-        requestFn: () async {
-          // Check connectivity first
-          final connectivityResult = await Connectivity().checkConnectivity();
-          final bool isOffline = connectivityResult == ConnectivityResult.none;
+      // Check connectivity first
+      final isOffline = await _isOffline();
 
-          // Handle offline scenario
-          if (isOffline) {
-            final cachedData = await _getCachedData(endpoint);
-            if (cachedData != null) {
-              if (kDebugMode) {
-                print('📦 Using offline cached data for: $endpoint');
+      // Try to get cached data if appropriate
+      if (!forceRefresh && useCache) {
+        final cachedData = await _getCachedData(cacheKey);
+        if (cachedData != null) {
+          if (kDebugMode) {
+            print('📦 Using cached data for: $endpoint');
+          }
+          return ApiResponse(
+            data: parser(cachedData),
+            source: isOffline ? DataSource.cache : DataSource.memoryCache,
+            status: ApiStatus.success,
+          );
+        }
+      }
+
+      // Return cached data or error if offline
+      if (isOffline) {
+        if (useCache) {
+          final cachedData = await _getCachedData(cacheKey);
+          if (cachedData != null) {
+            return ApiResponse(
+              data: parser(cachedData),
+              source: DataSource.cache,
+              status: ApiStatus.success,
+              message: 'Using cached data while offline',
+            );
+          }
+        }
+        throw const ApiException.noInternet();
+      }
+
+      // Check for existing request to same endpoint
+      if (_requestQueue.containsKey(endpoint)) {
+        final completer = _requestQueue[endpoint]!;
+        final result = await completer.future;
+        return ApiResponse(
+          data: parser(result),
+          source: DataSource.network,
+          status: ApiStatus.success,
+        );
+      }
+
+      // Make new request with retry logic
+      return await _executeWithRetry(
+        maxRetries: maxRetries,
+        operation: () async {
+          final completer = Completer<dynamic>();
+          _requestQueue[endpoint] = completer;
+
+          try {
+            final response = await _client
+                .get(Uri.parse(endpoint), headers: headers)
+                .timeout(timeout);
+
+            if (response.statusCode == 200) {
+              final jsonData =
+                  json.decode(response.body) as Map<String, dynamic>;
+
+              // Cache successful response
+              if (useCache) {
+                await _cacheData(cacheKey, jsonData, cacheDuration);
               }
+
+              completer.complete(jsonData);
               return ApiResponse(
-                data: parser(cachedData),
-                source: DataSource.cache,
+                data: parser(jsonData),
+                source: DataSource.network,
                 status: ApiStatus.success,
               );
+            } else {
+              throw ApiException.fromStatusCode(response.statusCode);
             }
-            throw const NoInternetException();
-          }
-
-          // Check memory cache if not forcing refresh
-          if (!forceRefresh && useCache && _hasValidMemoryCache(endpoint)) {
-            if (kDebugMode) {
-              print('💾 Using memory cache for: $endpoint');
-            }
-            return ApiResponse(
-              data: parser(_memoryCache[endpoint]),
-              source: DataSource.memoryCache,
-              status: ApiStatus.success,
-            );
-          }
-
-          // Make network request
-          final response = await _client
-              .get(Uri.parse(endpoint), headers: headers)
-              .timeout(timeout);
-
-          if (response.statusCode == 200) {
-            final jsonData = json.decode(response.body) as Map<String, dynamic>;
-
-            // Cache successful response
-            if (useCache) {
-              await _cacheData(endpoint, jsonData);
-            }
-
-            return ApiResponse(
-              data: parser(jsonData),
-              source: DataSource.network,
-              status: ApiStatus.success,
-            );
-          } else {
-            throw HttpException('Server error: ${response.statusCode}');
+          } catch (e) {
+            completer.completeError(e);
+            rethrow;
+          } finally {
+            _requestQueue.remove(endpoint);
           }
         },
       );
     } on TimeoutException {
-      return _handleTimeoutError(endpoint, parser);
+      return _handleTimeoutError(cacheKey, parser);
     } on SocketException {
-      return _handleConnectionError(endpoint, parser);
-    } on RequestCancelledException {
-      return ApiResponse(
-        status: ApiStatus.cancelled,
-        error: const RequestCancelledException(),
-        message: 'Request was cancelled',
-      );
+      return _handleConnectionError(cacheKey, parser);
+    } on ApiException catch (e) {
+      return _handleApiError(e, cacheKey, parser);
     } catch (e) {
-      return _handleGeneralError(e, endpoint, parser);
+      return _handleUnexpectedError(e, cacheKey, parser);
     }
   }
 
+  /// Execute operation with retry logic
+  Future<T> _executeWithRetry<T>({
+    required Future<T> Function() operation,
+    required int maxRetries,
+  }) async {
+    int attempts = 0;
+    while (true) {
+      try {
+        attempts++;
+        return await operation();
+      } catch (e) {
+        if (attempts >= maxRetries) rethrow;
+        if (e is ApiException && !e.isRetryable) rethrow;
+
+        await Future.delayed(_retryDelay * attempts);
+
+        if (kDebugMode) {
+          print('🔄 Retry attempt $attempts');
+        }
+      }
+    }
+  }
+
+  /// Check if device is offline
+  Future<bool> _isOffline() async {
+    final result = await _connectivity.checkConnectivity();
+    return result == ConnectivityResult.none;
+  }
+
+  /// Generate cache key for endpoint
+  String _generateCacheKey(String endpoint) {
+    return 'api_cache_${endpoint.hashCode}';
+  }
+
+  /// Get cached data from memory or disk
+  Future<Map<String, dynamic>?> _getCachedData(String key) async {
+    // Check memory cache first
+    final memoryData = _memoryCache.get(key);
+    if (memoryData != null) return memoryData;
+
+    // Check disk cache
+    try {
+      final cachedJson = _prefs.getString(key);
+      final timestampKey = '${key}_timestamp';
+      final timestamp = _prefs.getInt(timestampKey);
+
+      if (cachedJson != null && timestamp != null) {
+        final cacheAge = DateTime.now().difference(
+          DateTime.fromMillisecondsSinceEpoch(timestamp),
+        );
+
+        if (cacheAge < _defaultCacheDuration) {
+          final data = json.decode(cachedJson) as Map<String, dynamic>;
+          _memoryCache.put(key, data);
+          return data;
+        } else {
+          // Clean expired cache
+          await Future.wait([
+            _prefs.remove(key),
+            _prefs.remove(timestampKey),
+          ]);
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('⚠️ Cache retrieval error: $e');
+      }
+    }
+    return null;
+  }
+
+  /// Cache data in memory and disk
+  Future<void> _cacheData(
+    String key,
+    Map<String, dynamic> data,
+    Duration duration,
+  ) async {
+    try {
+      // Memory cache
+      _memoryCache.put(key, data);
+
+      // Disk cache
+      final jsonString = json.encode(data);
+      await Future.wait([
+        _prefs.setString(key, jsonString),
+        _prefs.setInt(
+          '${key}_timestamp',
+          DateTime.now().millisecondsSinceEpoch,
+        ),
+      ]);
+    } catch (e) {
+      if (kDebugMode) {
+        print('⚠️ Cache storage error: $e');
+      }
+    }
+  }
+
+  /// Clean expired cache entries
+  Future<void> _cleanExpiredCache() async {
+    final now = DateTime.now();
+    final keys = _prefs.getKeys().where((k) => k.startsWith('api_cache_'));
+
+    for (final key in keys) {
+      final timestamp = _prefs.getInt('${key}_timestamp');
+      if (timestamp != null) {
+        final age = now.difference(
+          DateTime.fromMillisecondsSinceEpoch(timestamp),
+        );
+        if (age > _defaultCacheDuration) {
+          await Future.wait([
+            _prefs.remove(key),
+            _prefs.remove('${key}_timestamp'),
+          ]);
+        }
+      }
+    }
+  }
+
+  /// Handle timeout errors
   Future<ApiResponse<T>> _handleTimeoutError<T>(
-    String endpoint,
+    String cacheKey,
     T Function(Map<String, dynamic>) parser,
   ) async {
     if (kDebugMode) {
-      print('⌛ Request timeout for: $endpoint');
+      print('⌛ Request timeout');
     }
-    final cachedData = await _getCachedData(endpoint);
+
+    final cachedData = await _getCachedData(cacheKey);
     if (cachedData != null) {
       return ApiResponse(
         data: parser(cachedData),
@@ -137,20 +304,23 @@ class ApiHelper {
         message: 'Using cached data due to timeout',
       );
     }
+
     return ApiResponse(
       status: ApiStatus.error,
-      error: TimeoutException('Request timed out'),
+      error: const ApiException.timeout(),
     );
   }
 
+  /// Handle connection errors
   Future<ApiResponse<T>> _handleConnectionError<T>(
-    String endpoint,
+    String cacheKey,
     T Function(Map<String, dynamic>) parser,
   ) async {
     if (kDebugMode) {
-      print('🌐 Connection error for: $endpoint');
+      print('🌐 Connection error');
     }
-    final cachedData = await _getCachedData(endpoint);
+
+    final cachedData = await _getCachedData(cacheKey);
     if (cachedData != null) {
       return ApiResponse(
         data: parser(cachedData),
@@ -159,198 +329,137 @@ class ApiHelper {
         message: 'Using cached data due to connection error',
       );
     }
+
     return ApiResponse(
       status: ApiStatus.error,
-      error: const NoInternetException(),
+      error: const ApiException.noInternet(),
     );
   }
 
-  Future<ApiResponse<T>> _handleGeneralError<T>(
-    dynamic error,
-    String endpoint,
+  /// Handle API errors
+  Future<ApiResponse<T>> _handleApiError<T>(
+    ApiException error,
+    String cacheKey,
     T Function(Map<String, dynamic>) parser,
   ) async {
     if (kDebugMode) {
-      print('❌ Error for $endpoint: $error');
+      print('🔴 API error: ${error.message}');
     }
-    final cachedData = await _getCachedData(endpoint);
-    if (cachedData != null) {
+
+    final cachedData = await _getCachedData(cacheKey);
+    if (cachedData != null && error.shouldUseCachedData) {
       return ApiResponse(
         data: parser(cachedData),
         source: DataSource.cache,
         status: ApiStatus.success,
-        message: 'Using cached data due to error',
+        message: 'Using cached data due to API error',
       );
     }
+
     return ApiResponse(
       status: ApiStatus.error,
       error: error,
     );
   }
 
-  bool _hasValidMemoryCache(String key) {
-    if (!_memoryCache.containsKey(key) || !_cacheTimestamps.containsKey(key)) {
-      return false;
-    }
-    final timestamp = _cacheTimestamps[key]!;
-    return DateTime.now().difference(timestamp) < cacheDuration;
-  }
-
-  Future<Map<String, dynamic>?> _getCachedData(String key) async {
-    try {
-      // Check memory cache first
-      if (_hasValidMemoryCache(key)) {
-        return _memoryCache[key];
-      }
-
-      // Check disk cache
-      final cacheKey = _generateCacheKey(key);
-      final cachedJson = _prefs.getString(cacheKey);
-      if (cachedJson != null) {
-        final data = json.decode(cachedJson) as Map<String, dynamic>;
-        // Update memory cache
-        _memoryCache[key] = data;
-        _cacheTimestamps[key] = DateTime.now();
-        return data;
-      }
-    } catch (e) {
-      if (kDebugMode) {
-        print('Cache retrieval error: $e');
-      }
-    }
-    return null;
-  }
-
-  Future<void> _cacheData(String key, Map<String, dynamic> data) async {
-    try {
-      // Memory cache
-      _memoryCache[key] = data;
-      _cacheTimestamps[key] = DateTime.now();
-
-      // Manage memory cache size
-      if (_memoryCache.length > maxMemoryCacheItems) {
-        _clearOldestMemoryCache();
-      }
-
-      // Disk cache
-      final cacheKey = _generateCacheKey(key);
-      final jsonString = json.encode(data);
-      await _prefs.setString(cacheKey, jsonString);
-
-      // Manage disk cache size
-      await _manageDiskCacheSize();
-    } catch (e) {
-      if (kDebugMode) {
-        print('Cache storage error: $e');
-      }
-    }
-  }
-
-  void _clearOldestMemoryCache() {
-    if (_cacheTimestamps.isEmpty) return;
-
-    final oldestKey = _cacheTimestamps.entries
-        .reduce((a, b) => a.value.isBefore(b.value) ? a : b)
-        .key;
-
-    _memoryCache.remove(oldestKey);
-    _cacheTimestamps.remove(oldestKey);
-  }
-
-  Future<void> _manageDiskCacheSize() async {
-    final keys =
-        _prefs.getKeys().where((k) => k.startsWith('api_cache_')).toList();
-    int totalSize = 0;
-
-    // Calculate total cache size
-    for (final key in keys) {
-      totalSize += (_prefs.getString(key)?.length.toInt() ?? 0);
+  /// Handle unexpected errors
+  Future<ApiResponse<T>> _handleUnexpectedError<T>(
+    dynamic error,
+    String cacheKey,
+    T Function(Map<String, dynamic>) parser,
+  ) async {
+    if (kDebugMode) {
+      print('❌ Unexpected error: $error');
     }
 
-    // Remove oldest entries if size exceeds limit
-    if (totalSize > maxDiskCacheSize) {
-      keys.sort((a, b) {
-        final aTime = DateTime.fromMillisecondsSinceEpoch(
-            _prefs.getInt('${a}_timestamp') ?? 0);
-        final bTime = DateTime.fromMillisecondsSinceEpoch(
-            _prefs.getInt('${b}_timestamp') ?? 0);
-        return aTime.compareTo(bTime);
-      });
-
-      for (final key in keys) {
-        if (totalSize <= maxDiskCacheSize) break;
-        final size = (_prefs.getString(key)?.length.toInt() ?? 0);
-        _prefs.remove(key);
-        _prefs.remove('${key}_timestamp');
-        totalSize -= size;
-      }
+    final cachedData = await _getCachedData(cacheKey);
+    if (cachedData != null) {
+      return ApiResponse(
+        data: parser(cachedData),
+        source: DataSource.cache,
+        status: ApiStatus.success,
+        message: 'Using cached data due to unexpected error',
+      );
     }
+
+    return ApiResponse(
+      status: ApiStatus.error,
+      error: ApiException.unexpected(error),
+    );
   }
 
-  String _generateCacheKey(String endpoint) {
-    return 'api_cache_${endpoint.hashCode}';
-  }
-
-  Future<void> _cleanOldCache() async {
-    final now = DateTime.now();
-
-    // Clean memory cache
-    _cacheTimestamps.removeWhere(
-        (key, timestamp) => now.difference(timestamp) > cacheDuration);
-    _memoryCache.removeWhere((key, _) => !_cacheTimestamps.containsKey(key));
-
-    // Clean disk cache
-    final keys = _prefs.getKeys().where((k) => k.startsWith('api_cache_'));
-    for (final key in keys) {
-      final timestamp = _prefs.getInt('${key}_timestamp');
-      if (timestamp != null &&
-          now.difference(DateTime.fromMillisecondsSinceEpoch(timestamp)) >
-              cacheDuration) {
-        _prefs.remove(key);
-        _prefs.remove('${key}_timestamp');
-      }
-    }
-  }
-
-  // Cancel specific request
-  void cancelRequest(String endpoint) {
-    final requestId = '${endpoint}_${DateTime.now().millisecondsSinceEpoch}';
-    _requestManager.cancelRequest(requestId);
-  }
-
-  // Cancel all requests
-  void cancelAllRequests() {
-    _requestManager.cancelAllRequests();
-  }
-
-  // Clear specific cache
+  /// Clear specific cache entry
   Future<void> clearCache(String endpoint) async {
-    final cacheKey = _generateCacheKey(endpoint);
-    _memoryCache.remove(endpoint);
-    _cacheTimestamps.remove(endpoint);
-    await _prefs.remove(cacheKey);
-    await _prefs.remove('${cacheKey}_timestamp');
+    final key = _generateCacheKey(endpoint);
+    _memoryCache.remove(key);
+    await Future.wait([
+      _prefs.remove(key),
+      _prefs.remove('${key}_timestamp'),
+    ]);
   }
 
-  // Clear all cache
+  /// Clear all cache
   Future<void> clearAllCache() async {
     _memoryCache.clear();
-    _cacheTimestamps.clear();
-
     final keys = _prefs.getKeys().where((k) => k.startsWith('api_cache_'));
-    for (final key in keys) {
-      await _prefs.remove(key);
-      await _prefs.remove('${key}_timestamp');
-    }
+    await Future.wait([
+      for (final key in keys) ...[
+        _prefs.remove(key),
+        _prefs.remove('${key}_timestamp'),
+      ],
+    ]);
   }
 
+  /// Resource cleanup
   void dispose() {
-    _requestManager.dispose();
+    _isDisposed = true;
     _client.close();
+    _memoryCache.clear();
+    _requestQueue.clear();
   }
 }
 
-// Response model for better type safety and error handling
+/// LRU Cache implementation for memory caching
+class _LruCache<K, V> {
+  final int maxSize;
+  final _cache = <K, V>{};
+  final _accessOrder = <K>[];
+
+  _LruCache({required this.maxSize});
+
+  V? get(K key) {
+    final value = _cache[key];
+    if (value != null) {
+      // Move to most recently used
+      _accessOrder.remove(key);
+      _accessOrder.add(key);
+    }
+    return value;
+  }
+
+  void put(K key, V value) {
+    if (_cache.length >= maxSize && !_cache.containsKey(key)) {
+      // Remove least recently used
+      final lru = _accessOrder.removeAt(0);
+      _cache.remove(lru);
+    }
+    _cache[key] = value;
+    _accessOrder.remove(key);
+    _accessOrder.add(key);
+  }
+
+  void remove(K key) {
+    _cache.remove(key);
+    _accessOrder.remove(key);
+  }
+
+  void clear() {
+    _cache.clear();
+    _accessOrder.clear();
+  }
+}
+
+/// API Response wrapper
 class ApiResponse<T> {
   final T? data;
   final DataSource? source;
@@ -358,7 +467,7 @@ class ApiResponse<T> {
   final dynamic error;
   final String? message;
 
-  ApiResponse({
+  const ApiResponse({
     this.data,
     this.source,
     required this.status,
@@ -368,17 +477,89 @@ class ApiResponse<T> {
 
   bool get isSuccess => status == ApiStatus.success;
   bool get isError => status == ApiStatus.error;
-  bool get isCancelled => status == ApiStatus.cancelled;
   bool get isCached =>
       source == DataSource.cache || source == DataSource.memoryCache;
 }
 
-enum ApiStatus { success, error, cancelled }
+/// API Exception handling
+class ApiException implements Exception {
+  final String message;
+  final int? statusCode;
+  final bool isRetryable;
+  final bool shouldUseCachedData;
 
+  const ApiException({
+    required this.message,
+    this.statusCode,
+    this.isRetryable = true,
+    this.shouldUseCachedData = true,
+  });
+
+  const ApiException.noInternet()
+      : message = 'No internet connection',
+        statusCode = null,
+        isRetryable = true,
+        shouldUseCachedData = true;
+
+  const ApiException.timeout()
+      : message = 'Request timed out',
+        statusCode = null,
+        isRetryable = true,
+        shouldUseCachedData = true;
+
+  const ApiException.serverError()
+      : message = 'Server error occurred',
+        statusCode = 500,
+        isRetryable = true,
+        shouldUseCachedData = true;
+
+  const ApiException.invalidResponse()
+      : message = 'Invalid response from server',
+        statusCode = null,
+        isRetryable = false,
+        shouldUseCachedData = true;
+
+  ApiException.fromStatusCode(int code)
+      : message = _getMessageForStatusCode(code),
+        statusCode = code,
+        isRetryable = code >= 500,
+        shouldUseCachedData = code >= 500;
+
+  ApiException.unexpected(dynamic error)
+      : message = 'Unexpected error: ${error.toString()}',
+        statusCode = null,
+        isRetryable = true,
+        shouldUseCachedData = true;
+
+  static String _getMessageForStatusCode(int statusCode) {
+    switch (statusCode) {
+      case 400:
+        return 'Bad request';
+      case 401:
+        return 'Unauthorized';
+      case 403:
+        return 'Forbidden';
+      case 404:
+        return 'Not found';
+      case 429:
+        return 'Too many requests';
+      case 500:
+        return 'Internal server error';
+      case 502:
+        return 'Bad gateway';
+      case 503:
+        return 'Service unavailable';
+      default:
+        return 'HTTP Error $statusCode';
+    }
+  }
+
+  @override
+  String toString() => 'ApiException: $message';
+}
+
+/// API request source
 enum DataSource { network, cache, memoryCache }
 
-class NoInternetException implements Exception {
-  const NoInternetException();
-  @override
-  String toString() => 'No internet connection';
-}
+/// API response status
+enum ApiStatus { success, error }
