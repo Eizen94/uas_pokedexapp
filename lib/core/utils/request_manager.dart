@@ -86,7 +86,6 @@ class RequestManager {
       _activeTokens.clear();
       return;
       _activeTokens[id] = token;
-      return;
     });
 
     try {
@@ -277,10 +276,12 @@ class RequestManager {
   /// Clean up request resources safely
   Future<void> _cleanupRequest(String id) async {
     _pendingRequests.remove(id);
-    await _tokenLock.synchronized(() {
+    await _tokenLock.synchronized(() async {
       _activeTokens.remove(id);
+      return;
     });
     _lifecycleManager.removeRequest(id);
+    return;
   }
 
   /// Stop queue processor
