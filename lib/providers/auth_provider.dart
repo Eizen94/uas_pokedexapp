@@ -1,5 +1,6 @@
 // lib/providers/auth_provider.dart
 
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:firebase_auth/firebase_auth.dart' hide AuthProvider;
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -17,68 +18,107 @@ class AppAuthProvider extends ChangeNotifier {
     'notifications': true
   };
 
+  StreamSubscription<User?>? _authStateSubscription;
+  StreamSubscription<DocumentSnapshot>? _settingsSubscription;
+
   // Getters
   User? get user => _user;
   bool get isLoading => _isLoading;
   bool get isInitialized => _isInitialized;
   bool get isAuthenticated => _user != null;
   String? get error => _error;
-  Map<String, dynamic> get settings => _settings;
-  Stream<User?> get authStateChanges => _authService.authStateChanges;
+  Map<String, dynamic> get settings => Map.unmodifiable(_settings);
+  Stream<User?> get authStateChanges =>
+      FirebaseAuth.instance.authStateChanges();
+  Stream<DocumentSnapshot> get userSettingsStream =>
+      _authService.userSettingsStream();
+
+  bool _disposed = false;
 
   // Constructor
   AppAuthProvider() {
-    _init();
+    _initializeAuth();
   }
 
-  // Initialize the provider
-  Future<void> _init() async {
+  Future<void> _initializeAuth() async {
     try {
-      _setLoading(true);
-
       _user = _authService.currentUser;
 
-      // Listen to auth state changes
-      _authService.authStateChanges.listen(_handleAuthStateChange);
+      // Setup auth state listener
+      _authStateSubscription =
+          FirebaseAuth.instance.authStateChanges().listen((User? user) async {
+        _user = user;
+        if (user != null) {
+          await _loadUserSettings();
+          _setupSettingsListener();
+        } else {
+          _resetSettings();
+          await _settingsSubscription?.cancel();
+        }
+        // Only notify if the provider hasn't been disposed
+        if (!_disposed) {
+          notifyListeners();
+        }
+      });
 
-      // Listen to user settings if authenticated
       if (_user != null) {
         await _loadUserSettings();
+        _setupSettingsListener();
       }
 
       _isInitialized = true;
+      if (!_disposed) {
+        notifyListeners();
+      }
     } catch (e) {
-      _setError(e.toString());
-    } finally {
-      _setLoading(false);
+      _error = e.toString();
+      if (!_disposed) {
+        notifyListeners();
+      }
     }
   }
 
-  // Handle auth state changes
-  void _handleAuthStateChange(User? user) async {
-    _user = user;
-    if (user != null) {
-      await _loadUserSettings();
-    } else {
-      _resetSettings();
+  void _setupSettingsListener() {
+    _settingsSubscription?.cancel();
+    if (_user != null) {
+      _settingsSubscription = userSettingsStream.listen((snapshot) {
+        if (snapshot.exists) {
+          final data = snapshot.data() as Map<String, dynamic>?;
+          if (data != null && data['settings'] != null) {
+            _settings = Map<String, dynamic>.from(data['settings']);
+            if (!_disposed) {
+              notifyListeners();
+            }
+          }
+        }
+      });
     }
-    notifyListeners();
   }
 
-  // Reset settings to default
+  @override
+  void dispose() {
+    _disposed = true;
+    _authStateSubscription?.cancel();
+    _settingsSubscription?.cancel();
+    super.dispose();
+  }
+
   void _resetSettings() {
     _settings = {'theme': 'light', 'language': 'en', 'notifications': true};
   }
 
-  // Load user settings
   Future<void> _loadUserSettings() async {
+    if (_user == null) return;
+
     try {
       final doc = await _authService.getUserDocument();
       if (doc != null && doc.exists) {
         final data = doc.data() as Map<String, dynamic>?;
         if (data != null && data['settings'] != null) {
           _settings = Map<String, dynamic>.from(data['settings']);
-          notifyListeners();
+          if (!_disposed) {
+            notifyListeners();
+          }
         }
       }
     } catch (e) {
@@ -89,153 +129,154 @@ class AppAuthProvider extends ChangeNotifier {
     }
   }
 
-  // Sign in with email and password
   Future<void> signIn(String email, String password) async {
+    if (_disposed) return;
+
     try {
-      _setLoading(true);
-      _clearError();
+      _isLoading = true;
+      notifyListeners();
 
       await _authService.signInWithEmailAndPassword(
         email: email,
         password: password,
       );
 
-      await _loadUserSettings();
+      _error = null;
     } catch (e) {
-      _setError(e.toString());
+      _error = e.toString();
       rethrow;
     } finally {
-      _setLoading(false);
+      _isLoading = false;
+      if (!_disposed) {
+        notifyListeners();
+      }
     }
   }
 
-  // Sign up with email and password
   Future<void> signUp(String email, String password) async {
+    if (_disposed) return;
+
     try {
-      _setLoading(true);
-      _clearError();
+      _isLoading = true;
+      notifyListeners();
 
       await _authService.registerWithEmailAndPassword(
         email: email,
         password: password,
       );
 
-      await _loadUserSettings();
+      _error = null;
     } catch (e) {
-      _setError(e.toString());
+      _error = e.toString();
       rethrow;
     } finally {
-      _setLoading(false);
+      _isLoading = false;
+      if (!_disposed) {
+        notifyListeners();
+      }
     }
   }
 
-  // Sign out
   Future<void> signOut() async {
+    if (_disposed) return;
+
     try {
-      _setLoading(true);
-      _clearError();
+      _isLoading = true;
+      notifyListeners();
 
       await _authService.signOut();
-      _resetSettings();
-      _user = null;
+      // Auth state changes will handle the rest
     } catch (e) {
-      _setError(e.toString());
+      _error = e.toString();
       rethrow;
     } finally {
-      _setLoading(false);
+      _isLoading = false;
+      if (!_disposed) {
+        notifyListeners();
+      }
     }
   }
 
-  // Update user settings
-  Future<void> updateSettings(Map<String, dynamic> newSettings) async {
-    try {
-      _setLoading(true);
-      _clearError();
+  Future<void> resetPassword(String email) async {
+    if (_disposed) return;
 
-      if (!isAuthenticated) {
-        throw Exception('User must be authenticated to update settings');
+    try {
+      _isLoading = true;
+      notifyListeners();
+
+      await _authService.sendPasswordResetEmail(email);
+      _error = null;
+    } catch (e) {
+      _error = e.toString();
+      rethrow;
+    } finally {
+      _isLoading = false;
+      if (!_disposed) {
+        notifyListeners();
       }
+    }
+  }
+
+  Future<void> sendEmailVerification() async {
+    if (_disposed || !isAuthenticated) return;
+
+    try {
+      _isLoading = true;
+      notifyListeners();
+
+      await _authService.sendEmailVerification();
+      _error = null;
+    } catch (e) {
+      _error = e.toString();
+      rethrow;
+    } finally {
+      _isLoading = false;
+      if (!_disposed) {
+        notifyListeners();
+      }
+    }
+  }
+
+  Future<void> deleteAccount(String password) async {
+    if (_disposed || !isAuthenticated) return;
+
+    try {
+      _isLoading = true;
+      notifyListeners();
+
+      await _authService.deleteAccount(password);
+      // Auth state changes will handle the rest
+      _error = null;
+    } catch (e) {
+      _error = e.toString();
+      rethrow;
+    } finally {
+      _isLoading = false;
+      if (!_disposed) {
+        notifyListeners();
+      }
+    }
+  }
+
+  Future<void> updateSettings(Map<String, dynamic> newSettings) async {
+    if (_disposed || !isAuthenticated) return;
+
+    try {
+      _isLoading = true;
+      notifyListeners();
 
       await _authService.updateUserSettings(newSettings);
       _settings = Map<String, dynamic>.from(newSettings);
-      notifyListeners();
+      _error = null;
     } catch (e) {
-      _setError(e.toString());
+      _error = e.toString();
       rethrow;
     } finally {
-      _setLoading(false);
-    }
-  }
-
-  // Send password reset email
-  Future<void> resetPassword(String email) async {
-    try {
-      _setLoading(true);
-      _clearError();
-
-      await _authService.sendPasswordResetEmail(email);
-    } catch (e) {
-      _setError(e.toString());
-      rethrow;
-    } finally {
-      _setLoading(false);
-    }
-  }
-
-  // Send email verification
-  Future<void> sendEmailVerification() async {
-    try {
-      _setLoading(true);
-      _clearError();
-
-      if (!isAuthenticated) {
-        throw Exception('User must be authenticated to verify email');
+      _isLoading = false;
+      if (!_disposed) {
+        notifyListeners();
       }
-
-      await _authService.sendEmailVerification();
-    } catch (e) {
-      _setError(e.toString());
-      rethrow;
-    } finally {
-      _setLoading(false);
     }
-  }
-
-  // Delete account
-  Future<void> deleteAccount(String password) async {
-    try {
-      _setLoading(true);
-      _clearError();
-
-      if (!isAuthenticated) {
-        throw Exception('User must be authenticated to delete account');
-      }
-
-      await _authService.deleteAccount(password);
-      _resetSettings();
-      _user = null;
-    } catch (e) {
-      _setError(e.toString());
-      rethrow;
-    } finally {
-      _setLoading(false);
-    }
-  }
-
-  // State management helpers
-  void _setLoading(bool value) {
-    _isLoading = value;
-    notifyListeners();
-  }
-
-  void _setError(String error) {
-    _error = error;
-    notifyListeners();
-  }
-
-  void _clearError() {
-    _error = null;
-    notifyListeners();
   }
 
   // Utility getters
@@ -250,8 +291,4 @@ class AppAuthProvider extends ChangeNotifier {
   bool get isAnonymous => _user?.isAnonymous ?? true;
   DateTime? get userCreationTime => _user?.metadata.creationTime;
   DateTime? get lastSignInTime => _user?.metadata.lastSignInTime;
-
-  // Listen to settings changes
-  Stream<DocumentSnapshot> get userSettingsStream =>
-      _authService.userSettingsStream();
 }
