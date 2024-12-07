@@ -1,35 +1,49 @@
 // lib/providers/pokemon_provider.dart
 
+import 'dart:async';
 import 'package:flutter/foundation.dart';
+import 'package:collection/collection.dart';
 import '../features/pokemon/models/pokemon_model.dart';
 import '../features/pokemon/models/pokemon_detail_model.dart';
 import '../features/pokemon/services/pokemon_service.dart';
 import '../core/utils/request_manager.dart';
+import '../core/utils/connectivity_manager.dart';
+import '../core/utils/cancellation_token.dart';
 import 'auth_provider.dart';
 
 class PokemonProvider extends ChangeNotifier {
+  // Services
   final PokemonService _pokemonService = PokemonService();
+  final ConnectivityManager _connectivityManager = ConnectivityManager();
 
+  // Cache & Data Management
+  final Map<String, Timer> _cacheExpiryTimers = {};
+  final Map<String, Completer<void>> _pendingRequests = {};
+  static const Duration _cacheTimeout = Duration(hours: 24);
+  static const int _maxCacheItems = 100;
+
+  // Pokemon Data Storage
   final List<PokemonModel> _pokemonList = [];
   List<PokemonModel> _filteredList = [];
   final Map<int, PokemonDetailModel> _pokemonDetails = {};
 
+  // Pagination & Search
+  int _currentPage = 0;
+  bool _hasMore = true;
+  String _searchQuery = '';
   bool _isLoading = false;
   bool _isLoadingMore = false;
-  bool _hasMore = true;
   String _error = '';
-  int _currentPage = 0;
-  String _searchQuery = '';
 
-  // Auth state
+  // Request Tracking & Memory Management
+  final Map<String, CancellationToken> _requestTokens = {};
+  bool _isDisposed = false;
+
+  // Auth State
   AppAuthProvider? _authProvider;
   bool get isAuthenticated => _authProvider?.isAuthenticated ?? false;
 
-  // Request tracking
-  CancellationToken? _listToken;
-  final Map<String, CancellationToken> _detailTokens = {};
-
-  // Getters
+  // Public Getters
   List<PokemonModel> get pokemonList => _filteredList;
   Map<int, PokemonDetailModel> get pokemonDetails =>
       Map.unmodifiable(_pokemonDetails);
@@ -41,54 +55,70 @@ class PokemonProvider extends ChangeNotifier {
   String get searchQuery => _searchQuery;
   int get currentPage => _currentPage;
 
-  // Update auth state
-  void updateAuth(AppAuthProvider auth) {
-    _authProvider = auth;
-    if (auth.isAuthenticated) {
-      _loadUserPreferences();
-    } else {
-      _resetState();
-    }
-  }
+  // Memory Management Methods
+  void _cleanupCache() {
+    if (_pokemonDetails.length > _maxCacheItems) {
+      // Remove least recently used items
+      final sortedKeys = _pokemonDetails.keys.toList()
+        ..sort((a, b) =>
+            _cacheExpiryTimers[a.toString()]?.tick.compareTo(
+                  _cacheExpiryTimers[b.toString()]?.tick ?? 0,
+                ) ??
+            0);
 
-  // Load user preferences
-  Future<void> _loadUserPreferences() async {
-    if (_authProvider?.user == null) return;
-    try {
-      // Load any user-specific Pokemon preferences
-      // Like favorite Pokemon, view settings, etc.
-    } catch (e) {
-      if (kDebugMode) {
-        print('Error loading user preferences: $e');
+      for (var i = 0; i < sortedKeys.length - _maxCacheItems; i++) {
+        _removeFromCache(sortedKeys[i]);
       }
     }
   }
 
-  // Reset state when user logs out
-  void _resetState() {
-    _pokemonList.clear();
-    _filteredList.clear();
-    _pokemonDetails.clear();
-    _currentPage = 0;
-    _hasMore = true;
-    _error = '';
-    _searchQuery = '';
-    cancelAllRequests();
-    notifyListeners();
+  void _removeFromCache(int id) {
+    _pokemonDetails.remove(id);
+    _cacheExpiryTimers[id.toString()]?.cancel();
+    _cacheExpiryTimers.remove(id.toString());
   }
 
-  // Methods for accessing details
-  PokemonDetailModel? getPokemonById(int id) => _pokemonDetails[id];
-  bool hasDetailsFor(int id) => _pokemonDetails.containsKey(id);
+  void _setCacheExpiry(int id) {
+    _cacheExpiryTimers[id.toString()]?.cancel();
+    _cacheExpiryTimers[id.toString()] = Timer(_cacheTimeout, () {
+      if (!_isDisposed) {
+        _removeFromCache(id);
+      }
+    });
+  }
 
-  // Initialize
+  // Request Management
+  Future<T?> _executeRequest<T>(
+    String key,
+    Future<T> Function() request,
+  ) async {
+    // Check for pending request
+    if (_pendingRequests.containsKey(key)) {
+      return _pendingRequests[key]!.future.then((_) => null);
+    }
+
+    final completer = Completer<void>();
+    _pendingRequests[key] = completer;
+
+    try {
+      final result = await request();
+      completer.complete();
+      _pendingRequests.remove(key);
+      return result;
+    } catch (e) {
+      completer.completeError(e);
+      _pendingRequests.remove(key);
+      rethrow;
+    }
+  }
+
+  // Pokemon List Management
   Future<void> initializePokemonList() async {
     if (_pokemonList.isEmpty) {
       await loadPokemon(showLoading: true);
     }
   }
 
-  // Load Pokemon List
   Future<void> loadPokemon({bool showLoading = false}) async {
     if (_isLoading || (_isLoadingMore && !showLoading)) return;
 
@@ -101,26 +131,27 @@ class PokemonProvider extends ChangeNotifier {
       }
       notifyListeners();
 
-      // Cancel previous request if exists
-      _listToken?.cancel();
-      _listToken = CancellationToken();
+      // Cancel previous request
+      _requestTokens['pokemon_list']?.cancel();
+      final token = CancellationToken();
+      _requestTokens['pokemon_list'] = token;
 
-      final newPokemon = await _pokemonService.getPokemonList(
-        offset: _currentPage * 20,
-        limit: 20,
-        cancellationToken: _listToken,
+      final newPokemon = await _executeRequest(
+        'pokemon_list_${_currentPage}',
+        () => _pokemonService.getPokemonList(
+          offset: _currentPage * 20,
+          limit: 20,
+          cancellationToken: token,
+        ),
       );
 
-      if (!showLoading && _pokemonList.isEmpty) {
-        _setLoading(false);
-        return;
+      if (newPokemon != null) {
+        _pokemonList.addAll(newPokemon);
+        _filterPokemon(_searchQuery);
+        _currentPage++;
+        _hasMore = newPokemon.length == 20;
+        _error = '';
       }
-
-      _pokemonList.addAll(newPokemon);
-      _filterPokemon(_searchQuery);
-      _currentPage++;
-      _hasMore = newPokemon.length == 20;
-      _error = '';
     } catch (e) {
       if (e is! RequestCancelledException) {
         _error = e.toString();
@@ -135,26 +166,35 @@ class PokemonProvider extends ChangeNotifier {
     }
   }
 
-  // Load Pokemon Detail
+  // Pokemon Detail Management
   Future<PokemonDetailModel?> getPokemonDetail(int id) async {
     if (_pokemonDetails.containsKey(id)) {
+      _setCacheExpiry(id); // Reset expiry timer
       return _pokemonDetails[id];
     }
 
     try {
-      // Cancel previous request for this ID if exists
-      _detailTokens[id.toString()]?.cancel();
+      // Cancel previous request for this ID
+      _requestTokens[id.toString()]?.cancel();
       final token = CancellationToken();
-      _detailTokens[id.toString()] = token;
+      _requestTokens[id.toString()] = token;
 
-      final detail = await _pokemonService.getPokemonDetail(
-        id.toString(),
-        cancellationToken: token,
+      final detail = await _executeRequest(
+        'pokemon_detail_$id',
+        () => _pokemonService.getPokemonDetail(
+          id.toString(),
+          cancellationToken: token,
+        ),
       );
 
-      _pokemonDetails[id] = detail;
-      notifyListeners();
-      return detail;
+      if (detail != null) {
+        _pokemonDetails[id] = detail;
+        _cleanupCache();
+        _setCacheExpiry(id);
+        notifyListeners();
+        return detail;
+      }
+      return null;
     } catch (e) {
       if (e is! RequestCancelledException) {
         _error = e.toString();
@@ -164,11 +204,11 @@ class PokemonProvider extends ChangeNotifier {
       }
       return null;
     } finally {
-      _detailTokens.remove(id.toString());
+      _requestTokens.remove(id.toString());
     }
   }
 
-  // Search/Filter Pokemon
+  // Search & Filter
   void searchPokemon(String query) {
     _searchQuery = query.toLowerCase();
     _filterPokemon(_searchQuery);
@@ -179,58 +219,56 @@ class PokemonProvider extends ChangeNotifier {
     if (query.isEmpty) {
       _filteredList = List.from(_pokemonList);
     } else {
-      _filteredList = _pokemonList
-          .where((pokemon) =>
-              pokemon.name.toLowerCase().contains(query) ||
-              pokemon.id.toString() == query ||
-              pokemon.types.any((type) => type.toLowerCase().contains(query)))
-          .toList();
+      _filteredList = _pokemonList.where((pokemon) {
+        return pokemon.name.toLowerCase().contains(query) ||
+            pokemon.id.toString() == query ||
+            pokemon.types.any((type) => type.toLowerCase().contains(query));
+      }).toList();
     }
   }
 
-  // Refresh Pokemon List
+  // Refresh & Reset
   Future<void> refreshPokemonList() async {
     _pokemonList.clear();
     _filteredList.clear();
-    _pokemonDetails.clear();
+    await clearPokemonDetailsCache();
     _currentPage = 0;
     _hasMore = true;
     _error = '';
     _searchQuery = '';
 
-    // Cancel all ongoing requests
     cancelAllRequests();
-
     notifyListeners();
+
     await loadPokemon(showLoading: true);
   }
 
-  // Cancel specific Pokemon detail request
-  void cancelPokemonDetailRequest(int id) {
-    final token = _detailTokens[id.toString()];
-    if (token != null) {
-      token.cancel();
-      _detailTokens.remove(id.toString());
+  Future<void> clearPokemonDetailsCache() async {
+    for (var id in _pokemonDetails.keys) {
+      _removeFromCache(id);
     }
-  }
-
-  // Cancel all requests
-  void cancelAllRequests() {
-    _listToken?.cancel();
-    for (var token in _detailTokens.values) {
-      token.cancel();
-    }
-    _detailTokens.clear();
-    _pokemonService.cancelAllRequests();
-  }
-
-  // Clear Pokemon Details Cache
-  void clearPokemonDetailsCache() {
     _pokemonDetails.clear();
     notifyListeners();
   }
 
-  // Helper Methods
+  // Request Management
+  void cancelPokemonDetailRequest(int id) {
+    final token = _requestTokens[id.toString()];
+    if (token != null) {
+      token.cancel();
+      _requestTokens.remove(id.toString());
+    }
+  }
+
+  void cancelAllRequests() {
+    for (var token in _requestTokens.values) {
+      token.cancel();
+    }
+    _requestTokens.clear();
+    _pokemonService.cancelAllRequests();
+  }
+
+  // State Management
   void _setLoading(bool value) {
     _isLoading = value;
     if (!value) {
@@ -243,26 +281,50 @@ class PokemonProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  // Stats and Type Helpers
-  List<PokemonModel> getPokemonByType(String type) {
-    return _pokemonList
-        .where((pokemon) => pokemon.types.contains(type.toLowerCase()))
-        .toList();
+  // Auth State Management
+  void updateAuth(AppAuthProvider auth) {
+    _authProvider = auth;
+    if (auth.isAuthenticated) {
+      _loadUserPreferences();
+    } else {
+      _resetState();
+    }
   }
 
-  Map<String, int> getTypeDistribution() {
-    final Map<String, int> distribution = {};
-    for (var pokemon in _pokemonList) {
-      for (var type in pokemon.types) {
-        distribution[type] = (distribution[type] ?? 0) + 1;
+  Future<void> _loadUserPreferences() async {
+    if (_authProvider?.user == null) return;
+    try {
+      // Load user preferences like favorite Pokemon, view settings, etc.
+      // Implement when needed
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error loading user preferences: $e');
       }
     }
-    return distribution;
   }
 
+  void _resetState() {
+    _pokemonList.clear();
+    _filteredList.clear();
+    _pokemonDetails.clear();
+    _currentPage = 0;
+    _hasMore = true;
+    _error = '';
+    _searchQuery = '';
+    cancelAllRequests();
+    notifyListeners();
+  }
+
+  // Resource Cleanup
   @override
   void dispose() {
+    _isDisposed = true;
     cancelAllRequests();
+    for (var timer in _cacheExpiryTimers.values) {
+      timer.cancel();
+    }
+    _cacheExpiryTimers.clear();
+    _pendingRequests.clear();
     super.dispose();
   }
 }
