@@ -3,10 +3,11 @@
 import 'package:flutter/material.dart';
 import '../../../core/constants/colors.dart';
 import '../../../core/constants/text_styles.dart';
+import '../models/pokemon_move_model.dart';
 import '../widgets/pokemon_type_badge.dart';
 
 class PokemonMovesTable extends StatefulWidget {
-  final List<String> moves;
+  final List<PokemonMove> moves;
 
   const PokemonMovesTable({
     super.key,
@@ -72,7 +73,6 @@ class _PokemonMovesTableState extends State<PokemonMovesTable> {
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
       child: Column(
         children: [
-          // Search Bar
           TextField(
             onChanged: (value) {
               setState(() => _searchQuery = value.toLowerCase());
@@ -93,7 +93,6 @@ class _PokemonMovesTableState extends State<PokemonMovesTable> {
             ),
           ),
           const SizedBox(height: 16),
-          // Category and Sort Filters
           Row(
             children: [
               Expanded(
@@ -171,20 +170,33 @@ class _PokemonMovesTableState extends State<PokemonMovesTable> {
 
   Widget _buildMovesList() {
     final filteredMoves = widget.moves.where((move) {
-      final matchesSearch = move.toLowerCase().contains(_searchQuery);
+      final matchesSearch =
+          move.formattedName.toLowerCase().contains(_searchQuery);
       if (_selectedCategory == 'All') return matchesSearch;
-      // TODO: Implement category filtering when move details are available
-      return matchesSearch;
+
+      final category = move.damageClass.toLowerCase();
+      return matchesSearch && _selectedCategory.toLowerCase() == category;
     }).toList();
 
-    // Sort moves
     filteredMoves.sort((a, b) {
-      if (_ascending) {
-        return a.compareTo(b);
-      } else {
-        return b.compareTo(a);
+      switch (_sortBy) {
+        case 'Power':
+          return _ascending
+              ? PokemonMove.compareByPower(a, b)
+              : PokemonMove.compareByPower(b, a);
+        case 'Accuracy':
+          return _ascending
+              ? PokemonMove.compareByAccuracy(a, b)
+              : PokemonMove.compareByAccuracy(b, a);
+        case 'PP':
+          return _ascending
+              ? PokemonMove.compareByPP(a, b)
+              : PokemonMove.compareByPP(b, a);
+        default:
+          return _ascending
+              ? PokemonMove.compareByName(a, b)
+              : PokemonMove.compareByName(b, a);
       }
-      // TODO: Implement sorting by other criteria when move details are available
     });
 
     if (filteredMoves.isEmpty) {
@@ -207,35 +219,85 @@ class _PokemonMovesTableState extends State<PokemonMovesTable> {
     );
   }
 
-  Widget _buildMoveItem(String move) {
+  Widget _buildMoveItem(PokemonMove move) {
     return ListTile(
+      contentPadding: const EdgeInsets.symmetric(
+        horizontal: 16,
+        vertical: 8,
+      ),
       title: Text(
-        _formatMoveName(move),
+        move.formattedName,
         style: AppTextStyles.titleMedium.copyWith(
           fontWeight: FontWeight.w500,
         ),
       ),
-      subtitle: Row(
+      subtitle: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // TODO: Add move type badge when move details are available
-          PokemonTypeBadge.small(type: 'normal'),
-          const SizedBox(width: 8),
-          // TODO: Add move category (physical/special/status) when details are available
-          const Icon(
-            Icons.fitness_center,
-            size: 16,
-            color: Colors.grey,
+          const SizedBox(height: 4),
+          Row(
+            children: [
+              PokemonTypeBadge.small(type: move.type),
+              const SizedBox(width: 8),
+              _buildCategoryIcon(move.damageClass),
+              if (move.formattedEffect.isNotEmpty) ...[
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    move.formattedEffect,
+                    style: AppTextStyles.caption.copyWith(
+                      color: AppColors.textSecondaryLight,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ],
           ),
         ],
       ),
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // TODO: Add actual values when move details are available
-          _buildStatChip('Power', '80'),
-          const SizedBox(width: 8),
-          _buildStatChip('PP', '20'),
+          if (move.hasPower) _buildStatChip('Power', move.power.toString()),
+          if (move.hasPower) const SizedBox(width: 8),
+          if (move.hasAccuracy) _buildStatChip('Acc', '${move.accuracy}%'),
+          if (move.hasAccuracy) const SizedBox(width: 8),
+          _buildStatChip('PP', move.pp.toString()),
         ],
+      ),
+    );
+  }
+
+  Widget _buildCategoryIcon(String category) {
+    IconData icon;
+    Color color;
+
+    switch (category.toLowerCase()) {
+      case 'physical':
+        icon = Icons.fitness_center;
+        color = Colors.red[700]!;
+        break;
+      case 'special':
+        icon = Icons.auto_awesome;
+        color = Colors.blue[700]!;
+        break;
+      default:
+        icon = Icons.change_circle;
+        color = Colors.purple[700]!;
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Icon(
+        icon,
+        size: 16,
+        color: color,
       ),
     );
   }
@@ -258,18 +320,4 @@ class _PokemonMovesTableState extends State<PokemonMovesTable> {
       ),
     );
   }
-
-  String _formatMoveName(String move) {
-    return move
-        .split('-')
-        .map((word) => word[0].toUpperCase() + word.substring(1))
-        .join(' ');
-  }
 }
-
-/// Example usage:
-///```dart
-/// PokemonMovesTable(
-///   moves: pokemon.moves,
-/// )
-///```
