@@ -2,10 +2,10 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:provider/provider.dart';
 import 'package:uas_pokedexapp/core/config/firebase_config.dart';
 import 'package:uas_pokedexapp/core/config/theme_config.dart';
-import 'package:uas_pokedexapp/core/wrappers/auth_state_wrapper.dart';
 import 'package:uas_pokedexapp/features/auth/screens/login_screen.dart';
 import 'package:uas_pokedexapp/features/auth/screens/register_screen.dart';
 import 'package:uas_pokedexapp/features/auth/screens/profile_screen.dart';
@@ -17,15 +17,14 @@ import 'package:uas_pokedexapp/providers/theme_provider.dart';
 import 'package:uas_pokedexapp/providers/pokemon_provider.dart';
 import 'package:uas_pokedexapp/widgets/loading_indicator.dart';
 
-Future<void> main() async {
-  try {
-    WidgetsFlutterBinding.ensureInitialized();
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
 
+  try {
     if (kDebugMode) {
       print('🚀 Starting app initialization...');
     }
 
-    // Initialize Firebase with proper error handling and timeout
     await FirebaseConfig.instance.initializeApp().timeout(
       const Duration(seconds: 10),
       onTimeout: () {
@@ -37,20 +36,7 @@ Future<void> main() async {
       print('✅ App initialization complete');
     }
 
-    runApp(
-      MultiProvider(
-        providers: [
-          ChangeNotifierProvider(create: (_) => ThemeProvider()),
-          ChangeNotifierProvider(create: (_) => AppAuthProvider()),
-          // Initialize PokemonProvider after auth is ready
-          ChangeNotifierProxyProvider<AppAuthProvider, PokemonProvider>(
-            create: (_) => PokemonProvider(),
-            update: (_, auth, pokemon) => pokemon!..updateAuth(auth),
-          ),
-        ],
-        child: const MyApp(),
-      ),
-    );
+    runApp(const AppRoot());
   } catch (e) {
     if (kDebugMode) {
       print('❌ Fatal error in main: $e');
@@ -59,16 +45,40 @@ Future<void> main() async {
   }
 }
 
+class AppRoot extends StatelessWidget {
+  const AppRoot({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider(
+          create: (_) => ThemeProvider(),
+        ),
+        ChangeNotifierProvider(
+          create: (_) => AppAuthProvider(),
+        ),
+        ChangeNotifierProvider(
+          create: (_) => PokemonProvider(),
+        ),
+      ],
+      child: const MyApp(),
+    );
+  }
+}
+
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final themeProvider = context.watch<ThemeProvider>();
+    
     return MaterialApp(
       title: 'UAS Pokedex',
       debugShowCheckedModeBanner: false,
-      theme: context.watch<ThemeProvider>().currentTheme,
-      home: const AuthStateWrapper(),
+      theme: themeProvider.currentTheme,
+      home: const AuthenticationHandler(),
       routes: {
         '/login': (context) => const LoginScreen(),
         '/register': (context) => const RegisterScreen(),
@@ -76,6 +86,67 @@ class MyApp extends StatelessWidget {
         '/home': (context) => const PokemonListScreen(),
         '/pokemon/detail': (context) => const PokemonDetailScreen(),
         '/test': (context) => const TestScreen(),
+      },
+    );
+  }
+}
+
+class AuthenticationHandler extends StatelessWidget {
+  const AuthenticationHandler({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<User?>(
+      stream: context.read<AppAuthProvider>().authStateChanges,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Scaffold(
+            body: Center(
+              child: LoadingIndicator(
+                message: 'Checking authentication...',
+              ),
+            ),
+          );
+        }
+
+        if (snapshot.hasError) {
+          return Scaffold(
+            body: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(
+                    Icons.error_outline,
+                    size: 64,
+                    color: Colors.red,
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Authentication Error: ${snapshot.error}',
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 16),
+                  ElevatedButton(
+                    onPressed: () {
+                      FirebaseAuth.instance.signOut();
+                    },
+                    child: const Text('Retry'),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
+
+        final user = snapshot.data;
+        if (user != null) {
+          if (kDebugMode) {
+            print('👤 User authenticated: ${user.email}');
+          }
+          return const PokemonListScreen();
+        }
+
+        return const LoginScreen();
       },
     );
   }
@@ -120,7 +191,7 @@ class ErrorApp extends StatelessWidget {
                 const SizedBox(height: 16),
                 ElevatedButton(
                   onPressed: () {
-                    main(); // Retry initialization
+                    main();
                   },
                   child: const Text('Retry'),
                 ),

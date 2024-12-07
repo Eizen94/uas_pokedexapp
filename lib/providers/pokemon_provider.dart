@@ -5,6 +5,7 @@ import '../features/pokemon/models/pokemon_model.dart';
 import '../features/pokemon/models/pokemon_detail_model.dart';
 import '../features/pokemon/services/pokemon_service.dart';
 import '../core/utils/request_manager.dart';
+import 'auth_provider.dart';
 
 class PokemonProvider extends ChangeNotifier {
   final PokemonService _pokemonService = PokemonService();
@@ -20,7 +21,11 @@ class PokemonProvider extends ChangeNotifier {
   int _currentPage = 0;
   String _searchQuery = '';
 
-  // Cancellation tokens
+  // Auth state
+  AppAuthProvider? _authProvider;
+  bool get isAuthenticated => _authProvider?.isAuthenticated ?? false;
+
+  // Request tracking
   CancellationToken? _listToken;
   final Map<String, CancellationToken> _detailTokens = {};
 
@@ -35,6 +40,42 @@ class PokemonProvider extends ChangeNotifier {
   bool get hasError => _error.isNotEmpty;
   String get searchQuery => _searchQuery;
   int get currentPage => _currentPage;
+
+  // Update auth state
+  void updateAuth(AppAuthProvider auth) {
+    _authProvider = auth;
+    if (auth.isAuthenticated) {
+      _loadUserPreferences();
+    } else {
+      _resetState();
+    }
+  }
+
+  // Load user preferences
+  Future<void> _loadUserPreferences() async {
+    if (_authProvider?.user == null) return;
+    try {
+      // Load any user-specific Pokemon preferences
+      // Like favorite Pokemon, view settings, etc.
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error loading user preferences: $e');
+      }
+    }
+  }
+
+  // Reset state when user logs out
+  void _resetState() {
+    _pokemonList.clear();
+    _filteredList.clear();
+    _pokemonDetails.clear();
+    _currentPage = 0;
+    _hasMore = true;
+    _error = '';
+    _searchQuery = '';
+    cancelAllRequests();
+    notifyListeners();
+  }
 
   // Methods for accessing details
   PokemonDetailModel? getPokemonById(int id) => _pokemonDetails[id];
