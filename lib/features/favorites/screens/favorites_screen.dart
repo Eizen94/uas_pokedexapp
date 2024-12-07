@@ -41,6 +41,7 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
 
   Future<void> _removeFavorite(String userId, FavoriteModel favorite) async {
     try {
+      final scaffoldMessenger = ScaffoldMessenger.of(context);
       await showDialog(
         context: context,
         builder: (context) => AlertDialog(
@@ -61,7 +62,7 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
                   favorite.id,
                 );
                 if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
+                  scaffoldMessenger.showSnackBar(
                     SnackBar(
                       content: Text(
                         '${favorite.pokemonName} removed from favorites',
@@ -152,6 +153,10 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
     FavoriteModel favorite,
     String userId,
   ) {
+    final typeColor =
+        AppColors.typeColors[favorite.pokemonTypes.first.toLowerCase()] ??
+            AppColors.typeColors['normal']!;
+
     return Card(
       elevation: 2,
       shape: RoundedRectangleBorder(
@@ -169,10 +174,8 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                   colors: [
-                    AppColors.getTypeColor(favorite.pokemonTypes.first)
-                        .withOpacity(0.7),
-                    AppColors.getTypeColor(favorite.pokemonTypes.first)
-                        .withOpacity(0.5),
+                    typeColor.withOpacity(0.7),
+                    typeColor.withOpacity(0.5),
                   ],
                 ),
               ),
