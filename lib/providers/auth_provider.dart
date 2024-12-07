@@ -24,6 +24,7 @@ class AppAuthProvider extends ChangeNotifier {
   bool get isAuthenticated => _user != null;
   String? get error => _error;
   Map<String, dynamic> get settings => _settings;
+  Stream<User?> get authStateChanges => _authService.authStateChanges;
 
   // Constructor
   AppAuthProvider() {
