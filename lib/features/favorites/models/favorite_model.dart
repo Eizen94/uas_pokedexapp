@@ -12,7 +12,7 @@ class FavoriteModel {
   final String pokemonName;
   final List<String> pokemonTypes;
   final String imageUrl;
-  PokemonModel? _pokemonData;
+  PokemonModel? pokemonData;
 
   FavoriteModel({
     required this.id,
@@ -22,16 +22,8 @@ class FavoriteModel {
     required this.pokemonName,
     required this.pokemonTypes,
     required this.imageUrl,
-    PokemonModel? pokemonData,
-  }) : _pokemonData = pokemonData;
-
-  // Get Pokemon data
-  PokemonModel? get pokemonData => _pokemonData;
-
-  // Set Pokemon data
-  set pokemonData(PokemonModel? value) {
-    _pokemonData = value;
-  }
+    this.pokemonData,
+  });
 
   // Create from Firestore document
   factory FavoriteModel.fromFirestore(DocumentSnapshot doc) {
@@ -95,7 +87,7 @@ class FavoriteModel {
       pokemonName: pokemonName ?? this.pokemonName,
       pokemonTypes: pokemonTypes ?? this.pokemonTypes,
       imageUrl: imageUrl ?? this.imageUrl,
-      pokemonData: pokemonData ?? _pokemonData,
+      pokemonData: pokemonData ?? this.pokemonData,
     );
   }
 
@@ -134,7 +126,7 @@ class FavoriteModel {
       print('  Pokemon Name: $pokemonName');
       print('  Added At: $addedAt');
       print('  Types: $pokemonTypes');
-      print('  Has Pokemon Data: ${_pokemonData != null}');
+      print('  Has Pokemon Data: ${pokemonData != null}');
     }
   }
 }
