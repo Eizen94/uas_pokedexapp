@@ -79,8 +79,14 @@ class RequestManager {
     final completer = CancelableCompleter<T>();
     final token = cancellationToken ?? CancellationToken();
 
-    await _tokenLock.synchronized(() {
+    await _tokenLock.synchronized(() async {
+      for (final token in _activeTokens.values) {
+        token.cancel();
+      }
+      _activeTokens.clear();
+      return;
       _activeTokens[id] = token;
+      return;
     });
 
     try {
@@ -109,8 +115,9 @@ class RequestManager {
 
       return await completer.operation.value;
     } catch (e) {
-      await _tokenLock.synchronized(() {
+      await _tokenLock.synchronized(() async {
         _activeTokens.remove(id);
+        return;
       });
       rethrow;
     }
@@ -354,7 +361,7 @@ class RequestManager {
       }
 
       // Execute rollback operations in reverse order
-      for (final index in batch.successfulOperations.reversed) {
+      for (final index in batch.successfulOperations.toList().reversed) {
         if (index < operations.length) {
           try {
             await operations[index]();
@@ -603,7 +610,7 @@ class _RequestLifecycleManager {
 
 /// Thread-safe lock implementation
 class Lock {
-  final Completer<void>? _completer = null;
+  Completer<void>? _completer;
   bool _locked = false;
 
   Future<T> synchronized<T>(Future<T> Function() operation) async {
