@@ -4,33 +4,6 @@ import 'dart:async';
 import 'dart:collection';
 import 'package:flutter/foundation.dart';
 
-/// Simple cancellation token for basic request management.
-/// Use this when only request cancellation is needed without
-/// advanced features like timeout or chaining.
-class RequestCancellationToken {
-  bool _isCancelled = false;
-  final List<VoidCallback> _listeners = [];
-
-  bool get isCancelled => _isCancelled;
-
-  void cancel() {
-    if (!_isCancelled) {
-      _isCancelled = true;
-      for (final listener in _listeners) {
-        listener();
-      }
-    }
-  }
-
-  void addListener(VoidCallback listener) {
-    _listeners.add(listener);
-  }
-
-  void removeListener(VoidCallback listener) {
-    _listeners.remove(listener);
-  }
-}
-
 class RequestManager {
   // Singleton instance
   static final RequestManager _instance = RequestManager._internal();
@@ -40,7 +13,7 @@ class RequestManager {
   // Request tracking
   final Map<String, _QueuedRequest> _pendingRequests = {};
   final Queue<_QueuedRequest> _retryQueue = Queue<_QueuedRequest>();
-  final Map<String, RequestCancellationToken> _activeTokens = {};
+  final Map<String, CancellationToken> _activeTokens = {};
 
   // Rate limiting
   final Map<String, DateTime> _requestTimestamps = {};
@@ -57,7 +30,7 @@ class RequestManager {
     Duration timeout = const Duration(seconds: 30),
     int maxRetries = 3,
     Duration? retryDelay,
-    RequestCancellationToken? cancellationToken,
+    CancellationToken? cancellationToken,
   }) async {
     // Check if request exists
     if (_pendingRequests.containsKey(id)) {
@@ -65,7 +38,7 @@ class RequestManager {
     }
 
     final completer = Completer<T>();
-    final token = cancellationToken ?? RequestCancellationToken();
+    final token = cancellationToken ?? CancellationToken();
     _activeTokens[id] = token;
 
     try {
@@ -125,7 +98,7 @@ class RequestManager {
   Future<T> _executeWithTimeout<T>(
     Future<T> Function() request, {
     required Duration timeout,
-    required RequestCancellationToken token,
+    required CancellationToken token,
   }) async {
     try {
       final result = await request().timeout(timeout);
@@ -246,6 +219,40 @@ class RequestManager {
     );
   }
 
+  // Retry failed requests (called from ConnectivityManager)
+  Future<void> retryFailedRequests() async {
+    if (kDebugMode) {
+      print('🔄 Retrying all failed requests');
+    }
+
+    final retryRequests = List<_QueuedRequest>.from(_retryQueue);
+    _retryQueue.clear();
+
+    for (final request in retryRequests) {
+      try {
+        if (request.cancellationToken.isCancelled) continue;
+
+        final result = await _executeWithTimeout(
+          request.execute,
+          timeout: request.timeout,
+          token: request.cancellationToken,
+        );
+
+        request.completer.complete(result);
+        _pendingRequests.remove(request.id);
+
+        if (kDebugMode) {
+          print('✅ Retry successful: ${request.id}');
+        }
+      } catch (e) {
+        if (kDebugMode) {
+          print('❌ Retry failed: ${request.id} - $e');
+        }
+        await _handleRequestError(request.id, e, request.completer);
+      }
+    }
+  }
+
   // Cancel specific request
   void cancelRequest(String id) {
     final token = _activeTokens[id];
@@ -268,7 +275,7 @@ class RequestManager {
 
   // Cancel all requests
   void cancelAllRequests() {
-    for (var token in _activeTokens.values) {
+    for (final token in _activeTokens.values) {
       token.cancel();
     }
     _activeTokens.clear();
@@ -296,7 +303,7 @@ class _QueuedRequest<T> {
   final int maxRetries;
   final Duration retryDelay;
   final Duration timeout;
-  final RequestCancellationToken cancellationToken;
+  final CancellationToken cancellationToken;
 
   int retryCount = 0;
   DateTime lastAttemptTime = DateTime.now();
@@ -325,4 +332,29 @@ class RequestCancelledException implements Exception {
 
   @override
   String toString() => 'Request was cancelled';
+}
+
+// Cancellation token
+class CancellationToken {
+  bool _isCancelled = false;
+  final List<VoidCallback> _listeners = [];
+
+  bool get isCancelled => _isCancelled;
+
+  void cancel() {
+    if (!_isCancelled) {
+      _isCancelled = true;
+      for (final listener in _listeners) {
+        listener();
+      }
+    }
+  }
+
+  void addListener(VoidCallback listener) {
+    _listeners.add(listener);
+  }
+
+  void removeListener(VoidCallback listener) {
+    _listeners.remove(listener);
+  }
 }
