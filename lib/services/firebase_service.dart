@@ -84,6 +84,10 @@ class FirebaseService {
   // Update user data
   Future<void> updateUserData(String uid, Map<String, dynamic> data) async {
     try {
+      if (!await _canPerformOperation()) {
+        throw Exception('No internet connection. Data will sync when online.');
+      }
+
       await _usersRef.doc(uid).update({
         ...data,
         'lastUpdated': FieldValue.serverTimestamp(),
@@ -104,6 +108,11 @@ class FirebaseService {
   // Add to favorites
   Future<void> addToFavorites(String userId, FavoriteModel favorite) async {
     try {
+      if (!await _canPerformOperation()) {
+        throw Exception(
+            'No internet connection. Operation will sync when online.');
+      }
+
       final docRef = _favoritesRef.doc(favorite.id);
 
       await docRef.set(
@@ -115,7 +124,9 @@ class FirebaseService {
       );
 
       // Update local cache
-      _cache['favorites_$userId'] = _cache['favorites_$userId'] ?? [];
+      if (!_cache.containsKey('favorites_$userId')) {
+        _cache['favorites_$userId'] = [];
+      }
       (_cache['favorites_$userId'] as List).add(favorite);
     } catch (e) {
       if (kDebugMode) {
@@ -128,6 +139,11 @@ class FirebaseService {
   // Remove from favorites
   Future<void> removeFromFavorites(String userId, String favoriteId) async {
     try {
+      if (!await _canPerformOperation()) {
+        throw Exception(
+            'No internet connection. Operation will sync when online.');
+      }
+
       await _favoritesRef.doc(favoriteId).delete();
 
       // Update local cache
@@ -174,12 +190,21 @@ class FirebaseService {
   // Get user settings
   Future<Map<String, dynamic>> getUserSettings(String userId) async {
     try {
+      // Check cache first
+      if (_cache.containsKey('settings_$userId')) {
+        return _cache['settings_$userId'] as Map<String, dynamic>;
+      }
+
       final doc = await _settingsRef.doc(userId).get();
       if (!doc.exists) {
         return _getDefaultSettings();
       }
-      return (doc.data() as Map<String, dynamic>)['settings'] ??
+
+      final settings = (doc.data() as Map<String, dynamic>)['settings'] ??
           _getDefaultSettings();
+      _cache['settings_$userId'] = settings;
+
+      return settings;
     } catch (e) {
       if (kDebugMode) {
         print('❌ Error getting user settings: $e');
@@ -194,6 +219,11 @@ class FirebaseService {
     Map<String, dynamic> settings,
   ) async {
     try {
+      if (!await _canPerformOperation()) {
+        throw Exception(
+            'No internet connection. Settings will sync when online.');
+      }
+
       await _settingsRef.doc(userId).set({
         'settings': settings,
         'updatedAt': FieldValue.serverTimestamp(),
@@ -244,8 +274,13 @@ class FirebaseService {
       return true;
     }
 
-    // If offline, check if operation can be performed offline
-    return _auth.currentUser != null;
+    final isLoggedIn = _auth.currentUser != null;
+
+    if (kDebugMode && !isLoggedIn) {
+      print('⚠️ User must be logged in for offline operations');
+    }
+
+    return isLoggedIn;
   }
 
   // Batch Operations
@@ -254,6 +289,11 @@ class FirebaseService {
   Future<void> performBatchWrite(
     Future<void> Function(WriteBatch batch) operations,
   ) async {
+    if (!await _canPerformOperation()) {
+      throw Exception(
+          'No internet connection. Batch operations require connectivity.');
+    }
+
     final batch = _firestore.batch();
 
     try {
@@ -273,6 +313,11 @@ class FirebaseService {
   Future<T> performTransaction<T>(
     Future<T> Function(Transaction transaction) operations,
   ) async {
+    if (!await _canPerformOperation()) {
+      throw Exception(
+          'No internet connection. Transactions require connectivity.');
+    }
+
     try {
       return await _firestore.runTransaction(operations);
     } catch (e) {
