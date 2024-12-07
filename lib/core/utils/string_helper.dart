@@ -16,15 +16,17 @@ class StringHelper {
         return 'Nidoran${name.substring(name.length - 1)}';
       }
 
-      // Split by hyphens and spaces
+      // Split by hyphens or spaces
       final parts = name.split(RegExp(r'[-\s]'));
 
       return parts.map((part) {
         if (part.isEmpty) return '';
-        // Handle special abbreviations
-        if (_isSpecialAbbreviation(part)) return part.toUpperCase();
-        // Capitalize first letter
-        return '${part[0].toUpperCase()}${part.substring(1).toLowerCase()}';
+        // Handle special cases
+        if (_isSpecialAbbreviation(part)) {
+          return part.toUpperCase();
+        }
+        // Regular capitalization
+        return _capitalize(part);
       }).join(' ');
     } catch (e) {
       if (kDebugMode) {
@@ -34,15 +36,55 @@ class StringHelper {
     }
   }
 
-  // Format Pokemon ID to 3-digit string
-  static String formatPokemonId(int id) {
+  // Format Pokemon stats
+  static String formatStatName(String stat) {
     try {
-      return '#${id.toString().padLeft(3, '0')}';
+      // Map common stat abbreviations
+      final statMap = {
+        'hp': 'HP',
+        'atk': 'Attack',
+        'def': 'Defense',
+        'spa': 'Sp. Atk',
+        'spd': 'Sp. Def',
+        'spe': 'Speed',
+        'special-attack': 'Sp. Atk',
+        'special-defense': 'Sp. Def',
+      };
+
+      if (statMap.containsKey(stat.toLowerCase())) {
+        return statMap[stat.toLowerCase()]!;
+      }
+
+      return _formatWords(stat);
     } catch (e) {
       if (kDebugMode) {
-        print('Error formatting Pokemon ID: $e');
+        print('Error formatting stat name: $e');
       }
-      return '#$id';
+      return stat;
+    }
+  }
+
+  // Format numbers with padding
+  static String formatNumber(int number, {int padLength = 3}) {
+    try {
+      return number.toString().padLeft(padLength, '0');
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error formatting number: $e');
+      }
+      return number.toString();
+    }
+  }
+
+  // Format decimal numbers
+  static String formatDecimal(double number, {int decimals = 1}) {
+    try {
+      return number.toStringAsFixed(decimals);
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error formatting decimal: $e');
+      }
+      return number.toString();
     }
   }
 
@@ -50,7 +92,7 @@ class StringHelper {
   static String formatHeight(int decimeters) {
     try {
       final meters = decimeters / 10;
-      return '${meters.toStringAsFixed(1)}m';
+      return '${formatDecimal(meters)}m';
     } catch (e) {
       if (kDebugMode) {
         print('Error formatting height: $e');
@@ -63,7 +105,7 @@ class StringHelper {
   static String formatWeight(int hectograms) {
     try {
       final kilograms = hectograms / 10;
-      return '${kilograms.toStringAsFixed(1)}kg';
+      return '${formatDecimal(kilograms)}kg';
     } catch (e) {
       if (kDebugMode) {
         print('Error formatting weight: $e');
@@ -72,44 +114,10 @@ class StringHelper {
     }
   }
 
-  // Format stat name
-  static String formatStatName(String stat) {
-    try {
-      // Map API stat names to display names
-      final statMap = {
-        'hp': 'HP',
-        'attack': 'Attack',
-        'defense': 'Defense',
-        'special-attack': 'Sp. Atk',
-        'special-defense': 'Sp. Def',
-        'speed': 'Speed',
-      };
-
-      return statMap[stat.toLowerCase()] ?? _capitalizeWords(stat);
-    } catch (e) {
-      if (kDebugMode) {
-        print('Error formatting stat name: $e');
-      }
-      return stat;
-    }
-  }
-
-  // Format ability name
-  static String formatAbilityName(String ability) {
-    try {
-      return _capitalizeWords(ability.replaceAll('-', ' '));
-    } catch (e) {
-      if (kDebugMode) {
-        print('Error formatting ability name: $e');
-      }
-      return ability;
-    }
-  }
-
-  // Format move name
+  // Format move names
   static String formatMoveName(String move) {
     try {
-      return _capitalizeWords(move.replaceAll('-', ' '));
+      return _formatWords(move);
     } catch (e) {
       if (kDebugMode) {
         print('Error formatting move name: $e');
@@ -118,22 +126,22 @@ class StringHelper {
     }
   }
 
-  // Format type name
-  static String formatTypeName(String type) {
+  // Format ability names
+  static String formatAbilityName(String ability) {
     try {
-      return type.toUpperCase();
+      return _formatWords(ability);
     } catch (e) {
       if (kDebugMode) {
-        print('Error formatting type name: $e');
+        print('Error formatting ability name: $e');
       }
-      return type;
+      return ability;
     }
   }
 
-  // Format percentage
+  // Format percentages
   static String formatPercentage(double value, {int decimals = 1}) {
     try {
-      return '${value.toStringAsFixed(decimals)}%';
+      return '${formatDecimal(value, decimals: decimals)}%';
     } catch (e) {
       if (kDebugMode) {
         print('Error formatting percentage: $e');
@@ -143,7 +151,7 @@ class StringHelper {
   }
 
   // Format large numbers with commas
-  static String formatNumber(int number) {
+  static String formatLargeNumber(int number) {
     try {
       return number.toString().replaceAllMapped(
             RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
@@ -151,43 +159,25 @@ class StringHelper {
           );
     } catch (e) {
       if (kDebugMode) {
-        print('Error formatting number: $e');
+        print('Error formatting large number: $e');
       }
       return number.toString();
     }
   }
 
-  // Helper method to capitalize words
-  static String _capitalizeWords(String text) {
-    if (text.isEmpty) return text;
-    return text.split(' ').map((word) {
-      if (word.isEmpty) return '';
-      return word[0].toUpperCase() + word.substring(1).toLowerCase();
-    }).join(' ');
-  }
-
-  // Check for special abbreviations that should be uppercase
-  static bool _isSpecialAbbreviation(String text) {
-    final specialCases = ['hp', 'pp', 'iv', 'ev'];
-    return specialCases.contains(text.toLowerCase());
-  }
-
-  // Format genus text (e.g., "Seed Pokémon")
-  static String formatGenus(String genus) {
+  // Format Pokemon types
+  static String formatType(String type) {
     try {
-      if (!genus.toLowerCase().contains('pokémon')) {
-        return '$genus Pokémon';
-      }
-      return genus;
+      return type.toUpperCase();
     } catch (e) {
       if (kDebugMode) {
-        print('Error formatting genus: $e');
+        print('Error formatting type: $e');
       }
-      return genus;
+      return type;
     }
   }
 
-  // Format description text (clean up new lines and spaces)
+  // Format Pokemon description
   static String formatDescription(String description) {
     try {
       return description
@@ -202,14 +192,10 @@ class StringHelper {
     }
   }
 
-  // Format evolution trigger text
+  // Format evolution trigger
   static String formatEvolutionTrigger(String trigger) {
     try {
-      return trigger
-          .replaceAll('-', ' ')
-          .split(' ')
-          .map((word) => word[0].toUpperCase() + word.substring(1))
-          .join(' ');
+      return _formatWords(trigger);
     } catch (e) {
       if (kDebugMode) {
         print('Error formatting evolution trigger: $e');
@@ -218,7 +204,27 @@ class StringHelper {
     }
   }
 
-  // Slugify text for URLs or IDs
+  // Helper function to capitalize first letter
+  static String _capitalize(String text) {
+    if (text.isEmpty) return text;
+    return text[0].toUpperCase() + text.substring(1).toLowerCase();
+  }
+
+  // Helper function to format words (handle hyphens and spaces)
+  static String _formatWords(String text) {
+    return text
+        .split(RegExp(r'[-\s]'))
+        .map((word) => _capitalize(word))
+        .join(' ');
+  }
+
+  // Check for special abbreviations that should remain uppercase
+  static bool _isSpecialAbbreviation(String text) {
+    final specialCases = ['hp', 'pp', 'iv', 'ev'];
+    return specialCases.contains(text.toLowerCase());
+  }
+
+  // Slugify text for URLs
   static String slugify(String text) {
     try {
       return text
@@ -228,6 +234,63 @@ class StringHelper {
     } catch (e) {
       if (kDebugMode) {
         print('Error slugifying text: $e');
+      }
+      return text.toLowerCase();
+    }
+  }
+
+  // Format error messages
+  static String formatErrorMessage(dynamic error) {
+    if (error == null) return 'An unknown error occurred';
+
+    try {
+      if (error is Exception) {
+        return error.toString().replaceAll('Exception: ', '');
+      }
+      return error.toString();
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error formatting error message: $e');
+      }
+      return 'An unknown error occurred';
+    }
+  }
+
+  // Truncate long text
+  static String truncate(String text, int maxLength, {String suffix = '...'}) {
+    try {
+      if (text.length <= maxLength) return text;
+      return '${text.substring(0, maxLength - suffix.length)}$suffix';
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error truncating text: $e');
+      }
+      return text;
+    }
+  }
+
+  // Remove special characters
+  static String removeSpecialCharacters(String text) {
+    try {
+      return text.replaceAll(RegExp(r'[^\w\s-]'), '');
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error removing special characters: $e');
+      }
+      return text;
+    }
+  }
+
+  // Convert to safe filename
+  static String toSafeFileName(String text) {
+    try {
+      return text
+          .toLowerCase()
+          .replaceAll(RegExp(r'[^a-z0-9]+'), '_')
+          .replaceAll(RegExp(r'^_+|_+$'), '');
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error converting to safe filename: $e');
       }
       return text.toLowerCase();
     }

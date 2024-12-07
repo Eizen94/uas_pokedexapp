@@ -1,5 +1,7 @@
 // lib/core/utils/request_manager.dart
 
+// lib/core/utils/request_manager.dart
+
 import 'dart:async';
 import 'dart:collection';
 import 'package:flutter/foundation.dart';
@@ -18,7 +20,6 @@ class RequestManager {
   // Rate limiting
   final Map<String, DateTime> _requestTimestamps = {};
   static const Duration _minRequestInterval = Duration(milliseconds: 100);
-  static const int _maxRetryAttempts = 3;
 
   // Queue processing
   Timer? _retryTimer;
