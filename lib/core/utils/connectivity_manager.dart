@@ -37,7 +37,6 @@ class ConnectivityManager {
   // Constants
   static const String _lastOnlineKey = 'last_online_timestamp';
   static const Duration _monitorInterval = Duration(seconds: 30);
-  static const Duration _timeoutDuration = Duration(seconds: 5);
 
   // Public streams access
   Stream<ConnectionStatus> get connectionStatus =>
