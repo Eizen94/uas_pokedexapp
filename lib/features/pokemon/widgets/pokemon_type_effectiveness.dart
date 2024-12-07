@@ -3,7 +3,6 @@
 import 'package:flutter/material.dart';
 import '../../../core/constants/colors.dart';
 import '../../../core/constants/text_styles.dart';
-import '../models/pokemon_detail_model.dart';
 
 class PokemonTypeEffectiveness extends StatelessWidget {
   final List<String> types;
