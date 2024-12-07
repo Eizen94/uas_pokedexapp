@@ -84,8 +84,9 @@ class ApiHelper {
           }
 
           // Make network request
-          final response =
-              await _client.get(Uri.parse(endpoint), headers: headers);
+          final response = await _client
+              .get(Uri.parse(endpoint), headers: headers)
+              .timeout(timeout);
 
           if (response.statusCode == 200) {
             final jsonData = json.decode(response.body) as Map<String, dynamic>;
