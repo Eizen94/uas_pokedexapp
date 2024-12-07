@@ -1,6 +1,5 @@
 // lib/core/utils/api_helper.dart
 
-import 'dart:convert';
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
@@ -84,8 +83,7 @@ class ApiHelper {
           }
 
           // Make network request
-          final response =
-              await _client.get(Uri.parse(endpoint), headers: headers);
+          final response = await _client.get(Uri.parse(endpoint), headers: headers);
 
           if (response.statusCode == 200) {
             final jsonData = json.decode(response.body) as Map<String, dynamic>;
@@ -257,8 +255,7 @@ class ApiHelper {
   }
 
   Future<void> _manageDiskCacheSize() async {
-    final keys =
-        _prefs.getKeys().where((k) => k.startsWith('api_cache_')).toList();
+    final keys = _prefs.getKeys().where((k) => k.startsWith('api_cache_')).toList();
     int totalSize = 0;
 
     // Calculate total cache size
@@ -368,8 +365,7 @@ class ApiResponse<T> {
   bool get isSuccess => status == ApiStatus.success;
   bool get isError => status == ApiStatus.error;
   bool get isCancelled => status == ApiStatus.cancelled;
-  bool get isCached =>
-      source == DataSource.cache || source == DataSource.memoryCache;
+  bool get isCached => source == DataSource.cache || source == DataSource.memoryCache;
 }
 
 enum ApiStatus { success, error, cancelled }
