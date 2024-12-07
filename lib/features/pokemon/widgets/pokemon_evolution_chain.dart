@@ -1,7 +1,7 @@
 // lib/features/pokemon/widgets/pokemon_evolution_chain.dart
 
 import 'package:flutter/material.dart';
-import 'package:cached_network_image.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../../../core/constants/colors.dart';
 import '../../../core/constants/text_styles.dart';
 import '../models/pokemon_detail_model.dart';
@@ -84,7 +84,8 @@ class PokemonEvolutionChain extends StatelessWidget {
             Hero(
               tag: 'evolution-${stage.pokemonId}',
               child: CachedNetworkImage(
-                imageUrl: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${stage.pokemonId}.png',
+                imageUrl:
+                    'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${stage.pokemonId}.png',
                 height: 80,
                 width: 80,
                 placeholder: (context, url) => const SizedBox(
