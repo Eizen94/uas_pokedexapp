@@ -3,7 +3,13 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 
-class CancellationToken {
+/// Advanced cancellation token with timeout and chaining capabilities.
+/// Use this when you need complex cancellation scenarios like:
+/// - Timeout based cancellation
+/// - Multiple token chaining
+/// - Future wrapping
+/// - Cleanup registration
+class AdvancedCancellationToken {
   // Internal state
   bool _isCancelled = false;
   final List<VoidCallback> _listeners = [];
@@ -14,15 +20,16 @@ class CancellationToken {
   bool get hasListeners => _listeners.isNotEmpty;
 
   // Create token with optional timeout
-  static CancellationToken withTimeout(Duration timeout) {
-    final token = CancellationToken();
+  static AdvancedCancellationToken withTimeout(Duration timeout) {
+    final token = AdvancedCancellationToken();
     token._setTimeout(timeout);
     return token;
   }
 
   // Create linked token
-  static CancellationToken fromMultiple(List<CancellationToken> tokens) {
-    final combinedToken = CancellationToken();
+  static AdvancedCancellationToken fromMultiple(
+      List<AdvancedCancellationToken> tokens) {
+    final combinedToken = AdvancedCancellationToken();
 
     for (final token in tokens) {
       token.addListener(() {
@@ -144,7 +151,7 @@ class CancellationToken {
   }
 
   // Create a new linked token
-  CancellationToken chainWith(CancellationToken other) {
+  AdvancedCancellationToken chainWith(AdvancedCancellationToken other) {
     return fromMultiple([this, other]);
   }
 
@@ -154,7 +161,7 @@ class CancellationToken {
   }
 
   @override
-  String toString() => 'CancellationToken(isCancelled: $_isCancelled)';
+  String toString() => 'AdvancedCancellationToken(isCancelled: $_isCancelled)';
 }
 
 class CancelledException implements Exception {
@@ -168,7 +175,7 @@ class CancelledException implements Exception {
 
 // Extension methods for Future
 extension CancellableFutureExtension<T> on Future<T> {
-  Future<T> withCancellation(CancellationToken token) {
+  Future<T> withCancellation(AdvancedCancellationToken token) {
     return token.wrapFuture(this);
   }
 }
