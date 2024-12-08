@@ -2,13 +2,11 @@
 
 import 'dart:async';
 import 'package:flutter/foundation.dart';
-import 'package:collection/collection.dart';
 import '../features/pokemon/models/pokemon_model.dart';
 import '../features/pokemon/models/pokemon_detail_model.dart';
 import '../features/pokemon/services/pokemon_service.dart';
 import '../core/utils/request_manager.dart';
 import '../core/utils/connectivity_manager.dart';
-import '../core/utils/cancellation_token.dart';
 import 'auth_provider.dart';
 
 class PokemonProvider extends ChangeNotifier {

@@ -1,10 +1,8 @@
 // lib/features/pokemon/widgets/pokemon_location_map.dart
 
 import 'package:flutter/material.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import '../../../core/constants/colors.dart';
 import '../../../core/constants/text_styles.dart';
-import '../models/pokemon_move_model.dart';
 
 class PokemonLocationMap extends StatefulWidget {
   final int pokemonId;

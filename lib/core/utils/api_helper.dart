@@ -7,7 +7,6 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
-import '../constants/api_paths.dart';
 
 /// Handles all API requests with caching, error handling and offline support.
 /// This is a standalone service that other components can use without circular dependencies.
