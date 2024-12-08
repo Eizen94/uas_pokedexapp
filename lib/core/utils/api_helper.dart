@@ -6,40 +6,53 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:connectivity_plus/connectivity_plus.dart';
+import '../constants/api_paths.dart';
+import './request_manager.dart';
+import './connectivity_manager.dart';
+import './sync_manager.dart';
+import './cancellation_token.dart';
+import './monitoring_manager.dart';
 
-/// Handles all API requests with caching, error handling and offline support.
-/// This is a standalone service that other components can use without circular dependencies.
+/// Enhanced ApiHelper with improved error handling, caching, and offline support
 class ApiHelper {
-  // Singleton pattern
+  // Core components with proper initialization
   static final ApiHelper _instance = ApiHelper._internal();
-  factory ApiHelper() => _instance;
-  ApiHelper._internal();
-
-  // Core components
   final _client = http.Client();
-  late final SharedPreferences _prefs;
-  final _connectivity = Connectivity();
+  final _requestManager = RequestManager();
+  final _connectivityManager = ConnectivityManager();
+  final _syncManager = SyncManager();
+  final _monitoringManager = MonitoringManager();
 
-  // Cache components with size limits and TTL
+  late final SharedPreferences _prefs;
   final _memoryCache = _LruCache<String, dynamic>(maxSize: 100);
-  final _requestQueue = <String, Completer<dynamic>>{};
+  final _pendingRequests = <String, Completer<dynamic>>{};
 
   // State management
   bool _isInitialized = false;
   bool _isDisposed = false;
 
   // Constants
-  static const _defaultTimeout = Duration(seconds: 15);
-  static const _defaultCacheDuration = Duration(hours: 24);
-  static const _maxRetries = 3;
-  static const _retryDelay = Duration(seconds: 2);
+  static const Duration _defaultTimeout = Duration(seconds: 15);
+  static const Duration _defaultCacheDuration = Duration(hours: 24);
+  static const int _maxRetries = 3;
+  static const Duration _retryDelay = Duration(seconds: 2);
 
-  /// Initialize the API helper with required configurations
+  factory ApiHelper() => _instance;
+
+  ApiHelper._internal();
+
+  /// Initialize with required configurations
   Future<void> initialize() async {
     if (_isInitialized) return;
 
     try {
+      // Initialize dependencies
+      await Future.wait([
+        _connectivityManager.initialize(),
+        _syncManager.initialize(),
+        _monitoringManager.initialize(),
+      ]);
+
       _prefs = await SharedPreferences.getInstance();
       await _cleanExpiredCache();
       _isInitialized = true;
@@ -55,7 +68,7 @@ class ApiHelper {
     }
   }
 
-  /// Make a GET request with caching and error handling
+  /// Enhanced GET request with proper error handling and caching
   Future<ApiResponse<T>> get<T>({
     required String endpoint,
     required T Function(Map<String, dynamic>) parser,
@@ -65,18 +78,26 @@ class ApiHelper {
     Duration timeout = _defaultTimeout,
     Duration cacheDuration = _defaultCacheDuration,
     int maxRetries = _maxRetries,
+    CancellationToken? cancellationToken,
   }) async {
-    if (!_isInitialized) {
-      throw StateError('ApiHelper not initialized');
-    }
+    _throwIfNotInitialized();
 
     final cacheKey = _generateCacheKey(endpoint);
 
     try {
       // Check connectivity first
-      final isOffline = await _isOffline();
+      final isOffline = !await _connectivityManager.checkConnectivity();
 
-      // Try to get cached data if appropriate
+      // Handle offline scenario with cache
+      if (isOffline) {
+        return await _handleOfflineRequest(
+          cacheKey: cacheKey,
+          parser: parser,
+          endpoint: endpoint,
+        );
+      }
+
+      // Check cache if appropriate
       if (!forceRefresh && useCache) {
         final cachedData = await _getCachedData(cacheKey);
         if (cachedData != null) {
@@ -85,32 +106,15 @@ class ApiHelper {
           }
           return ApiResponse(
             data: parser(cachedData),
-            source: isOffline ? DataSource.cache : DataSource.memoryCache,
+            source: DataSource.cache,
             status: ApiStatus.success,
           );
         }
       }
 
-      // Return cached data or error if offline
-      if (isOffline) {
-        if (useCache) {
-          final cachedData = await _getCachedData(cacheKey);
-          if (cachedData != null) {
-            return ApiResponse(
-              data: parser(cachedData),
-              source: DataSource.cache,
-              status: ApiStatus.success,
-              message: 'Using cached data while offline',
-            );
-          }
-        }
-        throw const ApiException.noInternet();
-      }
-
-      // Check for existing request to same endpoint
-      if (_requestQueue.containsKey(endpoint)) {
-        final completer = _requestQueue[endpoint]!;
-        final result = await completer.future;
+      // Queue request if same endpoint is pending
+      if (_pendingRequests.containsKey(endpoint)) {
+        final result = await _pendingRequests[endpoint]!.future;
         return ApiResponse(
           data: parser(result),
           source: DataSource.network,
@@ -118,17 +122,25 @@ class ApiHelper {
         );
       }
 
-      // Make new request with retry logic
+      // Execute request with retry logic
       return await _executeWithRetry(
         maxRetries: maxRetries,
         operation: () async {
           final completer = Completer<dynamic>();
-          _requestQueue[endpoint] = completer;
+          _pendingRequests[endpoint] = completer;
 
           try {
-            final response = await _client
-                .get(Uri.parse(endpoint), headers: headers)
-                .timeout(timeout);
+            // Execute request through RequestManager
+            final response = await _requestManager.executeRequest(
+              id: endpoint,
+              request: () => _client
+                  .get(
+                    Uri.parse(endpoint),
+                    headers: headers,
+                  )
+                  .timeout(timeout),
+              cancellationToken: cancellationToken,
+            );
 
             if (response.statusCode == 200) {
               final jsonData =
@@ -148,11 +160,8 @@ class ApiHelper {
             } else {
               throw ApiException.fromStatusCode(response.statusCode);
             }
-          } catch (e) {
-            completer.completeError(e);
-            rethrow;
           } finally {
-            _requestQueue.remove(endpoint);
+            _pendingRequests.remove(endpoint);
           }
         },
       );
@@ -167,12 +176,46 @@ class ApiHelper {
     }
   }
 
-  /// Execute operation with retry logic
+  /// Handle offline request scenario
+  Future<ApiResponse<T>> _handleOfflineRequest<T>({
+    required String cacheKey,
+    required T Function(Map<String, dynamic>) parser,
+    required String endpoint,
+  }) async {
+    final cachedData = await _getCachedData(cacheKey);
+    if (cachedData != null) {
+      return ApiResponse(
+        data: parser(cachedData),
+        source: DataSource.cache,
+        status: ApiStatus.success,
+        message: 'Using cached data while offline',
+      );
+    }
+
+    // Queue for sync when online
+    _syncManager.addToSyncQueue(
+      SyncOperation(
+        id: endpoint,
+        execute: () async {
+          await get(
+            endpoint: endpoint,
+            parser: parser,
+            forceRefresh: true,
+          );
+        },
+      ),
+    );
+
+    throw const ApiException.noInternet();
+  }
+
+  /// Execute with retry logic
   Future<T> _executeWithRetry<T>({
     required Future<T> Function() operation,
     required int maxRetries,
   }) async {
     int attempts = 0;
+
     while (true) {
       try {
         attempts++;
@@ -190,18 +233,12 @@ class ApiHelper {
     }
   }
 
-  /// Check if device is offline
-  Future<bool> _isOffline() async {
-    final result = await _connectivity.checkConnectivity();
-    return result == ConnectivityResult.none;
-  }
-
-  /// Generate cache key for endpoint
+  /// Generate cache key
   String _generateCacheKey(String endpoint) {
     return 'api_cache_${endpoint.hashCode}';
   }
 
-  /// Get cached data from memory or disk
+  /// Get cached data with validation
   Future<Map<String, dynamic>?> _getCachedData(String key) async {
     // Check memory cache first
     final memoryData = _memoryCache.get(key);
@@ -235,10 +272,11 @@ class ApiHelper {
         print('⚠️ Cache retrieval error: $e');
       }
     }
+
     return null;
   }
 
-  /// Cache data in memory and disk
+  /// Cache data with proper error handling
   Future<void> _cacheData(
     String key,
     Map<String, dynamic> data,
@@ -275,6 +313,7 @@ class ApiHelper {
         final age = now.difference(
           DateTime.fromMillisecondsSinceEpoch(timestamp),
         );
+
         if (age > _defaultCacheDuration) {
           await Future.wait([
             _prefs.remove(key),
@@ -409,16 +448,23 @@ class ApiHelper {
     ]);
   }
 
-  /// Resource cleanup
-  void dispose() {
+  void _throwIfNotInitialized() {
+    if (!_isInitialized) {
+      throw StateError('ApiHelper not initialized');
+    }
+  }
+
+  /// Cleanup resources
+  Future<void> dispose() async {
     _isDisposed = true;
     _client.close();
     _memoryCache.clear();
-    _requestQueue.clear();
+    _pendingRequests.clear();
+    await _monitoringManager.dispose();
   }
 }
 
-/// LRU Cache implementation for memory caching
+/// LRU Cache implementation
 class _LruCache<K, V> {
   final int maxSize;
   final _cache = <K, V>{};
@@ -429,7 +475,6 @@ class _LruCache<K, V> {
   V? get(K key) {
     final value = _cache[key];
     if (value != null) {
-      // Move to most recently used
       _accessOrder.remove(key);
       _accessOrder.add(key);
     }
@@ -458,7 +503,7 @@ class _LruCache<K, V> {
   }
 }
 
-/// API Response wrapper
+/// API Response wrapper with proper typing
 class ApiResponse<T> {
   final T? data;
   final DataSource? source;
@@ -480,7 +525,7 @@ class ApiResponse<T> {
       source == DataSource.cache || source == DataSource.memoryCache;
 }
 
-/// API Exception handling
+/// API Exception with proper error handling
 class ApiException implements Exception {
   final String message;
   final int? statusCode;
@@ -518,17 +563,23 @@ class ApiException implements Exception {
         isRetryable = false,
         shouldUseCachedData = true;
 
-  ApiException.fromStatusCode(int code)
-      : message = _getMessageForStatusCode(code),
-        statusCode = code,
-        isRetryable = code >= 500,
-        shouldUseCachedData = code >= 500;
+  factory ApiException.fromStatusCode(int code) {
+    final message = _getMessageForStatusCode(code);
+    return ApiException(
+      message: message,
+      statusCode: code,
+      isRetryable: code >= 500,
+      shouldUseCachedData: code >= 500,
+    );
+  }
 
-  ApiException.unexpected(dynamic error)
-      : message = 'Unexpected error: ${error.toString()}',
-        statusCode = null,
-        isRetryable = true,
-        shouldUseCachedData = true;
+  factory ApiException.unexpected(dynamic error) {
+    return ApiException(
+      message: 'Unexpected error: ${error.toString()}',
+      isRetryable: true,
+      shouldUseCachedData: true,
+    );
+  }
 
   static String _getMessageForStatusCode(int statusCode) {
     switch (statusCode) {
@@ -557,7 +608,7 @@ class ApiException implements Exception {
   String toString() => 'ApiException: $message';
 }
 
-/// API request source
+/// Data source enumeration
 enum DataSource { network, cache, memoryCache }
 
 /// API response status
