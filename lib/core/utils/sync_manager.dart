@@ -1,315 +1,494 @@
 // lib/core/utils/sync_manager.dart
 
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:http/http.dart' as http;
+import './connectivity_manager.dart';
+import './request_manager.dart';
 
-/// Manages data synchronization and offline data handling
+/// Manages data synchronization and offline operations for Pokedex app with
+/// comprehensive retry logic and error handling
 class SyncManager {
   // Singleton pattern
   static final SyncManager _instance = SyncManager._internal();
   factory SyncManager() => _instance;
-  SyncManager._internal() {
-    _initializeStreams();
-  }
+  SyncManager._internal();
 
   // Core components
   late final SharedPreferences _prefs;
-  final _syncQueue = <SyncOperation>[];
-  final _syncHistory = <String, SyncResult>{};
+  final ConnectivityManager _connectivityManager = ConnectivityManager();
+  final RequestManager _requestManager = RequestManager();
+  final StreamController<SyncState> _stateController =
+      StreamController<SyncState>.broadcast();
+  final StreamController<double> _progressController =
+      StreamController<double>.broadcast();
+  final Map<String, OfflineOperation> _pendingOperations = {};
+  final Map<String, int> _operationFailures = {};
 
-  // Stream controllers
-  final _syncStatusController = StreamController<SyncStatus>.broadcast();
-  final _syncProgressController = StreamController<SyncProgress>.broadcast();
-  final _syncErrorController = StreamController<SyncError>.broadcast();
-
-  // Sync state
-  Timer? _syncTimer;
-  bool _isSyncing = false;
+  // State management
   bool _isInitialized = false;
-  DateTime? _lastSyncTime;
-  int _consecutiveFailures = 0;
+  bool _isSyncing = false;
+  bool _isDisposed = false;
+  SyncState _currentState = SyncState.idle;
+  Timer? _syncTimer;
+  Timer? _retryTimer;
+  DateTime? _lastSyncAttempt;
 
-  // Constants
+  // Sync settings
   static const Duration _syncInterval = Duration(minutes: 15);
-  static const Duration _retryDelay = Duration(seconds: 30);
-  static const Duration _timeout = Duration(minutes: 2);
+  static const Duration _retryInterval = Duration(seconds: 30);
+  static const Duration _backoffInterval = Duration(minutes: 5);
+  static const Duration _operationTimeout = Duration(seconds: 30);
+  static const Duration _maxOperationAge = Duration(days: 7);
+  static const String _operationsKey = 'pending_operations';
+  static const String _failuresKey = 'operation_failures';
+  static const String _lastSyncKey = 'last_sync_attempt';
   static const int _maxRetries = 3;
   static const int _maxConsecutiveFailures = 5;
-  static const String _lastSyncKey = 'last_sync_timestamp';
+  static const int _batchSize = 10;
 
-  // Stream getters
-  Stream<SyncStatus> get syncStatus => _syncStatusController.stream;
-  Stream<SyncProgress> get syncProgress => _syncProgressController.stream;
-  Stream<SyncError> get syncErrors => _syncErrorController.stream;
+  // Public access
+  Stream<SyncState> get stateStream => _stateController.stream;
+  Stream<double> get progressStream => _progressController.stream;
+  SyncState get currentState => _currentState;
+  bool get isSyncing => _isSyncing;
+  DateTime? get lastSyncAttempt => _lastSyncAttempt;
+  int get pendingOperationsCount => _pendingOperations.length;
 
-  /// Initialize sync manager
+  /// Initialize with proper error handling and state restoration
   Future<void> initialize() async {
     if (_isInitialized) return;
 
     try {
+      // Initialize dependencies
+      await _connectivityManager.initialize();
       _prefs = await SharedPreferences.getInstance();
-      await _loadLastSyncTime();
+
+      // Restore state
+      await Future.wait([
+        _loadPendingOperations(),
+        _loadOperationFailures(),
+        _loadLastSyncAttempt(),
+      ]);
+
+      // Start monitoring
+      _startPeriodicSync();
+      _setupConnectivityListener();
       _isInitialized = true;
 
       if (kDebugMode) {
-        print('✅ SyncManager initialized');
+        print(
+            '✅ SyncManager initialized with ${_pendingOperations.length} pending operations');
       }
-      return;
     } catch (e) {
       if (kDebugMode) {
-        print('❌ SyncManager initialization error: $e');
+        print('❌ SyncManager initialization failed: $e');
       }
       rethrow;
     }
   }
 
-  /// Initialize stream controllers
-  void _initializeStreams() {
-    _syncStatusController.add(SyncStatus.idle);
-    _syncProgressController.add(SyncProgress(
-      totalOperations: 0,
-      completedOperations: 0,
-      currentOperation: null,
-    ));
+  /// Load persisted state
+  Future<void> _loadPendingOperations() async {
+    try {
+      final operationsJson = _prefs.getString(_operationsKey);
+      if (operationsJson != null) {
+        final operations = json.decode(operationsJson) as Map<String, dynamic>;
+        operations.forEach((key, value) {
+          final operation = OfflineOperation.fromJson(value);
+          // Filter out expired operations
+          if (DateTime.now().difference(operation.timestamp) <=
+              _maxOperationAge) {
+            _pendingOperations[key] = operation;
+          }
+        });
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('⚠️ Error loading pending operations: $e');
+      }
+    }
   }
 
-  /// Start periodic sync
-  Future<void> startSync({bool force = false}) async {
-    if (_isSyncing && !force) return;
+  Future<void> _loadOperationFailures() async {
+    try {
+      final failuresJson = _prefs.getString(_failuresKey);
+      if (failuresJson != null) {
+        final failures = json.decode(failuresJson) as Map<String, dynamic>;
+        _operationFailures
+            .addAll(failures.map((key, value) => MapEntry(key, value as int)));
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('⚠️ Error loading operation failures: $e');
+      }
+    }
+  }
+
+  Future<void> _loadLastSyncAttempt() async {
+    try {
+      final timestamp = _prefs.getInt(_lastSyncKey);
+      if (timestamp != null) {
+        _lastSyncAttempt = DateTime.fromMillisecondsSinceEpoch(timestamp);
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('⚠️ Error loading last sync attempt: $e');
+      }
+    }
+  }
+
+  /// Save state to persistence
+  Future<void> _savePendingOperations() async {
+    try {
+      final operationsJson = json.encode(
+        _pendingOperations.map((key, value) => MapEntry(key, value.toJson())),
+      );
+      await _prefs.setString(_operationsKey, operationsJson);
+    } catch (e) {
+      if (kDebugMode) {
+        print('⚠️ Error saving pending operations: $e');
+      }
+    }
+  }
+
+  Future<void> _saveOperationFailures() async {
+    try {
+      final failuresJson = json.encode(_operationFailures);
+      await _prefs.setString(_failuresKey, failuresJson);
+    } catch (e) {
+      if (kDebugMode) {
+        print('⚠️ Error saving operation failures: $e');
+      }
+    }
+  }
+
+  Future<void> _saveLastSyncAttempt() async {
+    try {
+      await _prefs.setInt(
+          _lastSyncKey, _lastSyncAttempt?.millisecondsSinceEpoch ?? 0);
+    } catch (e) {
+      if (kDebugMode) {
+        print('⚠️ Error saving last sync attempt: $e');
+      }
+    }
+  }
+
+  /// Queue operation for offline sync
+  Future<void> queueOfflineOperation(String endpoint) async {
+    if (!_isInitialized) await initialize();
+    _throwIfDisposed();
+
+    try {
+      // Don't queue if already pending
+      if (await isOperationQueued(endpoint)) return;
+
+      final operation = OfflineOperation(
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        endpoint: endpoint,
+        timestamp: DateTime.now(),
+      );
+
+      _pendingOperations[operation.id] = operation;
+      await _savePendingOperations();
+
+      // Start sync if conditions are good
+      if (_connectivityManager.isOnline && !_isSyncing) {
+        _startSync();
+      }
+
+      if (kDebugMode) {
+        print('📝 Queued offline operation: ${operation.endpoint}');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error queuing operation: $e');
+      }
+      rethrow;
+    }
+  }
+
+  /// Check if operation is already queued
+  Future<bool> isOperationQueued(String endpoint) async {
+    if (!_isInitialized) await initialize();
+    return _pendingOperations.values.any((op) => op.endpoint == endpoint);
+  }
+
+  /// Start periodic sync with backoff
+  void _startPeriodicSync() {
+    _syncTimer?.cancel();
+    _syncTimer = Timer.periodic(_syncInterval, (_) async {
+      if (!_isSyncing && _pendingOperations.isNotEmpty) {
+        await _sync();
+      }
+    });
+  }
+
+  /// Setup connectivity listener for opportunistic sync
+  void _setupConnectivityListener() {
+    _connectivityManager.stateStream.listen((state) {
+      if (state.isOnline && !_isSyncing && _pendingOperations.isNotEmpty) {
+        _startSync();
+      }
+    });
+  }
+
+  /// Start sync process
+  void _startSync() {
+    _retryTimer?.cancel();
+    _sync();
+  }
+
+  /// Execute sync with error handling and retry logic
+  Future<void> _sync() async {
+    if (_isSyncing || _pendingOperations.isEmpty || _isDisposed) return;
 
     try {
       _isSyncing = true;
-      _syncStatusController.add(SyncStatus.inProgress);
+      _lastSyncAttempt = DateTime.now();
+      await _saveLastSyncAttempt();
+      _updateState(SyncState.syncing);
 
-      if (kDebugMode) {
-        print('🔄 Starting sync...');
+      final isOnline = _connectivityManager.isOnline;
+      if (!isOnline) {
+        _updateState(SyncState.waitingForConnection);
+        _scheduleRetry(_retryInterval);
+        return;
       }
 
-      await _processSyncQueue();
+      await _processPendingOperations();
 
-      _lastSyncTime = DateTime.now();
-      await _saveLastSyncTime();
-      _consecutiveFailures = 0;
-
-      _syncStatusController.add(SyncStatus.completed);
+      _isSyncing = false;
+      _updateState(SyncState.completed);
+      await _cleanupCompletedOperations();
 
       if (kDebugMode) {
         print('✅ Sync completed');
       }
-      return;
     } catch (e) {
-      _handleSyncError(e);
-    } finally {
       _isSyncing = false;
+      _updateState(SyncState.error);
+      _scheduleRetry(_backoffInterval);
+
+      if (kDebugMode) {
+        print('❌ Sync error: $e');
+      }
+    } finally {
+      _updateProgress(1.0);
     }
   }
 
-  /// Stop sync process
-  Future<void> stopSync() async {
-    _syncTimer?.cancel();
-    _isSyncing = false;
-    _syncStatusController.add(SyncStatus.idle);
-
-    if (kDebugMode) {
-      print('⏹️ Sync stopped');
-    }
-    return;
+  /// Schedule retry with appropriate interval
+  void _scheduleRetry(Duration interval) {
+    _retryTimer?.cancel();
+    _retryTimer = Timer(interval, () {
+      if (_pendingOperations.isNotEmpty && !_isSyncing) {
+        _sync();
+      }
+    });
   }
 
-  /// Add operation to sync queue
-  Future<void> addToSyncQueue(SyncOperation operation) async {
-    _syncQueue.add(operation);
-    _updateProgress();
+  /// Process pending operations in batches with smart retry
+  Future<void> _processPendingOperations() async {
+    final operations = _pendingOperations.values.toList();
+    final totalOperations = operations.length;
+    var completedOperations = 0;
+    var consecutiveFailures = 0;
 
-    if (kDebugMode) {
-      print('📝 Added operation to sync queue: ${operation.id}');
-    }
-    return;
-  }
+    for (var i = 0; i < operations.length; i += _batchSize) {
+      if (_isDisposed) return;
 
-  /// Process sync queue
-  Future<void> _processSyncQueue() async {
-    final totalOperations = _syncQueue.length;
-    int completedOperations = 0;
-
-    while (_syncQueue.isNotEmpty) {
-      final operation = _syncQueue.first;
+      final batch = operations.skip(i).take(_batchSize);
 
       try {
-        _updateProgress(
-          currentOperation: operation,
-          totalOperations: totalOperations,
-          completedOperations: completedOperations,
+        await Future.wait(
+          batch.map((operation) => _processOperation(operation)),
+          eagerError: true,
         );
 
-        await _executeOperation(operation);
-
-        _syncQueue.removeAt(0);
-        completedOperations++;
-
-        _syncHistory[operation.id] = SyncResult(
-          operation: operation,
-          status: SyncStatus.completed,
-          timestamp: DateTime.now(),
-        );
+        completedOperations += batch.length;
+        consecutiveFailures = 0;
+        _updateProgress(completedOperations / totalOperations);
       } catch (e) {
-        if (await _handleOperationError(operation, e)) {
-          // Retry operation later
-          _syncQueue.removeAt(0);
-          _syncQueue.add(operation);
-        } else {
-          // Operation failed permanently
-          _syncQueue.removeAt(0);
-          _syncHistory[operation.id] = SyncResult(
-            operation: operation,
-            status: SyncStatus.failed,
-            timestamp: DateTime.now(),
-            error: e.toString(),
-          );
+        consecutiveFailures++;
+        if (consecutiveFailures >= _maxConsecutiveFailures) {
+          throw Exception('Too many consecutive failures');
         }
+        // Add exponential backoff
+        await Future.delayed(_retryInterval * (1 << consecutiveFailures));
       }
     }
-    return;
   }
 
-  /// Execute single operation
-  Future<void> _executeOperation(SyncOperation operation) async {
-    if (operation.retryCount >= _maxRetries) {
-      throw MaxRetriesExceededException();
+  /// Process single operation with timeout and retry tracking
+  Future<void> _processOperation(OfflineOperation operation) async {
+    try {
+      final response = await _requestManager.executeRequest(
+        id: operation.id,
+        request: () async {
+          final response = await http
+              .get(Uri.parse(operation.endpoint))
+              .timeout(_operationTimeout);
+
+          if (response.statusCode != 200) {
+            throw HttpException('Failed with status: ${response.statusCode}');
+          }
+          return response;
+        },
+      );
+
+      if (response.statusCode == 200) {
+        await _handleSuccessfulOperation(operation);
+      } else {
+        await _handleFailedOperation(operation);
+      }
+    } catch (e) {
+      await _handleOperationError(operation, e);
+    }
+  }
+
+  /// Handle successful operation completion
+  Future<void> _handleSuccessfulOperation(OfflineOperation operation) async {
+    _pendingOperations.remove(operation.id);
+    _operationFailures.remove(operation.id);
+    await Future.wait([
+      _savePendingOperations(),
+      _saveOperationFailures(),
+    ]);
+
+    if (kDebugMode) {
+      print('✅ Operation completed: ${operation.endpoint}');
+    }
+  }
+
+  /// Handle failed operation
+  Future<void> _handleFailedOperation(OfflineOperation operation) async {
+    operation.retryCount++;
+    _operationFailures[operation.id] =
+        (_operationFailures[operation.id] ?? 0) + 1;
+
+    if (operation.retryCount >= _maxRetries ||
+        (_operationFailures[operation.id] ?? 0) >= _maxConsecutiveFailures) {
+      _pendingOperations.remove(operation.id);
+
+      if (kDebugMode) {
+        print('❌ Operation failed permanently: ${operation.endpoint}');
+      }
     }
 
-    try {
-      await operation.execute().timeout(_timeout);
-      return;
-    } catch (e) {
-      operation.retryCount++;
-      rethrow;
-    }
+    await Future.wait([
+      _savePendingOperations(),
+      _saveOperationFailures(),
+    ]);
   }
 
   /// Handle operation error
-  Future<bool> _handleOperationError(
-    SyncOperation operation,
+  Future<void> _handleOperationError(
+    OfflineOperation operation,
     dynamic error,
   ) async {
     if (kDebugMode) {
-      print('❌ Operation failed: ${operation.id} - $error');
+      print('⚠️ Operation error: ${operation.endpoint} - $error');
     }
 
-    _syncErrorController.add(SyncError(
-      operation: operation,
-      error: error.toString(),
-      timestamp: DateTime.now(),
-    ));
+    operation.retryCount++;
+    _operationFailures[operation.id] =
+        (_operationFailures[operation.id] ?? 0) + 1;
 
-    // Check if operation should be retried
-    if (operation.retryCount < _maxRetries) {
-      await Future.delayed(_retryDelay);
-      return true;
+    await Future.wait([
+      _savePendingOperations(),
+      _saveOperationFailures(),
+    ]);
+
+    // Rethrow if max retries exceeded
+    if (operation.retryCount >= _maxRetries) {
+      throw Exception('Max retries exceeded for operation: ${operation.id}');
     }
-
-    return false;
   }
 
-  /// Handle sync error
-  void _handleSyncError(dynamic error) {
-    _consecutiveFailures++;
+  /// Clean up completed and expired operations
+  Future<void> _cleanupCompletedOperations() async {
+    final now = DateTime.now();
+    _pendingOperations.removeWhere((_, operation) {
+      return now.difference(operation.timestamp) > _maxOperationAge;
+    });
+    await _savePendingOperations();
+  }
 
-    if (kDebugMode) {
-      print('❌ Sync error: $error');
-    }
-
-    _syncStatusController.add(SyncStatus.failed);
-    _syncErrorController.add(SyncError(
-      error: error.toString(),
-      timestamp: DateTime.now(),
-    ));
-
-    // Stop sync if too many failures
-    if (_consecutiveFailures >= _maxConsecutiveFailures) {
-      stopSync();
+  /// Update sync state with notifications
+  void _updateState(SyncState state) {
+    _currentState = state;
+    if (!_stateController.isClosed && !_isDisposed) {
+      _stateController.add(state);
     }
   }
 
   /// Update sync progress
-  void _updateProgress({
-    SyncOperation? currentOperation,
-    int totalOperations = 0,
-    int completedOperations = 0,
-  }) {
-    if (!_syncProgressController.isClosed) {
-      _syncProgressController.add(SyncProgress(
-        totalOperations: totalOperations,
-        completedOperations: completedOperations,
-        currentOperation: currentOperation,
-      ));
+  void _updateProgress(double progress) {
+    if (!_progressController.isClosed && !_isDisposed) {
+      _progressController.add(progress.clamp(0.0, 1.0));
     }
   }
 
-  /// Load last sync time
-  Future<void> _loadLastSyncTime() async {
-    final timestamp = _prefs.getInt(_lastSyncKey);
-    if (timestamp != null) {
-      _lastSyncTime = DateTime.fromMillisecondsSinceEpoch(timestamp);
-    }
-    return;
+  /// Force immediate sync
+  Future<void> syncNow() async {
+    if (!_isInitialized) await initialize();
+    _throwIfDisposed();
+
+    _retryTimer?.cancel();
+    await _sync();
   }
 
-  /// Save last sync time
-  Future<void> _saveLastSyncTime() async {
-    if (_lastSyncTime != null) {
-      await _prefs.setInt(
-        _lastSyncKey,
-        _lastSyncTime!.millisecondsSinceEpoch,
-      );
-    }
-    return;
-  }
-
-  /// Get sync history
-  List<SyncResult> getSyncHistory() {
-    return _syncHistory.values.toList()
-      ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
-  }
-
-  /// Get time since last sync
-  Duration? getTimeSinceLastSync() {
-    if (_lastSyncTime == null) return null;
-    return DateTime.now().difference(_lastSyncTime!);
-  }
-
-  /// Check if sync is needed
-  bool needsSync() {
-    if (_lastSyncTime == null) return true;
-    return DateTime.now().difference(_lastSyncTime!) > _syncInterval;
-  }
-
-  /// Get current sync status
-  SyncStatus getCurrentStatus() {
-    if (_isSyncing) return SyncStatus.inProgress;
-    if (_consecutiveFailures > 0) return SyncStatus.failed;
-    return SyncStatus.idle;
-  }
-
-  /// Reset sync state
-  void reset() {
-    _syncQueue.clear();
-    _syncHistory.clear();
-    _consecutiveFailures = 0;
-    _updateProgress();
-  }
-
-  /// Cleanup resources
-  Future<void> dispose() async {
-    _syncTimer?.cancel();
-    await stopSync();
-
+  /// Clear sync queue
+  Future<void> clearQueue() async {
+    _pendingOperations.clear();
+    _operationFailures.clear();
     await Future.wait([
-      _syncStatusController.close(),
-      _syncProgressController.close(),
-      _syncErrorController.close(),
+      _prefs.remove(_operationsKey),
+      _prefs.remove(_failuresKey),
     ]);
+    _updateProgress(0);
+    _updateState(SyncState.idle);
+
+    if (kDebugMode) {
+      print('🧹 Sync queue cleared');
+    }
+  }
+
+  /// Get sync statistics
+  Map<String, dynamic> getSyncStats() {
+    return {
+      'pendingOperations': _pendingOperations.length,
+      'failedOperations': _operationFailures.length,
+      'lastSyncAttempt': _lastSyncAttempt?.toIso8601String(),
+      'currentState': _currentState.toString(),
+      'isOnline': _connectivityManager.isOnline,
+    };
+  }
+
+  void _throwIfDisposed() {
+    if (_isDisposed) {
+      throw StateError('SyncManager has been disposed');
+    }
+  }
+
+  /// Resource cleanup
+  Future<void> dispose() async {
+    if (_isDisposed) return;
+
+    _isDisposed = true;
+    _syncTimer?.cancel();
+    _retryTimer?.cancel();
+    await Future.wait([
+      _stateController.close(),
+      _progressController.close(),
+    ]);
+    _pendingOperations.clear();
+    _operationFailures.clear();
+    _isInitialized = false;
 
     if (kDebugMode) {
       print('🧹 SyncManager disposed');
@@ -317,105 +496,69 @@ class SyncManager {
   }
 }
 
-/// Sync operation base class
-abstract class SyncOperation {
+/// Represents an offline operation with retry tracking
+class OfflineOperation {
   final String id;
-  final SyncPriority priority;
+  final String endpoint;
+  final DateTime timestamp;
   int retryCount;
 
-  SyncOperation({
+  OfflineOperation({
     required this.id,
-    this.priority = SyncPriority.normal,
-  }) : retryCount = 0;
-
-  Future<void> execute();
-}
-
-/// Sync operation result
-class SyncResult {
-  final SyncOperation? operation;
-  final SyncStatus status;
-  final DateTime timestamp;
-  final String? error;
-
-  SyncResult({
-    this.operation,
-    required this.status,
+    required this.endpoint,
     required this.timestamp,
-    this.error,
-  });
-}
-
-/// Sync progress information
-class SyncProgress {
-  final int totalOperations;
-  final int completedOperations;
-  final SyncOperation? currentOperation;
-
-  SyncProgress({
-    required this.totalOperations,
-    required this.completedOperations,
-    this.currentOperation,
+    this.retryCount = 0,
   });
 
-  double get percentComplete {
-    if (totalOperations == 0) return 0;
-    return (completedOperations / totalOperations) * 100;
+  factory OfflineOperation.fromJson(Map<String, dynamic> json) {
+    return OfflineOperation(
+      id: json['id'] as String,
+      endpoint: json['endpoint'] as String,
+      timestamp: DateTime.fromMillisecondsSinceEpoch(json['timestamp'] as int),
+      retryCount: json['retryCount'] as int? ?? 0,
+    );
   }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'endpoint': endpoint,
+        'timestamp': timestamp.millisecondsSinceEpoch,
+        'retryCount': retryCount,
+      };
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is OfflineOperation &&
+          runtimeType == other.runtimeType &&
+          id == other.id;
+
+  @override
+  int get hashCode => id.hashCode;
 
   @override
   String toString() =>
-      'Progress: $completedOperations/$totalOperations (${percentComplete.toStringAsFixed(1)}%)';
+      'OfflineOperation(id: $id, endpoint: $endpoint, retries: $retryCount)';
 }
 
-/// Sync error information
-class SyncError {
-  final SyncOperation? operation;
-  final String error;
-  final DateTime timestamp;
-
-  SyncError({
-    this.operation,
-    required this.error,
-    required this.timestamp,
-  });
-
-  @override
-  String toString() => 'SyncError: ${operation?.id ?? 'General'} - $error';
-}
-
-/// Sync priority levels
-enum SyncPriority {
-  high,
-  normal,
-  low;
-
-  bool get isHigh => this == SyncPriority.high;
-  bool get isNormal => this == SyncPriority.normal;
-  bool get isLow => this == SyncPriority.low;
-}
-
-/// Sync status
-enum SyncStatus {
+/// Sync state enumeration with helper methods
+enum SyncState {
   idle('Idle'),
-  inProgress('In Progress'),
+  syncing('Syncing'),
+  waitingForConnection('Waiting for Connection'),
   completed('Completed'),
-  failed('Failed');
+  error('Error');
 
-  final String value;
-  const SyncStatus(this.value);
+  final String status;
+  const SyncState(this.status);
 
-  bool get isIdle => this == SyncStatus.idle;
-  bool get isInProgress => this == SyncStatus.inProgress;
-  bool get isCompleted => this == SyncStatus.completed;
-  bool get isFailed => this == SyncStatus.failed;
+  bool get isActive => this == SyncState.syncing;
+  bool get needsRetry =>
+      this == SyncState.error || this == SyncState.waitingForConnection;
+  bool get canRetry =>
+      this == SyncState.error || this == SyncState.waitingForConnection;
+  bool get isComplete => this == SyncState.completed;
 
   @override
-  String toString() => value;
-}
-
-/// Custom exceptions
-class MaxRetriesExceededException implements Exception {
-  @override
-  String toString() => 'Maximum retry attempts exceeded';
+  String toString() => status;
 }
