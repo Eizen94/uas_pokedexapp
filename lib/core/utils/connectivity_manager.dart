@@ -1,102 +1,82 @@
 // lib/core/utils/connectivity_manager.dart
 
 import 'dart:async';
-import 'dart:collection';
 import 'package:flutter/foundation.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
-import 'request_manager.dart';
+import './request_manager.dart';
 
-/// Manages network connectivity with improved offline support and background sync.
-/// Includes proper cleanup, thread safety, and efficient queue management.
+/// Enhanced connectivity manager optimized for Pokedex app with improved
+/// offline support and network quality monitoring
 class ConnectivityManager {
-  // Singleton pattern with proper initialization
+  // Singleton with proper initialization
   static final ConnectivityManager _instance = ConnectivityManager._internal();
   factory ConnectivityManager() => _instance;
-  ConnectivityManager._internal() {
-    _initializeStreams();
-  }
+  ConnectivityManager._internal();
 
-  // Core components with proper type safety
+  // Core components
   final Connectivity _connectivity = Connectivity();
-  final RequestManager _requestManager = RequestManager();
-  late SharedPreferences _prefs;
+  final _networkStateController = StreamController<NetworkState>.broadcast();
+  final _qualityTestResults = <DateTime, Duration>{};
+  late final SharedPreferences _prefs;
 
-  // Stream controllers with proper cleanup
-  final StreamController<ConnectionStatus> _connectionStatusController =
-      StreamController<ConnectionStatus>.broadcast();
-  final StreamController<NetworkQuality> _networkQualityController =
-      StreamController<NetworkQuality>.broadcast();
-  final StreamController<bool> _onlineStatusController =
-      StreamController<bool>.broadcast();
-  final StreamController<SyncStatus> _syncStatusController =
-      StreamController<SyncStatus>.broadcast();
-
-  // Connection management with safety checks
-  StreamSubscription<ConnectivityResult>? _connectivitySubscription;
+  // Connection tracking
   Timer? _monitorTimer;
-  Timer? _speedTestTimer;
-
-  // Status tracking with thread safety
-  ConnectivityResult? _lastResult;
-  bool _isInitialized = false;
-  bool _isMonitoring = false;
-  bool _isSyncing = false;
+  StreamSubscription<ConnectivityResult>? _connectivitySubscription;
+  NetworkState _currentState = NetworkState.unknown;
   DateTime? _lastOnlineTime;
   DateTime? _lastSyncTime;
-  int _failedTests = 0;
+  bool _isInitialized = false;
+  bool _isMonitoring = false;
+  int _consecutiveFailures = 0;
 
-  // Queue system with bounded size
-  final _boundedQueue = BoundedOperationQueue(maxSize: 1000);
-  final _syncInProgress = <String>{};
-
-  // Constants
+  // Constants tuned for Pokedex app
+  static const Duration _monitorInterval = Duration(seconds: 15);
+  static const Duration _qualityTestTimeout = Duration(seconds: 5);
+  static const Duration _backoffInterval = Duration(seconds: 30);
+  static const Duration _minSyncInterval = Duration(minutes: 15);
+  static const int _maxConsecutiveFailures = 3;
+  static const String _testEndpoint = 'https://pokeapi.co/api/v2/pokemon/1';
   static const String _lastOnlineKey = 'last_online_timestamp';
   static const String _lastSyncKey = 'last_sync_timestamp';
-  static const Duration _monitorInterval = Duration(seconds: 30);
-  static const Duration _speedTestInterval = Duration(minutes: 5);
-  static const Duration _syncTimeout = Duration(minutes: 2);
-  static const int _maxFailedTests = 3;
-  static const int _maxRetries = 3;
-  static const Duration _retryDelay = Duration(seconds: 2);
 
-  // Stream getters
-  Stream<ConnectionStatus> get connectionStatus =>
-      _connectionStatusController.stream;
-  Stream<NetworkQuality> get networkQuality => _networkQualityController.stream;
-  Stream<bool> get onlineStatus => _onlineStatusController.stream;
-  Stream<SyncStatus> get syncStatus => _syncStatusController.stream;
+  // Public stream access
+  Stream<NetworkState> get networkStateStream => _networkStateController.stream;
+  NetworkState get currentState => _currentState;
+  bool get isOnline => _currentState.isOnline;
+  bool get isHighSpeed => _currentState.isHighSpeed;
+  bool get needsOptimization => _currentState.needsOptimization;
 
-  // Initialize streams safely
-  void _initializeStreams() {
-    _connectionStatusController.add(ConnectionStatus.unknown);
-    _networkQualityController.add(NetworkQuality.unknown);
-    _onlineStatusController.add(false);
-    _syncStatusController.add(SyncStatus.idle);
-  }
-
-  /// Initialize the connectivity manager with proper error handling
+  /// Initialize with proper error handling and state persistence
   Future<void> initialize() async {
     if (_isInitialized) return;
 
     try {
-      // Initialize preferences safely
+      // Initialize preferences
       _prefs = await SharedPreferences.getInstance();
-      await _loadLastTimestamps();
+      await _loadPersistedState();
 
-      // Get initial connectivity with timeout
-      final initialResult = await _connectivity
-          .checkConnectivity()
-          .timeout(const Duration(seconds: 5));
-      _lastResult = initialResult;
-      await _updateConnectionStatus(initialResult);
+      // Initial connectivity check
+      final result = await _connectivity.checkConnectivity();
+      _updateNetworkState(result);
 
-      // Start monitoring with safety checks
-      await startMonitoring();
+      // Setup real-time monitoring with error handling
+      _connectivitySubscription = _connectivity.onConnectivityChanged
+          .listen(_handleConnectivityChange, onError: (error) {
+        if (kDebugMode) {
+          print('⚠️ Connectivity listener error: $error');
+        }
+        _updateNetworkState(ConnectivityResult.none);
+      });
+
+      // Start periodic quality checks
+      _startMonitoring();
+
       _isInitialized = true;
 
       if (kDebugMode) {
-        print('✅ ConnectivityManager initialized');
+        print('✅ ConnectivityManager initialized: ${_currentState.name}');
       }
     } catch (e) {
       if (kDebugMode) {
@@ -107,311 +87,209 @@ class ConnectivityManager {
     }
   }
 
-  /// Start monitoring connectivity with proper cleanup
-  Future<void> startMonitoring() async {
+  /// Load persisted state from preferences
+  Future<void> _loadPersistedState() async {
+    final lastOnlineTimestamp = _prefs.getInt(_lastOnlineKey);
+    if (lastOnlineTimestamp != null) {
+      _lastOnlineTime =
+          DateTime.fromMillisecondsSinceEpoch(lastOnlineTimestamp);
+    }
+
+    final lastSyncTimestamp = _prefs.getInt(_lastSyncKey);
+    if (lastSyncTimestamp != null) {
+      _lastSyncTime = DateTime.fromMillisecondsSinceEpoch(lastSyncTimestamp);
+    }
+  }
+
+  /// Enhanced connectivity check with quality testing and caching
+  Future<bool> checkConnectivity() async {
+    if (!_isInitialized) await initialize();
+
+    try {
+      final result = await _connectivity.checkConnectivity();
+      if (result == ConnectivityResult.none) {
+        _updateNetworkState(result);
+        return false;
+      }
+
+      // Perform real connection test for reliability
+      final isReachable = await _testConnection();
+      _updateNetworkState(isReachable ? result : ConnectivityResult.none,
+          forceNotify: true);
+
+      return isReachable;
+    } catch (e) {
+      if (kDebugMode) {
+        print('⚠️ Connectivity check error: $e');
+      }
+      _updateNetworkState(ConnectivityResult.none);
+      return false;
+    }
+  }
+
+  /// Check if device is offline with caching
+  Future<bool> isOffline() async {
+    // Use cached state if recently checked
+    if (_lastOnlineTime != null) {
+      final timeSinceLastCheck = DateTime.now().difference(_lastOnlineTime!);
+      if (timeSinceLastCheck < const Duration(seconds: 30)) {
+        return !isOnline;
+      }
+    }
+    return !(await checkConnectivity());
+  }
+
+  /// Start monitoring with smart backoff and battery optimization
+  void _startMonitoring() {
     if (_isMonitoring) return;
+    _isMonitoring = true;
 
-    try {
-      // Set up connectivity listener with error handling
-      _connectivitySubscription = _connectivity.onConnectivityChanged.listen(
-        _updateConnectionStatus,
-        onError: (error) {
-          if (kDebugMode) {
-            print('❌ Connectivity monitoring error: $error');
-          }
-          _connectionStatusController.addError(error);
-        },
-        cancelOnError: false,
-      );
-
-      // Start periodic monitoring with safety checks
-      _monitorTimer?.cancel();
-      _monitorTimer = Timer.periodic(
-        _monitorInterval,
-        (_) => _checkConnectivity(),
-      );
-
-      // Start network quality monitoring
-      _speedTestTimer?.cancel();
-      _speedTestTimer = Timer.periodic(
-        _speedTestInterval,
-        (_) => _checkNetworkQuality(),
-      );
-
-      _isMonitoring = true;
-
-      if (kDebugMode) {
-        print('🔄 Started connectivity monitoring');
-      }
-    } catch (e) {
-      _isMonitoring = false;
-      if (kDebugMode) {
-        print('❌ Error starting connectivity monitoring: $e');
-      }
-      rethrow;
-    }
-  }
-
-  /// Stop monitoring with proper cleanup
-  Future<void> stopMonitoring() async {
-    await _connectivitySubscription?.cancel();
     _monitorTimer?.cancel();
-    _speedTestTimer?.cancel();
-    _isMonitoring = false;
+    _monitorTimer = Timer.periodic(_monitorInterval, (_) {
+      if (_consecutiveFailures >= _maxConsecutiveFailures) {
+        // Increase interval on repeated failures
+        _monitorTimer?.cancel();
+        _monitorTimer =
+            Timer.periodic(_backoffInterval, (_) => _checkQuality());
+      } else {
+        _checkQuality();
+      }
+    });
+  }
+
+  /// Handle connectivity changes with debouncing and verification
+  void _handleConnectivityChange(ConnectivityResult result) async {
+    if (_currentState.type == result && !_currentState.needsOptimization)
+      return;
+
+    // Verify change with actual connection test
+    final isReachable = await _testConnection();
+    _updateNetworkState(isReachable ? result : ConnectivityResult.none,
+        forceNotify: true);
 
     if (kDebugMode) {
-      print('⏹️ Stopped connectivity monitoring');
+      print('🌐 Network state changed: ${_currentState.name}');
     }
   }
 
-  /// Check current connectivity with timeout
-  Future<ConnectionStatus> checkConnectivity() async {
+  /// Test actual connection quality with timeout
+  Future<bool> _testConnection() async {
     try {
-      final result = await _connectivity
-          .checkConnectivity()
-          .timeout(const Duration(seconds: 5));
-      final status = _getConnectionStatus(result);
-      await _updateConnectionStatus(result);
-      return status;
+      final response = await RequestManager().executeRequest(
+        id: 'connectivity_test',
+        request: () =>
+            http.get(Uri.parse(_testEndpoint)).timeout(_qualityTestTimeout),
+      );
+
+      final success = response.statusCode == 200;
+      if (success) {
+        _consecutiveFailures = 0;
+        _lastOnlineTime = DateTime.now();
+        await _prefs.setInt(
+            _lastOnlineKey, _lastOnlineTime!.millisecondsSinceEpoch);
+      } else {
+        _consecutiveFailures++;
+      }
+
+      return success;
     } catch (e) {
-      if (kDebugMode) {
-        print('❌ Error checking connectivity: $e');
-      }
-      return ConnectionStatus.unknown;
+      _consecutiveFailures++;
+      return false;
     }
   }
 
-  /// Update connection status with proper state management
-  Future<void> _updateConnectionStatus(ConnectivityResult result) async {
-    if (result == _lastResult) return;
+  /// Check network quality with response time tracking
+  Future<void> _checkQuality() async {
+    if (_currentState == NetworkState.offline) return;
 
-    final previousStatus = _getConnectionStatus(_lastResult);
-    final currentStatus = _getConnectionStatus(result);
-    final isOnline = currentStatus.isOnline;
-
-    _lastResult = result;
-
-    // Update status streams safely
-    if (!_connectionStatusController.isClosed) {
-      _connectionStatusController.add(currentStatus);
-    }
-    if (!_onlineStatusController.isClosed) {
-      _onlineStatusController.add(isOnline);
-    }
-
-    if (kDebugMode) {
-      print('🌐 Connection changed: $currentStatus (Online: $isOnline)');
-    }
-
-    // Handle transitions with proper error handling
-    if (!previousStatus.isOnline && currentStatus.isOnline) {
-      await _handleOnlineTransition();
-    } else if (previousStatus.isOnline && !currentStatus.isOnline) {
-      await _handleOfflineTransition();
-    }
-  }
-
-  /// Handle transition to online state with retry mechanism
-  Future<void> _handleOnlineTransition() async {
-    _lastOnlineTime = DateTime.now();
-    await _saveLastOnlineTime();
-
-    // Process pending operations with retry
-    if (_boundedQueue.isNotEmpty) {
-      await _processPendingOperationsWithRetry();
-    }
-
-    if (kDebugMode) {
-      print('🔵 Device is now online');
-    }
-  }
-
-  /// Handle transition to offline state with proper cleanup
-  Future<void> _handleOfflineTransition() async {
-    // Cancel non-critical requests
-    await _requestManager.cancelNonCriticalRequests();
-
-    if (kDebugMode) {
-      print('🔴 Device is now offline');
-    }
-  }
-
-  /// Process pending operations with retry mechanism
-  Future<void> _processPendingOperationsWithRetry() async {
-    if (_isSyncing) return;
-
-    try {
-      _isSyncing = true;
-      _syncStatusController.add(SyncStatus.inProgress);
-
-      while (_boundedQueue.isNotEmpty) {
-        final operation = await _boundedQueue.dequeue();
-        if (_syncInProgress.contains(operation.id)) continue;
-
-        try {
-          _syncInProgress.add(operation.id);
-          await _executeWithRetry(
-            operation: () => operation.execute(),
-            maxRetries: _maxRetries,
-            retryDelay: _retryDelay,
-          );
-          _syncInProgress.remove(operation.id);
-        } catch (e) {
-          if (kDebugMode) {
-            print('⚠️ Error processing operation: ${operation.id} - $e');
-          }
-          _syncInProgress.remove(operation.id);
-
-          // Add back to queue if should retry
-          if (operation.retryCount < _maxRetries) {
-            operation.retryCount++;
-            await _boundedQueue.enqueue(operation);
-          }
-        }
-      }
-
-      _lastSyncTime = DateTime.now();
-      await _saveLastSyncTime();
-      _syncStatusController.add(SyncStatus.completed);
-    } catch (e) {
-      if (kDebugMode) {
-        print('❌ Error processing pending operations: $e');
-      }
-      _syncStatusController.add(SyncStatus.failed);
-    } finally {
-      _isSyncing = false;
-    }
-  }
-
-  /// Execute operation with retry mechanism
-  Future<T> _executeWithRetry<T>({
-    required Future<T> Function() operation,
-    required int maxRetries,
-    required Duration retryDelay,
-  }) async {
-    int attempts = 0;
-
-    while (true) {
-      try {
-        attempts++;
-        return await operation();
-      } catch (e) {
-        if (attempts >= maxRetries) rethrow;
-        await Future.delayed(retryDelay * attempts);
-      }
-    }
-  }
-
-  /// Check network quality with timeout
-  Future<void> _checkNetworkQuality() async {
     try {
       final startTime = DateTime.now();
-      final connectivityResult = await _connectivity
-          .checkConnectivity()
-          .timeout(const Duration(seconds: 5));
-      await _updateConnectionStatus(connectivityResult);
-      final endTime = DateTime.now();
+      final isReachable = await _testConnection();
 
-      final responseTime = endTime.difference(startTime);
-      final quality = _calculateNetworkQuality(responseTime);
+      if (isReachable) {
+        final responseTime = DateTime.now().difference(startTime);
+        _qualityTestResults[startTime] = responseTime;
 
-      if (!_networkQualityController.isClosed) {
-        _networkQualityController.add(quality);
-      }
-
-      // Update failed tests counter with safety checks
-      if (quality == NetworkQuality.poor) {
-        _failedTests++;
-        if (_failedTests >= _maxFailedTests) {
-          await _updateConnectionStatus(ConnectivityResult.none);
+        // Keep last 5 results for moving average
+        if (_qualityTestResults.length > 5) {
+          _qualityTestResults.remove(_qualityTestResults.keys.first);
         }
-      } else {
-        _failedTests = 0;
+
+        _updateNetworkQuality();
       }
     } catch (e) {
       if (kDebugMode) {
-        print('⚠️ Error checking network quality: $e');
+        print('⚠️ Quality check error: $e');
       }
     }
   }
 
-  /// Calculate network quality based on response time
-  NetworkQuality _calculateNetworkQuality(Duration responseTime) {
-    if (responseTime.inMilliseconds < 300) {
-      return NetworkQuality.excellent;
-    } else if (responseTime.inMilliseconds < 1000) {
-      return NetworkQuality.good;
-    } else if (responseTime.inMilliseconds < 3000) {
-      return NetworkQuality.fair;
+  /// Update network quality based on response times and history
+  void _updateNetworkQuality() {
+    if (_qualityTestResults.isEmpty) return;
+
+    // Calculate weighted moving average
+    final weightedSum =
+        _qualityTestResults.entries.fold<Duration>(Duration.zero, (sum, entry) {
+      final age = DateTime.now().difference(entry.key);
+      final weight = 1.0 / (age.inSeconds + 1);
+      return sum + (entry.value * weight.toInt());
+    });
+
+    final avgResponseTime = weightedSum ~/ _qualityTestResults.length;
+
+    NetworkState newState;
+    if (avgResponseTime < const Duration(milliseconds: 300)) {
+      newState = NetworkState.excellent;
+    } else if (avgResponseTime < const Duration(milliseconds: 1000)) {
+      newState = NetworkState.good;
+    } else if (avgResponseTime < const Duration(milliseconds: 2000)) {
+      newState = NetworkState.poor;
     } else {
-      return NetworkQuality.poor;
+      newState = NetworkState.unstable;
+    }
+
+    _updateNetworkState(_currentState.type, quality: newState);
+  }
+
+  /// Update network state with proper notifications and persistence
+  void _updateNetworkState(
+    ConnectivityResult result, {
+    NetworkState? quality,
+    bool forceNotify = false,
+  }) {
+    final newState = quality ?? _getNetworkState(result);
+    if (_currentState == newState && !forceNotify) return;
+
+    _currentState = newState;
+    if (!_networkStateController.isClosed) {
+      _networkStateController.add(newState);
+    }
+
+    // Update sync time for major state changes
+    if (newState.isOnline && _lastSyncTime == null) {
+      _lastSyncTime = DateTime.now();
+      _prefs.setInt(_lastSyncKey, _lastSyncTime!.millisecondsSinceEpoch);
     }
   }
 
-  /// Queue operation for offline processing with bounds checking
-  Future<void> queueOfflineOperation(OfflineOperation operation) async {
-    await _boundedQueue.enqueue(operation);
-
-    if (kDebugMode) {
-      print('📝 Queued offline operation: ${operation.id}');
-    }
-  }
-
-  /// Load timestamps from preferences safely
-  Future<void> _loadLastTimestamps() async {
-    final onlineTimestamp = _prefs.getInt(_lastOnlineKey);
-    final syncTimestamp = _prefs.getInt(_lastSyncKey);
-
-    if (onlineTimestamp != null) {
-      _lastOnlineTime = DateTime.fromMillisecondsSinceEpoch(onlineTimestamp);
-    }
-    if (syncTimestamp != null) {
-      _lastSyncTime = DateTime.fromMillisecondsSinceEpoch(syncTimestamp);
-    }
-  }
-
-  /// Save last online time safely
-  Future<void> _saveLastOnlineTime() async {
-    if (_lastOnlineTime != null) {
-      await _prefs.setInt(
-        _lastOnlineKey,
-        _lastOnlineTime!.millisecondsSinceEpoch,
-      );
-    }
-  }
-
-  /// Save last sync time safely
-  Future<void> _saveLastSyncTime() async {
-    if (_lastSyncTime != null) {
-      await _prefs.setInt(
-        _lastSyncKey,
-        _lastSyncTime!.millisecondsSinceEpoch,
-      );
-    }
-  }
-
-  /// Get connection status from result
-  ConnectionStatus _getConnectionStatus(ConnectivityResult? result) {
+  /// Convert connectivity result to network state with quality consideration
+  NetworkState _getNetworkState(ConnectivityResult result) {
     switch (result) {
-      case ConnectivityResult.wifi:
-        return ConnectionStatus.wifi;
       case ConnectivityResult.mobile:
-        return ConnectionStatus.cellular;
+        return NetworkState.mobile;
+      case ConnectivityResult.wifi:
+        return NetworkState.wifi;
       case ConnectivityResult.ethernet:
-        return ConnectionStatus.ethernet;
-      case ConnectivityResult.bluetooth:
-        return ConnectionStatus.bluetooth;
-      case ConnectivityResult.vpn:
-        return ConnectionStatus.vpn;
+        return NetworkState.ethernet;
       case ConnectivityResult.none:
-      case ConnectivityResult.other:
-        return ConnectionStatus.offline;
+        return NetworkState.offline;
       default:
-        return ConnectionStatus.unknown;
+        return NetworkState.unknown;
     }
   }
 
-  /// Get time since last online
+  /// Get time since last successful connection
   Duration? getTimeSinceLastOnline() {
     if (_lastOnlineTime == null) return null;
     return DateTime.now().difference(_lastOnlineTime!);
@@ -423,223 +301,116 @@ class ConnectivityManager {
     return DateTime.now().difference(_lastSyncTime!);
   }
 
-  /// Check if device was recently online
-  bool wasRecentlyOnline({Duration threshold = const Duration(minutes: 5)}) {
-    final timeSinceLastOnline = getTimeSinceLastOnline();
-    if (timeSinceLastOnline == null) return false;
-    return timeSinceLastOnline < threshold;
+  /// Check if sync is needed based on interval
+  bool needsSync() {
+    final timeSinceSync = getTimeSinceLastSync();
+    if (timeSinceSync == null) return true;
+    return timeSinceSync > _minSyncInterval;
   }
 
-  /// Wait for connectivity with timeout
+  /// Check if was recently online within threshold
+  bool wasRecentlyOnline({Duration threshold = const Duration(minutes: 5)}) {
+    if (_lastOnlineTime == null) return false;
+    return DateTime.now().difference(_lastOnlineTime!) < threshold;
+  }
+
+  /// Wait for connectivity with timeout and cancellation
   Future<bool> waitForConnectivity({Duration? timeout}) async {
-    if (await checkConnectivity() != ConnectionStatus.offline) {
-      return true;
-    }
+    if (isOnline) return true;
 
     final completer = Completer<bool>();
-    StreamSubscription? subscription;
 
-    // Complete with result
-    void complete(bool result) {
-      subscription?.cancel();
-      if (!completer.isCompleted) {
-        completer.complete(result);
-      }
-    }
-
-    // Set up timeout
+    // Setup timeout
     Timer? timeoutTimer;
     if (timeout != null) {
-      timeoutTimer = Timer(timeout, () => complete(false));
+      timeoutTimer = Timer(timeout, () {
+        if (!completer.isCompleted) {
+          completer.complete(false);
+        }
+      });
     }
 
     // Listen for connectivity
-    subscription = onlineStatus.listen(
-      (isOnline) {
-        if (isOnline) {
-          timeoutTimer?.cancel();
-          complete(true);
-        }
-      },
-      onError: (error) {
+    StreamSubscription? subscription;
+    subscription = networkStateStream.listen((state) {
+      if (state.isOnline && !completer.isCompleted) {
         timeoutTimer?.cancel();
-        complete(false);
-      },
-      cancelOnError: false,
-    );
+        completer.complete(true);
+        subscription?.cancel();
+      }
+    });
 
     return completer.future;
   }
 
-  /// Cleanup resources safely
+  /// Reset monitoring state and clear history
+  void reset() {
+    _consecutiveFailures = 0;
+    _qualityTestResults.clear();
+    _lastSyncTime = null;
+    _prefs.remove(_lastSyncKey);
+    _startMonitoring();
+  }
+
+  /// Stop monitoring
+  void stopMonitoring() {
+    _isMonitoring = false;
+    _monitorTimer?.cancel();
+  }
+
+  /// Cleanup resources properly
   Future<void> dispose() async {
-    await stopMonitoring();
-
-    // Close all stream controllers safely
-    await Future.wait([
-      _connectionStatusController.close(),
-      _networkQualityController.close(),
-      _onlineStatusController.close(),
-      _syncStatusController.close(),
-    ]);
-
+    stopMonitoring();
+    await _connectivitySubscription?.cancel();
+    await _networkStateController.close();
+    _qualityTestResults.clear();
     _isInitialized = false;
+  }
+}
 
-    if (kDebugMode) {
-      print('🧹 ConnectivityManager disposed');
+/// Enhanced network state enum with quality levels
+enum NetworkState {
+  wifi('WiFi', true),
+  mobile('Mobile', true),
+  ethernet('Ethernet', true),
+  offline('Offline', false),
+  unknown('Unknown', false),
+  excellent('Excellent', true),
+  good('Good', true),
+  poor('Poor', true),
+  unstable('Unstable', true);
+
+  final String name;
+  final bool isOnline;
+
+  const NetworkState(this.name, this.isOnline);
+
+  ConnectivityResult get type {
+    switch (this) {
+      case NetworkState.wifi:
+        return ConnectivityResult.wifi;
+      case NetworkState.mobile:
+        return ConnectivityResult.mobile;
+      case NetworkState.ethernet:
+        return ConnectivityResult.ethernet;
+      default:
+        return ConnectivityResult.none;
     }
   }
-}
-
-/// Bounded operation queue implementation
-class BoundedOperationQueue {
-  final int maxSize;
-  final Queue<OfflineOperation> _queue = Queue<OfflineOperation>();
-  final _lock = Lock();
-
-  BoundedOperationQueue({required this.maxSize});
-
-  bool get isEmpty => _queue.isEmpty;
-  bool get isNotEmpty => _queue.isNotEmpty;
-  int get length => _queue.length;
-
-  Future<void> enqueue(OfflineOperation operation) async {
-    await _lock.synchronized(() async {
-      if (_queue.length >= maxSize) {
-        throw QueueFullException();
-      }
-      _queue.add(operation);
-      return;
-    });
-  }
-
-  Future<OfflineOperation> dequeue() async {
-    return await _lock.synchronized(() async {
-      if (_queue.isEmpty) {
-        throw QueueEmptyException();
-      }
-      return _queue.removeFirst();
-    });
-  }
-
-  Future<void> clear() async {
-    await _lock.synchronized(() async {
-      _queue.clear();
-      return;
-    });
-  }
-}
-
-/// Lock implementation for thread safety
-class Lock {
-  Completer<void>? _completer;
-  bool _locked = false;
-
-  Future<T> synchronized<T>(Future<T> Function() operation) async {
-    while (_locked) {
-      _completer = Completer<void>();
-      await _completer?.future;
-    }
-
-    _locked = true;
-    try {
-      return await operation();
-    } finally {
-      _locked = false;
-      _completer?.complete();
-    }
-  }
-}
-
-/// Offline operation class
-class OfflineOperation {
-  final String id;
-  final Future<void> Function() execute;
-  int retryCount = 0;
-
-  OfflineOperation({
-    required this.id,
-    required this.execute,
-  });
-}
-
-/// Connection status enum with helper methods
-enum ConnectionStatus {
-  wifi('WiFi'),
-  cellular('Cellular'),
-  ethernet('Ethernet'),
-  bluetooth('Bluetooth'),
-  vpn('VPN'),
-  offline('Offline'),
-  unknown('Unknown');
-
-  final String value;
-  const ConnectionStatus(this.value);
-
-  bool get isOnline =>
-      this != ConnectionStatus.offline && this != ConnectionStatus.unknown;
 
   bool get isHighSpeed =>
-      this == ConnectionStatus.wifi || this == ConnectionStatus.ethernet;
+      this == NetworkState.wifi ||
+      this == NetworkState.ethernet ||
+      this == NetworkState.excellent;
 
-  bool get isLowSpeed =>
-      this == ConnectionStatus.cellular || this == ConnectionStatus.bluetooth;
+  bool get isReliable =>
+      this == NetworkState.wifi ||
+      this == NetworkState.ethernet ||
+      this == NetworkState.excellent ||
+      this == NetworkState.good;
 
-  bool get isMobile => this == ConnectionStatus.cellular;
-
-  bool get isStable =>
-      this == ConnectionStatus.wifi ||
-      this == ConnectionStatus.ethernet ||
-      this == ConnectionStatus.vpn;
-
-  @override
-  String toString() => value;
-}
-
-/// Network quality enum with helper methods
-enum NetworkQuality {
-  excellent('Excellent'),
-  good('Good'),
-  fair('Fair'),
-  poor('Poor'),
-  unknown('Unknown');
-
-  final String value;
-  const NetworkQuality(this.value);
-
-  bool get isGoodEnough =>
-      this == NetworkQuality.excellent || this == NetworkQuality.good;
-
-  bool get needsImprovement =>
-      this == NetworkQuality.fair || this == NetworkQuality.poor;
-
-  bool get isUnusable => this == NetworkQuality.poor;
-
-  @override
-  String toString() => value;
-}
-
-/// Sync status enum
-enum SyncStatus {
-  idle('Idle'),
-  inProgress('In Progress'),
-  completed('Completed'),
-  failed('Failed');
-
-  final String value;
-  const SyncStatus(this.value);
-
-  @override
-  String toString() => value;
-}
-
-/// Custom exceptions
-class QueueFullException implements Exception {
-  @override
-  String toString() => 'Operation queue is full';
-}
-
-class QueueEmptyException implements Exception {
-  @override
-  String toString() => 'Operation queue is empty';
+  bool get needsOptimization =>
+      this == NetworkState.mobile ||
+      this == NetworkState.poor ||
+      this == NetworkState.unstable;
 }
