@@ -9,9 +9,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import './request_manager.dart';
 import './connectivity_manager.dart';
 import './sync_manager.dart';
-import './monitoring_manager.dart';
 
-/// Enhanced ApiHelper with improved error handling, caching, and offline support
+/// Enhanced ApiHelper optimized for Pokedex with smart caching and network handling
 class ApiHelper {
   // Core components with proper initialization
   static final ApiHelper _instance = ApiHelper._internal();
@@ -19,32 +18,37 @@ class ApiHelper {
   final _requestManager = RequestManager();
   final _connectivityManager = ConnectivityManager();
   final _syncManager = SyncManager();
-  final _monitoringManager = MonitoringManager();
-
+  
   late final SharedPreferences _prefs;
   final _memoryCache = _LruCache<String, dynamic>(maxSize: 100);
   final _pendingRequests = <String, Completer<dynamic>>{};
-
+  final _downloadProgress = <String, double>{};
+  
   // State management
   bool _isInitialized = false;
   bool _isDisposed = false;
 
-  // Constants
-  static const Duration _defaultTimeout = Duration(seconds: 15);
-  static const Duration _defaultCacheDuration = Duration(hours: 24);
+  // Pokemon-specific settings
+  static const Duration _imageTimeout = Duration(seconds: 30);
+  static const Duration _listTimeout = Duration(seconds: 15);
+  static const Duration _detailTimeout = Duration(seconds: 10);
+  static const Duration _evolutionTimeout = Duration(seconds: 8);
+  static const Duration _defaultCacheDuration = Duration(days: 7); // Pokemon data rarely changes
+  static const Duration _listCacheDuration = Duration(hours: 24);
   static const int _maxRetries = 3;
   static const Duration _retryDelay = Duration(seconds: 2);
-
+  static const int _maxConcurrentRequests = 4;
+  static const int _maxBatchSize = 20;
+  
   factory ApiHelper() => _instance;
-
   ApiHelper._internal();
 
-  /// Initialize with required configurations
+  /// Initialize with proper configuration and error handling
   Future<void> initialize() async {
     if (_isInitialized) return;
 
     try {
-      // Initialize dependencies
+      // Initialize core components in parallel
       await Future.wait([
         _connectivityManager.initialize(),
         _syncManager.initialize(),
@@ -65,27 +69,28 @@ class ApiHelper {
     }
   }
 
-  /// Enhanced GET request with proper error handling and caching
+  /// Enhanced GET request with smart timeouts and caching
   Future<ApiResponse<T>> get<T>({
     required String endpoint,
     required T Function(Map<String, dynamic>) parser,
     Map<String, String>? headers,
     bool forceRefresh = false,
     bool useCache = true,
-    Duration timeout = _defaultTimeout,
-    Duration cacheDuration = _defaultCacheDuration,
-    int maxRetries = _maxRetries,
+    Duration? timeout,
+    Duration? cacheDuration,
+    bool allowBatching = false,
+    bool isPriority = false,
   }) async {
     _throwIfNotInitialized();
-
+    
     final cacheKey = _generateCacheKey(endpoint);
+    timeout ??= _getTimeoutForEndpoint(endpoint);
+    cacheDuration ??= _getCacheDurationForEndpoint(endpoint);
 
     try {
-      // Check connectivity first
-      final isOffline = await _connectivityManager.isOffline();
-
-      // Handle offline scenario with cache
-      if (isOffline) {
+      // Check network status
+      final networkState = _connectivityManager.currentState;
+      if (!networkState.isOnline) {
         return await _handleOfflineRequest(
           cacheKey: cacheKey,
           parser: parser,
@@ -93,12 +98,26 @@ class ApiHelper {
         );
       }
 
+      // Use cache for poor network conditions
+      if (networkState.needsOptimization && useCache) {
+        final cachedData = await _getCachedData(cacheKey);
+        if (cachedData != null) {
+          return ApiResponse(
+            data: parser(cachedData),
+            source: DataSource.cache,
+            status: ApiStatus.success,
+            message: 'Using cached data for poor network',
+          );
+        }
+      }
+
       // Check cache if appropriate
       if (!forceRefresh && useCache) {
         final cachedData = await _getCachedData(cacheKey);
         if (cachedData != null) {
-          if (kDebugMode) {
-            print('📦 Using cached data for: $endpoint');
+          // Preemptively refresh cache if network is good
+          if (networkState.isHighSpeed) {
+            _refreshCacheAsync(endpoint, cacheKey, cacheDuration);
           }
           return ApiResponse(
             data: parser(cachedData),
@@ -108,62 +127,50 @@ class ApiHelper {
         }
       }
 
-      // Queue request if same endpoint is pending
-      if (_pendingRequests.containsKey(endpoint)) {
-        final result = await _pendingRequests[endpoint]!.future;
-        return ApiResponse(
-          data: parser(result),
-          source: DataSource.network,
-          status: ApiStatus.success,
+      // Handle request batching for list endpoints
+      if (allowBatching && _canBatchRequest(endpoint)) {
+        return await _handleBatchedRequest(
+          endpoint: endpoint,
+          parser: parser,
+          timeout: timeout,
+          cacheDuration: cacheDuration,
         );
       }
 
-      // Execute request with retry logic
-      return await _executeWithRetry(
-        maxRetries: maxRetries,
+      // Execute request with optimized retry logic
+      return await _executeWithSmartRetry(
+        maxRetries: _maxRetries,
+        timeout: timeout,
         operation: () async {
-          final completer = Completer<dynamic>();
-          _pendingRequests[endpoint] = completer;
+          final response = await _executeRequest(
+            endpoint: endpoint,
+            headers: headers,
+            timeout: timeout,
+            isPriority: isPriority,
+          );
 
-          try {
-            // Execute request through RequestManager
-            final response = await _requestManager.executeRequest(
-              id: endpoint,
-              request: () => _client
-                  .get(
-                    Uri.parse(endpoint),
-                    headers: headers,
-                  )
-                  .timeout(timeout),
-            );
+          if (response.statusCode == 200) {
+            final jsonData = json.decode(response.body) as Map<String, dynamic>;
 
-            if (response.statusCode == 200) {
-              final jsonData =
-                  json.decode(response.body) as Map<String, dynamic>;
-
-              // Cache successful response
-              if (useCache) {
-                await _cacheData(cacheKey, jsonData, cacheDuration);
-              }
-
-              completer.complete(jsonData);
-              return ApiResponse(
-                data: parser(jsonData),
-                source: DataSource.network,
-                status: ApiStatus.success,
-              );
-            } else {
-              throw ApiException.fromStatusCode(response.statusCode);
+            // Cache successful response with proper duration
+            if (useCache) {
+              await _cacheData(cacheKey, jsonData, cacheDuration);
             }
-          } finally {
-            _pendingRequests.remove(endpoint);
+
+            return ApiResponse(
+              data: parser(jsonData),
+              source: DataSource.network,
+              status: ApiStatus.success,
+            );
+          } else {
+            throw ApiException.fromStatusCode(response.statusCode);
           }
         },
       );
     } on TimeoutException {
       return _handleTimeoutError(cacheKey, parser);
     } on SocketException {
-      return _handleConnectionError(cacheKey, parser);
+      return _handleConnectionError(cacheKey, parser); 
     } on ApiException catch (e) {
       return _handleApiError(e, cacheKey, parser);
     } catch (e) {
@@ -171,7 +178,109 @@ class ApiHelper {
     }
   }
 
-  /// Handle offline request scenario
+  /// Get appropriate timeout based on endpoint type
+  Duration _getTimeoutForEndpoint(String endpoint) {
+    if (endpoint.contains('pokemon-species')) {
+      return _evolutionTimeout;
+    } else if (endpoint.contains('pokemon/') && endpoint.contains('?')) {
+      return _listTimeout;
+    } else if (endpoint.contains('pokemon/')) {
+      return _detailTimeout;
+    } else {
+      return _detailTimeout;
+    }
+  }
+
+  /// Get appropriate cache duration based on endpoint
+  Duration _getCacheDurationForEndpoint(String endpoint) {
+    if (endpoint.contains('?')) { // List endpoints
+      return _listCacheDuration;
+    } else {
+      return _defaultCacheDuration; // Pokemon details rarely change
+    }
+  }
+
+  /// Execute HTTP request with proper error handling
+  Future<http.Response> _executeRequest({
+    required String endpoint,
+    Map<String, String>? headers,
+    Duration? timeout,
+    bool isPriority = false,
+  }) async {
+    final completer = Completer<http.Response>();
+    
+    if (_pendingRequests.length >= _maxConcurrentRequests && !isPriority) {
+      await _waitForSlot();
+    }
+    
+    _pendingRequests[endpoint] = completer;
+
+    try {
+      final response = await _requestManager.executeRequest(
+        id: endpoint,
+        request: () => _client.get(
+          Uri.parse(endpoint),
+          headers: headers,
+        ).timeout(timeout ?? _detailTimeout),
+      );
+      
+      completer.complete(response);
+      return response;
+    } finally {
+      _pendingRequests.remove(endpoint);
+    }
+  }
+
+  /// Wait for request slot with timeout
+  Future<void> _waitForSlot() async {
+    var waitTime = Duration.zero;
+    final maxWait = const Duration(seconds: 30);
+    
+    while (_pendingRequests.length >= _maxConcurrentRequests) {
+      await Future.delayed(const Duration(milliseconds: 100));
+      waitTime += const Duration(milliseconds: 100);
+      
+      if (waitTime >= maxWait) {
+        throw const ApiException(
+          message: 'Request queue timeout',
+          isRetryable: true,
+        );
+      }
+    }
+  }
+
+  /// Execute with smart retry based on network conditions
+  Future<T> _executeWithSmartRetry<T>({
+    required Future<T> Function() operation,
+    required int maxRetries,
+    required Duration timeout,
+  }) async {
+    int attempts = 0;
+    Duration currentDelay = _retryDelay;
+    
+    while (true) {
+      try {
+        attempts++;
+        return await operation();
+      } catch (e) {
+        if (attempts >= maxRetries) rethrow;
+        if (e is ApiException && !e.isRetryable) rethrow;
+
+        // Adjust retry delay based on network quality
+        if (_connectivityManager.currentState.needsOptimization) {
+          currentDelay *= 2;
+        }
+
+        await Future.delayed(currentDelay);
+        
+        if (kDebugMode) {
+          print('🔄 Retry attempt $attempts with delay ${currentDelay.inSeconds}s');
+        }
+      }
+    }
+  }
+
+  /// Handle offline scenario with smart caching
   Future<ApiResponse<T>> _handleOfflineRequest<T>({
     required String cacheKey,
     required T Function(Map<String, dynamic>) parser,
@@ -187,80 +296,15 @@ class ApiHelper {
       );
     }
 
-    // Queue for sync when online
-    await _syncManager.queueOfflineOperation(endpoint);
+    // Queue for sync when online if not already queued
+    if (!await _syncManager.isOperationQueued(endpoint)) {
+      await _syncManager.queueOfflineOperation(endpoint);
+    }
 
     throw const ApiException.noInternet();
   }
 
-  /// Execute with retry logic
-  Future<T> _executeWithRetry<T>({
-    required Future<T> Function() operation,
-    required int maxRetries,
-  }) async {
-    int attempts = 0;
-
-    while (true) {
-      try {
-        attempts++;
-        return await operation();
-      } catch (e) {
-        if (attempts >= maxRetries) rethrow;
-        if (e is ApiException && !e.isRetryable) rethrow;
-
-        await Future.delayed(_retryDelay * attempts);
-
-        if (kDebugMode) {
-          print('🔄 Retry attempt $attempts');
-        }
-      }
-    }
-  }
-
-  /// Generate cache key
-  String _generateCacheKey(String endpoint) {
-    return 'api_cache_${endpoint.hashCode}';
-  }
-
-  /// Get cached data with validation
-  Future<Map<String, dynamic>?> _getCachedData(String key) async {
-    // Check memory cache first
-    final memoryData = _memoryCache.get(key);
-    if (memoryData != null) return memoryData;
-
-    // Check disk cache
-    try {
-      final cachedJson = _prefs.getString(key);
-      final timestampKey = '${key}_timestamp';
-      final timestamp = _prefs.getInt(timestampKey);
-
-      if (cachedJson != null && timestamp != null) {
-        final cacheAge = DateTime.now().difference(
-          DateTime.fromMillisecondsSinceEpoch(timestamp),
-        );
-
-        if (cacheAge < _defaultCacheDuration) {
-          final data = json.decode(cachedJson) as Map<String, dynamic>;
-          _memoryCache.put(key, data);
-          return data;
-        } else {
-          // Clean expired cache
-          await Future.wait([
-            _prefs.remove(key),
-            _prefs.remove(timestampKey),
-          ]);
-        }
-      }
-    } catch (e) {
-      if (kDebugMode) {
-        print('⚠️ Cache retrieval error: $e');
-      }
-    }
-
-    return null;
-  }
-
-  /// Cache data with proper error handling
+  /// Smart caching system with compression for large responses
   Future<void> _cacheData(
     String key,
     Map<String, dynamic> data,
@@ -270,14 +314,18 @@ class ApiHelper {
       // Memory cache
       _memoryCache.put(key, data);
 
-      // Disk cache
+      // Compress data if large
       final jsonString = json.encode(data);
+      final compressed = jsonString.length > 1000 * 1024; // 1MB threshold
+      final storageData = compressed ? gzip.encode(utf8.encode(jsonString)) : jsonString;
+
       await Future.wait([
-        _prefs.setString(key, jsonString),
+        _prefs.setString(key, base64Encode(storageData)),
         _prefs.setInt(
           '${key}_timestamp',
           DateTime.now().millisecondsSinceEpoch,
         ),
+        if (compressed) _prefs.setBool('${key}_compressed', true),
       ]);
     } catch (e) {
       if (kDebugMode) {
@@ -286,29 +334,195 @@ class ApiHelper {
     }
   }
 
-  /// Clean expired cache entries
-  Future<void> _cleanExpiredCache() async {
-    final now = DateTime.now();
-    final keys = _prefs.getKeys().where((k) => k.startsWith('api_cache_'));
+  /// Get cached data with compression handling
+  Future<Map<String, dynamic>?> _getCachedData(String key) async {
+    // Check memory cache first
+    final memoryData = _memoryCache.get(key);
+    if (memoryData != null) return memoryData;
 
-    for (final key in keys) {
+    try {
+      final cachedData = _prefs.getString(key);
       final timestamp = _prefs.getInt('${key}_timestamp');
-      if (timestamp != null) {
-        final age = now.difference(
+      final isCompressed = _prefs.getBool('${key}_compressed') ?? false;
+
+      if (cachedData != null && timestamp != null) {
+        final age = DateTime.now().difference(
           DateTime.fromMillisecondsSinceEpoch(timestamp),
         );
 
-        if (age > _defaultCacheDuration) {
+        if (age < _defaultCacheDuration) {
+          final decodedData = base64Decode(cachedData);
+          final jsonString = isCompressed 
+            ? utf8.decode(gzip.decode(decodedData))
+            : utf8.decode(decodedData);
+
+          final data = json.decode(jsonString) as Map<String, dynamic>;
+          _memoryCache.put(key, data);
+          return data;
+        } else {
           await Future.wait([
             _prefs.remove(key),
             _prefs.remove('${key}_timestamp'),
+            _prefs.remove('${key}_compressed'),
           ]);
         }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('⚠️ Cache retrieval error: $e');
+      }
+    }
+    
+    return null;
+  }
+
+  /// Clean expired cache with batching
+  Future<void> _cleanExpiredCache() async {
+    final now = DateTime.now();
+    final keys = _prefs.getKeys().where((k) => k.startsWith('api_cache_'));
+    final batchSize = 50;
+    
+    for (var i = 0; i < keys.length; i += batchSize) {
+      final batch = keys.skip(i).take(batchSize);
+      await Future.wait(
+        batch.map((key) async {
+          final timestamp = _prefs.getInt('${key}_timestamp');
+          if (timestamp != null) {
+            final age = now.difference(
+              DateTime.fromMillisecondsSinceEpoch(timestamp),
+            );
+            
+            if (age > _defaultCacheDuration) {
+              await Future.wait([
+                _prefs.remove(key),
+                _prefs.remove('${key}_timestamp'),
+                _prefs.remove('${key}_compressed'),
+              ]);
+            }
+          }
+        }),
+      );
+    }
+  }
+
+  /// Handle batched requests for list endpoints
+  Future<ApiResponse<T>> _handleBatchedRequest<T>({
+    required String endpoint,
+    required T Function(Map<String, dynamic>) parser,
+    required Duration timeout,
+    required Duration cacheDuration,
+  }) async {
+    final batchKey = _getBatchKey(endpoint);
+    
+    // Wait for existing batch
+    if (_pendingRequests.containsKey(batchKey)) {
+      final result = await _pendingRequests[batchKey]!.future;
+      return ApiResponse(
+        data: parser(result as Map<String, dynamic>),
+        source: DataSource.network,
+        status: ApiStatus.success,
+      );
+    }
+
+    final completer = Completer<dynamic>();
+    _pendingRequests[batchKey] = completer;
+
+    try {
+      final batchedEndpoints = _getBatchedEndpoints(endpoint);
+      final responses = await Future.wait(
+        batchedEndpoints.map((e) => _executeRequest(
+          endpoint: e,
+          timeout: timeout,
+        )),
+      );
+
+      final combinedData = _combineBatchResponses(responses);
+      completer.complete(combinedData);
+
+      return ApiResponse(
+        data: parser(combinedData),
+        source: DataSource.network,
+        status: ApiStatus.success,
+      );
+    } finally {
+      _pendingRequests.remove(batchKey);
+    }
+  }
+
+  /// Get key for batch request
+  String _getBatchKey(String endpoint) {
+    return 'batch_${endpoint.split('?').first}';
+  }
+
+  /// Check if request can be batched
+  bool _canBatchRequest(String endpoint) {
+    return endpoint.contains('?') && // Has query parameters
+           endpoint.contains('limit=') && // Is a list endpoint
+           endpoint.contains('offset='); // Supports pagination
+  }
+
+  /// Get list of endpoints for batch
+  List<String> _getBatchedEndpoints(String endpoint) {
+    final baseUrl = endpoint.split('?')[0];
+    final params = Uri.parse(endpoint).queryParameters;
+    final offset = int.parse(params['offset'] ?? '0');
+    final limit = int.parse(params['limit'] ?? '20');
+
+    // Calculate batch size
+    final totalItems = limit - offset;
+    final batchSize = _maxBatchSize;
+    final batches = (totalItems / batchSize).ceil();
+
+    return List.generate(batches, (index) {
+      final batchOffset = offset + (index * batchSize);
+      final batchLimit = math.min(batchSize, limit - (index * batchSize));
+      return '$baseUrl?offset=$batchOffset&limit=$batchLimit';
+    });
+  }
+
+  /// Combine responses from batch requests
+  Map<String, dynamic> _combineBatchResponses(List<http.Response> responses) {
+    final combinedResults = <Map<String, dynamic>>[];
+    var totalCount = 0;
+
+    for (final response in responses) {
+      final data = json.decode(response.body) as Map<String, dynamic>;
+      final results = data['results'] as List<dynamic>;
+      combinedResults.addAll(results.cast<Map<String, dynamic>>());
+      totalCount = data['count'] as int;
+    }
+
+    return {
+      'count': totalCount,
+      'results': combinedResults,
+    };
+  }
+
+  /// Refresh cache asynchronously
+  Future<void> _refreshCacheAsync(
+    String endpoint,
+    String cacheKey,
+    Duration cacheDuration,
+  ) async {
+    try {
+      final response = await _executeRequest(
+        endpoint: endpoint,
+        timeout: _detailTimeout,
+      );
+
+      if (response.statusCode == 200) {
+        final jsonData = json.decode(response.body) as Map<String, dynamic>;
+        await _cacheData(cacheKey, jsonData, cacheDuration);
+      }
+    } catch (e) {
+      // Ignore cache refresh errors
+      if (kDebugMode) {
+        print('⚠️ Cache refresh failed: $e');
       }
     }
   }
 
-  /// Handle timeout errors
+  /// Handle timeout errors with cache fallback
   Future<ApiResponse<T>> _handleTimeoutError<T>(
     String cacheKey,
     T Function(Map<String, dynamic>) parser,
@@ -333,7 +547,7 @@ class ApiHelper {
     );
   }
 
-  /// Handle connection errors
+  /// Handle connection errors with cache fallback
   Future<ApiResponse<T>> _handleConnectionError<T>(
     String cacheKey,
     T Function(Map<String, dynamic>) parser,
@@ -358,7 +572,7 @@ class ApiHelper {
     );
   }
 
-  /// Handle API errors
+  /// Handle API errors with smart cache usage
   Future<ApiResponse<T>> _handleApiError<T>(
     ApiException error,
     String cacheKey,
@@ -368,14 +582,16 @@ class ApiHelper {
       print('🔴 API error: ${error.message}');
     }
 
-    final cachedData = await _getCachedData(cacheKey);
-    if (cachedData != null && error.shouldUseCachedData) {
-      return ApiResponse(
-        data: parser(cachedData),
-        source: DataSource.cache,
-        status: ApiStatus.success,
-        message: 'Using cached data due to API error',
-      );
+    if (error.shouldUseCachedData) {
+      final cachedData = await _getCachedData(cacheKey);
+      if (cachedData != null) {
+        return ApiResponse(
+          data: parser(cachedData),
+          source: DataSource.cache,
+          status: ApiStatus.success,
+          message: 'Using cached data due to API error',
+        );
+      }
     }
 
     return ApiResponse(
@@ -384,7 +600,7 @@ class ApiHelper {
     );
   }
 
-  /// Handle unexpected errors
+  /// Handle unexpected errors with cache fallback
   Future<ApiResponse<T>> _handleUnexpectedError<T>(
     dynamic error,
     String cacheKey,
@@ -410,28 +626,18 @@ class ApiHelper {
     );
   }
 
-  /// Clear specific cache entry
-  Future<void> clearCache(String endpoint) async {
-    final key = _generateCacheKey(endpoint);
-    _memoryCache.remove(key);
-    await Future.wait([
-      _prefs.remove(key),
-      _prefs.remove('${key}_timestamp'),
-    ]);
+  /// Generate cache key
+  String _generateCacheKey(String endpoint) {
+    final uri = Uri.parse(endpoint);
+    final base = uri.path;
+    final params = uri.queryParameters.entries
+      .where((e) => !e.key.contains('offset'))
+      .map((e) => '${e.key}=${e.value}')
+      .join('_');
+    return 'api_cache_${base}_$params'.replaceAll('/', '_');
   }
 
-  /// Clear all cache
-  Future<void> clearAllCache() async {
-    _memoryCache.clear();
-    final keys = _prefs.getKeys().where((k) => k.startsWith('api_cache_'));
-    await Future.wait([
-      for (final key in keys) ...[
-        _prefs.remove(key),
-        _prefs.remove('${key}_timestamp'),
-      ],
-    ]);
-  }
-
+  /// State checks
   void _throwIfNotInitialized() {
     if (_isDisposed) {
       throw StateError('ApiHelper has been disposed');
@@ -441,16 +647,46 @@ class ApiHelper {
     }
   }
 
-  /// Cleanup resources
+  /// Clear specific cache entry
+  Future<void> clearCache(String endpoint) async {
+    final key = _generateCacheKey(endpoint);
+    _memoryCache.remove(key);
+    await Future.wait([
+      _prefs.remove(key),
+      _prefs.remove('${key}_timestamp'),
+      _prefs.remove('${key}_compressed'),
+    ]);
+  }
+
+  /// Clear all cache with batching
+  Future<void> clearAllCache() async {
+    _memoryCache.clear();
+    final keys = _prefs.getKeys().where((k) => k.startsWith('api_cache_'));
+    const batchSize = 50;
+
+    for (var i = 0; i < keys.length; i += batchSize) {
+      final batch = keys.skip(i).take(batchSize);
+      await Future.wait([
+        for (final key in batch) ...[
+          _prefs.remove(key),
+          _prefs.remove('${key}_timestamp'),
+          _prefs.remove('${key}_compressed'),
+        ],
+      ]);
+    }
+  }
+
+  /// Resource cleanup
   Future<void> dispose() async {
     _isDisposed = true;
     _client.close();
     _memoryCache.clear();
     _pendingRequests.clear();
+    _downloadProgress.clear();
   }
 }
 
-/// LRU Cache implementation
+/// LRU Cache with size limit and eviction
 class _LruCache<K, V> {
   final int maxSize;
   final _cache = <K, V>{};
@@ -469,7 +705,6 @@ class _LruCache<K, V> {
 
   void put(K key, V value) {
     if (_cache.length >= maxSize && !_cache.containsKey(key)) {
-      // Remove least recently used
       final lru = _accessOrder.removeAt(0);
       _cache.remove(lru);
     }
@@ -489,7 +724,7 @@ class _LruCache<K, V> {
   }
 }
 
-/// API Response wrapper with proper typing
+/// API Response wrapper
 class ApiResponse<T> {
   final T? data;
   final DataSource? source;
@@ -507,11 +742,10 @@ class ApiResponse<T> {
 
   bool get isSuccess => status == ApiStatus.success;
   bool get isError => status == ApiStatus.error;
-  bool get isCached =>
-      source == DataSource.cache || source == DataSource.memoryCache;
+  bool get isCached => source == DataSource.cache || source == DataSource.memoryCache;
 }
 
-/// API Exception with proper error handling
+/// API Exception
 class ApiException implements Exception {
   final String message;
   final int? statusCode;
@@ -563,7 +797,7 @@ class ApiException implements Exception {
     return ApiException(
       message: 'Unexpected error: ${error.toString()}',
       isRetryable: true,
-      shouldUseCachedData: true,
+      shouldUseCachedData = true,
     );
   }
 
@@ -594,8 +828,15 @@ class ApiException implements Exception {
   String toString() => 'ApiException: $message';
 }
 
-/// Data source enumeration
-enum DataSource { network, cache, memoryCache }
+/// Data source types
+enum DataSource {
+  network,
+  cache,
+  memoryCache
+}
 
 /// API response status
-enum ApiStatus { success, error }
+enum ApiStatus {
+  success,
+  error
+}
