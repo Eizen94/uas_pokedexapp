@@ -6,11 +6,9 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
-import '../constants/api_paths.dart';
 import './request_manager.dart';
 import './connectivity_manager.dart';
 import './sync_manager.dart';
-import './cancellation_token.dart';
 import './monitoring_manager.dart';
 
 /// Enhanced ApiHelper with improved error handling, caching, and offline support
@@ -50,7 +48,6 @@ class ApiHelper {
       await Future.wait([
         _connectivityManager.initialize(),
         _syncManager.initialize(),
-        _monitoringManager.initialize(),
       ]);
 
       _prefs = await SharedPreferences.getInstance();
@@ -78,7 +75,6 @@ class ApiHelper {
     Duration timeout = _defaultTimeout,
     Duration cacheDuration = _defaultCacheDuration,
     int maxRetries = _maxRetries,
-    CancellationToken? cancellationToken,
   }) async {
     _throwIfNotInitialized();
 
@@ -86,7 +82,7 @@ class ApiHelper {
 
     try {
       // Check connectivity first
-      final isOffline = !await _connectivityManager.checkConnectivity();
+      final isOffline = await _connectivityManager.isOffline();
 
       // Handle offline scenario with cache
       if (isOffline) {
@@ -139,7 +135,6 @@ class ApiHelper {
                     headers: headers,
                   )
                   .timeout(timeout),
-              cancellationToken: cancellationToken,
             );
 
             if (response.statusCode == 200) {
@@ -193,18 +188,7 @@ class ApiHelper {
     }
 
     // Queue for sync when online
-    _syncManager.addToSyncQueue(
-      SyncOperation(
-        id: endpoint,
-        execute: () async {
-          await get(
-            endpoint: endpoint,
-            parser: parser,
-            forceRefresh: true,
-          );
-        },
-      ),
-    );
+    await _syncManager.queueOfflineOperation(endpoint);
 
     throw const ApiException.noInternet();
   }
@@ -449,6 +433,9 @@ class ApiHelper {
   }
 
   void _throwIfNotInitialized() {
+    if (_isDisposed) {
+      throw StateError('ApiHelper has been disposed');
+    }
     if (!_isInitialized) {
       throw StateError('ApiHelper not initialized');
     }
@@ -460,7 +447,6 @@ class ApiHelper {
     _client.close();
     _memoryCache.clear();
     _pendingRequests.clear();
-    await _monitoringManager.dispose();
   }
 }
 
