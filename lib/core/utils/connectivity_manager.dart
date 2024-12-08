@@ -306,9 +306,10 @@ class ConnectivityManager {
   Future<void> _checkNetworkQuality() async {
     try {
       final startTime = DateTime.now();
-      final result = await _connectivity
+      final connectivityResult = await _connectivity
           .checkConnectivity()
           .timeout(const Duration(seconds: 5));
+      await _updateConnectionStatus(connectivityResult);
       final endTime = DateTime.now();
 
       final responseTime = endTime.difference(startTime);
