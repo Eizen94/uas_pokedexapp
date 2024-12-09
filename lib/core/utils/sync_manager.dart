@@ -229,7 +229,7 @@ class SyncManager {
 
   /// Setup connectivity listener for opportunistic sync
   void _setupConnectivityListener() {
-    _connectivityManager.stateStream.listen((state) {
+    _connectivityManager.networkStateStream.listen((state) {
       if (state.isOnline && !_isSyncing && _pendingOperations.isNotEmpty) {
         _startSync();
       }

@@ -80,11 +80,13 @@ class RequestManager {
     final token = cancellationToken ?? CancellationToken();
 
     await _tokenLock.synchronized(() async {
+      // Cancel any existing tokens
       for (final token in _activeTokens.values) {
         token.cancel();
       }
       _activeTokens.clear();
-      return;
+
+      // Store new token
       _activeTokens[id] = token;
     });
 
