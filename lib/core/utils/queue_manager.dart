@@ -9,10 +9,17 @@ import 'package:flutter/foundation.dart';
 class QueueManager<T> {
   // Singleton pattern
   static final Map<Type, QueueManager> _instances = {};
+
   factory QueueManager() {
-    return _instances.putIfAbsent(T, () => QueueManager._internal());
+    return _instances.putIfAbsent(
+      T,
+      () => QueueManager<T>._internal(
+        maxSize: defaultMaxSize,
+        timeout: defaultTimeout,
+        maxBatchSize: defaultBatchSize,
+      ),
+    ) as QueueManager<T>;
   }
-  QueueManager._internal();
 
   // Core queue implementation
   final Queue<T> _queue = Queue<T>();
@@ -26,7 +33,7 @@ class QueueManager<T> {
   // Batch processing
   final _batchProcessingController = StreamController<List<T>>.broadcast();
   Timer? _batchTimer;
-  List<T> _currentBatch = [];
+  final List<T> _currentBatch = [];
 
   // Queue metrics
   int _totalProcessed = 0;
@@ -39,13 +46,18 @@ class QueueManager<T> {
   static const int defaultBatchSize = 50;
   static const Duration defaultBatchDelay = Duration(milliseconds: 100);
 
-  QueueManager({
-    int maxSize = defaultMaxSize,
-    Duration timeout = defaultTimeout,
-    int maxBatchSize = defaultBatchSize,
+  QueueManager._internal({
+    required int maxSize,
+    required Duration timeout,
+    required int maxBatchSize,
   })  : _maxSize = maxSize,
         _timeout = timeout,
-        _maxBatchSize = maxBatchSize;
+        _maxBatchSize = maxBatchSize {
+    if (kDebugMode) {
+      print(
+          '🔧 Initializing QueueManager with maxSize: $maxSize, batchSize: $maxBatchSize');
+    }
+  }
 
   // Public getters
   bool get isEmpty => _queue.isEmpty;
@@ -60,10 +72,17 @@ class QueueManager<T> {
   Future<void> enqueue(T item) async {
     await _lock.synchronized(() async {
       if (_queue.length >= _maxSize) {
+        if (kDebugMode) {
+          print(
+              '❌ Queue overflow: Cannot add item, queue size $_maxSize exceeded');
+        }
         throw QueueOverflowException(
             'Queue size exceeded limit of $_maxSize items');
       }
       _queue.add(item);
+      if (kDebugMode) {
+        print('✅ Item added to queue: ${_queue.length} items total');
+      }
       _checkBatchProcessing();
       return;
     });
@@ -73,10 +92,17 @@ class QueueManager<T> {
   Future<void> enqueueAll(Iterable<T> items) async {
     await _lock.synchronized(() async {
       if (_queue.length + items.length > _maxSize) {
+        if (kDebugMode) {
+          print(
+              '❌ Queue overflow: Cannot add ${items.length} items, would exceed limit $_maxSize');
+        }
         throw QueueOverflowException(
             'Adding ${items.length} items would exceed queue limit of $_maxSize');
       }
       _queue.addAll(items);
+      if (kDebugMode) {
+        print('✅ Added ${items.length} items to queue: ${_queue.length} total');
+      }
       _checkBatchProcessing();
       return;
     });
@@ -86,11 +112,17 @@ class QueueManager<T> {
   Future<T> dequeue() async {
     return await _lock.synchronized(() async {
       if (_queue.isEmpty) {
+        if (kDebugMode) {
+          print('⚠️ Attempted to dequeue from empty queue');
+        }
         throw QueueEmptyException('Queue is empty');
       }
       final item = _queue.removeFirst();
       _lastProcessedTime = DateTime.now();
       _totalProcessed++;
+      if (kDebugMode) {
+        print('✅ Item dequeued: $_totalProcessed total processed');
+      }
       return item;
     });
   }
@@ -99,10 +131,18 @@ class QueueManager<T> {
   Future<T?> tryDequeue({Duration? timeout}) async {
     try {
       return await _lock.synchronized(() async {
-        if (_queue.isEmpty) return null;
+        if (_queue.isEmpty) {
+          if (kDebugMode) {
+            print('ℹ️ Queue empty during tryDequeue');
+          }
+          return null;
+        }
         return await dequeue().timeout(timeout ?? _timeout);
       });
     } on TimeoutException {
+      if (kDebugMode) {
+        print('⚠️ Dequeue operation timed out');
+      }
       return null;
     }
   }
@@ -110,6 +150,9 @@ class QueueManager<T> {
   /// Remove all items from queue
   Future<void> clear() async {
     await _lock.synchronized(() async {
+      if (kDebugMode) {
+        print('🧹 Clearing queue: ${_queue.length} items removed');
+      }
       _queue.clear();
       _currentBatch.clear();
       _batchTimer?.cancel();
@@ -120,13 +163,25 @@ class QueueManager<T> {
   /// Get items without removing them
   Future<List<T>> peek(int count) async {
     return await _lock.synchronized(() async {
-      if (_queue.isEmpty) return [];
-      return _queue.take(count).toList();
+      if (_queue.isEmpty) {
+        if (kDebugMode) {
+          print('ℹ️ Peek requested on empty queue');
+        }
+        return [];
+      }
+      final items = _queue.take(count).toList();
+      if (kDebugMode) {
+        print('👀 Peeked ${items.length} items from queue');
+      }
+      return items;
     });
   }
 
   /// Start batch processing
   void startBatchProcessing() {
+    if (kDebugMode) {
+      print('▶️ Starting batch processing');
+    }
     _batchTimer?.cancel();
     _batchTimer = Timer.periodic(defaultBatchDelay, (_) {
       _processBatch();
@@ -135,6 +190,9 @@ class QueueManager<T> {
 
   /// Stop batch processing
   void stopBatchProcessing() {
+    if (kDebugMode) {
+      print('⏹️ Stopping batch processing');
+    }
     _batchTimer?.cancel();
     _batchTimer = null;
     _processPendingBatch();
@@ -143,6 +201,9 @@ class QueueManager<T> {
   /// Process current batch if available
   void _checkBatchProcessing() {
     if (_currentBatch.length >= _maxBatchSize) {
+      if (kDebugMode) {
+        print('📦 Batch size threshold reached: processing current batch');
+      }
       _processPendingBatch();
     }
   }
@@ -154,6 +215,10 @@ class QueueManager<T> {
 
       final itemsToProcess = _queue.take(_maxBatchSize).toList();
       if (itemsToProcess.isEmpty) return;
+
+      if (kDebugMode) {
+        print('📦 Processing batch of ${itemsToProcess.length} items');
+      }
 
       _currentBatch.addAll(itemsToProcess);
       for (var _ in itemsToProcess) {
@@ -170,6 +235,9 @@ class QueueManager<T> {
     if (_currentBatch.isEmpty) return;
 
     if (!_batchProcessingController.isClosed) {
+      if (kDebugMode) {
+        print('📤 Sending batch of ${_currentBatch.length} items to stream');
+      }
       _batchProcessingController.add(List.from(_currentBatch));
     }
     _currentBatch.clear();
@@ -178,10 +246,16 @@ class QueueManager<T> {
   /// Register error for metrics
   void registerError() {
     _totalErrors++;
+    if (kDebugMode) {
+      print('⚠️ Queue error registered: Total errors: $_totalErrors');
+    }
   }
 
   /// Reset metrics
   void resetMetrics() {
+    if (kDebugMode) {
+      print('🔄 Resetting queue metrics');
+    }
     _totalProcessed = 0;
     _totalErrors = 0;
     _lastProcessedTime = null;
@@ -189,6 +263,9 @@ class QueueManager<T> {
 
   /// Cleanup resources
   Future<void> dispose() async {
+    if (kDebugMode) {
+      print('🧹 Disposing queue manager');
+    }
     _batchTimer?.cancel();
     await _batchProcessingController.close();
     await clear();
