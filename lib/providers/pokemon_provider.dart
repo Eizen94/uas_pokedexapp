@@ -358,7 +358,7 @@ class PokemonProvider extends ChangeNotifier {
 
   Future<void> _cacheData(List<PokemonModel> pokemon) async {
     try {
-      final cacheKey = 'pokemon_list_${_currentPage}';
+      final cacheKey = 'pokemon_list_$_currentPage';
       await _apiHelper.cacheResponse(cacheKey, pokemon);
     } catch (e) {
       if (kDebugMode) {
@@ -380,7 +380,7 @@ class PokemonProvider extends ChangeNotifier {
 
   Future<List<PokemonModel>> _loadFromCache() async {
     try {
-      final cacheKey = 'pokemon_list_${_currentPage}';
+      final cacheKey = 'pokemon_list_$_currentPage';
       final cachedData = await _apiHelper.getCachedResponse(cacheKey);
       if (cachedData != null) {
         return (cachedData as List).map((item) => PokemonModel.fromJson(item)).toList();
