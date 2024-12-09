@@ -59,7 +59,7 @@ class DevTools {
               .initialize()
               .catchError(_handleInitError('ConnectivityManager')),
           _monitoringManager
-              .initialize()
+              .startMonitoring()
               .catchError(_handleInitError('MonitoringManager')),
           _firebaseService
               .initialize()

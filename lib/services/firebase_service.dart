@@ -14,6 +14,9 @@ class FirebaseService {
   factory FirebaseService() => _instance;
   FirebaseService._internal();
 
+  final bool _isInitialized = false;
+  bool get isInitialized => _isInitialized;
+
   // Firebase instances
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;

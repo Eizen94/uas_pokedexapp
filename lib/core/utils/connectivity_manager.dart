@@ -28,6 +28,7 @@ class ConnectivityManager {
   DateTime? _lastOnlineTime;
   DateTime? _lastSyncTime;
   bool _isInitialized = false;
+  bool get isInitialized => _isInitialized;
   bool _isMonitoring = false;
   int _consecutiveFailures = 0;
 
@@ -47,8 +48,6 @@ class ConnectivityManager {
   bool get isOnline => _currentState.isOnline;
   bool get isHighSpeed => _currentState.isHighSpeed;
   bool get needsOptimization => _currentState.needsOptimization;
-
-  bool get isInitialized => _isInitialized;
 
   /// Initialize with proper error handling and state persistence
   Future<void> initialize() async {
