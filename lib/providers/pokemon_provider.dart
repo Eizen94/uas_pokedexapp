@@ -484,6 +484,11 @@ class PokemonProvider extends ChangeNotifier {
     }
   }
 
+/// Get user document
+  Future<DocumentSnapshot?> getUserDocument(String uid) async {
+    return _usersRef.doc(uid).get();
+  }
+
   void _resetState() {
     _pokemonList.clear();
     _filteredList.clear();
