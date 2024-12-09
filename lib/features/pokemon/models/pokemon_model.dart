@@ -1,6 +1,6 @@
 // lib/features/pokemon/models/pokemon_model.dart
 
-import 'dart:convert';
+import 'dart:json';
 
 class PokemonModel {
   final int id;
