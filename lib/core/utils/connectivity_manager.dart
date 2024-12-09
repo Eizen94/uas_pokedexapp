@@ -48,6 +48,8 @@ class ConnectivityManager {
   bool get isHighSpeed => _currentState.isHighSpeed;
   bool get needsOptimization => _currentState.needsOptimization;
 
+  bool get isInitialized => _isInitialized;
+
   /// Initialize with proper error handling and state persistence
   Future<void> initialize() async {
     if (_isInitialized) return;

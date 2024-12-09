@@ -28,6 +28,7 @@ class ApiHelper {
   // State management
   bool _isInitialized = false;
   bool _isDisposed = false;
+  bool get isInitialized => _isInitialized;
 
   // Pokemon-specific settings
   static const Duration _listTimeout = Duration(seconds: 15);
