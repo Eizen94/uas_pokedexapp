@@ -53,7 +53,8 @@ class PokemonProvider extends ChangeNotifier {
 
   // Public Getters
   List<PokemonModel> get pokemonList => _filteredList;
-  Map<int, PokemonDetailModel> get pokemonDetails => Map.unmodifiable(_pokemonDetails);
+  Map<int, PokemonDetailModel> get pokemonDetails =>
+      Map.unmodifiable(_pokemonDetails);
   bool get isLoading => _isLoading;
   bool get isLoadingMore => _isLoadingMore;
   bool get hasMore => _hasMore;
@@ -72,8 +73,9 @@ class PokemonProvider extends ChangeNotifier {
     try {
       await _connectivityManager.initialize();
       await _apiHelper.initialize();
-      
-      _networkSubscription = _connectivityManager.networkStateStream.listen(_handleNetworkStateChange);
+
+      _networkSubscription = _connectivityManager.networkStateStream
+          .listen(_handleNetworkStateChange);
 
       // Initial network check
       _isOffline = !_connectivityManager.isOnline;
@@ -184,7 +186,7 @@ class PokemonProvider extends ChangeNotifier {
         _currentPage++;
         _hasMore = newPokemon.length == (_isWeakConnection ? 10 : 20);
         _error = '';
-        
+
         await _cacheData(newPokemon);
 
         // Sync with Firebase if authenticated
@@ -236,7 +238,7 @@ class PokemonProvider extends ChangeNotifier {
         _cleanupCache();
         _setCacheExpiry(id);
         await _cacheDetailData(id, detail);
-        
+
         if (!_isDisposed) {
           notifyListeners();
         }
@@ -273,8 +275,8 @@ class PokemonProvider extends ChangeNotifier {
     } else {
       _filteredList = _pokemonList.where((pokemon) {
         return pokemon.name.toLowerCase().contains(query) ||
-               pokemon.id.toString() == query ||
-               pokemon.types.any((type) => type.toLowerCase().contains(query));
+            pokemon.id.toString() == query ||
+            pokemon.types.any((type) => type.toLowerCase().contains(query));
       }).toList();
     }
   }
@@ -318,7 +320,8 @@ class PokemonProvider extends ChangeNotifier {
     _pokemonService.cancelAllRequests();
   }
 
-  Future<T?> _executeRequest<T>(String key, Future<T> Function() request) async {
+  Future<T?> _executeRequest<T>(
+      String key, Future<T> Function() request) async {
     if (_pendingRequests.containsKey(key)) {
       return _pendingRequests[key]!.future.then((_) => null);
     }
@@ -383,7 +386,9 @@ class PokemonProvider extends ChangeNotifier {
       final cacheKey = 'pokemon_list_$_currentPage';
       final cachedData = await _apiHelper.getCachedResponse(cacheKey);
       if (cachedData != null) {
-        return (cachedData as List).map((item) => PokemonModel.fromJson(item)).toList();
+        return (cachedData as List)
+            .map((item) => PokemonModel.fromJson(item))
+            .toList();
       }
     } catch (e) {
       if (kDebugMode) {
@@ -462,7 +467,7 @@ class PokemonProvider extends ChangeNotifier {
     try {
       final userId = _authProvider!.user!.uid;
       final userDoc = await _firebaseService.getUserDocument(userId);
-      
+
       if (userDoc != null) {
         // Load user-specific Pokemon preferences if any
         final favorites = userDoc['favorites'] as List? ?? [];
@@ -503,3 +508,4 @@ class PokemonProvider extends ChangeNotifier {
     _pendingRequests.clear();
     super.dispose();
   }
+}
