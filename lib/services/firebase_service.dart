@@ -256,11 +256,6 @@ class FirebaseService {
     }
   }
 
-  /// Get user document
-  Future<DocumentSnapshot?> getUserDocument(String uid) async {
-    return _usersRef.doc(uid).get();
-  }
-
   // Default Settings
   Map<String, dynamic> _getDefaultSettings() {
     return {
