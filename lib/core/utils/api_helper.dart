@@ -310,14 +310,14 @@ class ApiHelper {
   /// Smart caching system with compression for large responses
   Future<void> _cacheData(
     String key,
-    dynamic data,  // Ubah tipe ke dynamic agar lebih fleksibel
+    Map<String, dynamic> data,
     Duration duration,
   ) async {
     try {
       // Memory cache
       _memoryCache.put(key, data);
 
-      // Convert data to string regardless of type
+      // Compress data if large
       final jsonString = json.encode(data);
       final compressed = jsonString.length > 1000 * 1024; // 1MB threshold
       final List<int> storageData = compressed
@@ -325,22 +325,17 @@ class ApiHelper {
           : utf8.encode(jsonString);
 
       await Future.wait([
-        _prefs.setString(_cacheKey(key), base64Encode(storageData)),
+        _prefs.setString(key, base64Encode(storageData)),
         _prefs.setInt(
-          '${_cacheKey(key)}_timestamp',
+          '${key}_timestamp',
           DateTime.now().millisecondsSinceEpoch,
         ),
-        if (compressed) _prefs.setBool('${_cacheKey(key)}_compressed', true),
+        if (compressed) _prefs.setBool('${key}_compressed', true),
       ]);
-
-      if (kDebugMode) {
-        print('✅ Data cached successfully for key: $key');
-      }
     } catch (e) {
       if (kDebugMode) {
         print('⚠️ Cache storage error: $e');
       }
-      throw CacheException('Failed to cache data: $e');
     }
   }
 
