@@ -56,7 +56,7 @@ class _PokemonDetailScreenState extends State<PokemonDetailScreen> {
     try {
       final provider = context.read<PokemonProvider>();
       final pokemonDetail = await provider.getPokemonDetail(id);
-      
+
       if (mounted) {
         setState(() {
           _pokemonDetail = pokemonDetail;
@@ -94,7 +94,7 @@ class _PokemonDetailScreenState extends State<PokemonDetailScreen> {
   Widget build(BuildContext context) {
     final args =
         ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
-    
+
     // Validasi argumen
     if (args == null || args['id'] == null) {
       return const Scaffold(
@@ -252,7 +252,7 @@ class _PokemonDetailScreenState extends State<PokemonDetailScreen> {
                     type.toUpperCase(),
                     style: AppTextStyles.pokemonType,
                   ),
-                   backgroundColor: AppColors.typeColors[type.toLowerCase()],
+                  backgroundColor: AppColors.typeColors[type.toLowerCase()],
                 );
               }).toList(),
             ),
@@ -429,8 +429,7 @@ class _PokemonDetailScreenState extends State<PokemonDetailScreen> {
                     children: [
                       CachedNetworkImage(
                         imageUrl:
-                            'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${stage ```dart
-.pokemonId}.png',
+                            'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/$stage.pokemonId.png',
                         height: 80,
                         width: 80,
                         placeholder: (context, url) =>

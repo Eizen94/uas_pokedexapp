@@ -63,6 +63,16 @@ class _PokemonListScreenState extends State<PokemonListScreen> {
     );
   }
 
+  void _navigateToPokemonDetail(BuildContext context, int pokemonId) {
+    Navigator.pushNamed(
+      context,
+      '/pokemon/detail',
+      arguments: {
+        'id': pokemonId
+      }, // Memastikan struktur arguments sesuai dengan yang diharapkan detail screen
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -199,11 +209,7 @@ class _PokemonListScreenState extends State<PokemonListScreen> {
         final pokemon = provider.pokemonList[index];
         return PokemonCard(
           pokemon: pokemon,
-          onTap: () => Navigator.pushNamed(
-            context,
-            '/pokemon/detail',
-            arguments: {'id': pokemon.id},
-          ),
+          onTap: () => _navigateToPokemonDetail(context, pokemon.id),
         );
       },
     );
