@@ -60,6 +60,11 @@ class FirebaseService {
     }
   }
 
+  /// Get user document
+  Future<DocumentSnapshot?> getUserDocument(String uid) async {
+    return _usersRef.doc(uid).get();
+  }
+
   // User Management Methods
 
   // Get current user data
