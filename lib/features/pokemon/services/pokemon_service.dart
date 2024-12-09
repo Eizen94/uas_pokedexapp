@@ -6,12 +6,11 @@ import 'package:flutter/foundation.dart';
 import '../models/pokemon_model.dart';
 import '../models/pokemon_detail_model.dart';
 import '../../../core/utils/api_helper.dart';
-import '../../../core/utils/request_manager.dart';
+import '../../../core/constants/api_paths.dart';
 
 class PokemonService {
-  static const String baseUrl = 'https://pokeapi.co/api/v2';
+  static const String baseUrl = ApiPaths.pokeApiBase;
   final ApiHelper _apiHelper = ApiHelper();
-  final _requestManager = RequestManager();
   bool _hasInitialized = false;
   bool _isDisposed = false;
 
@@ -24,9 +23,16 @@ class PokemonService {
   PokemonService._internal();
 
   Future<void> initialize() async {
+    if (_isDisposed) {
+      throw StateError('Service has been disposed');
+    }
+
     if (!_hasInitialized) {
       await _apiHelper.initialize();
       _hasInitialized = true;
+      if (kDebugMode) {
+        print('✅ PokemonService initialized');
+      }
     }
   }
 
@@ -35,6 +41,10 @@ class PokemonService {
     int limit = 20,
     CancellationToken? cancellationToken,
   }) async {
+    if (_isDisposed) {
+      throw StateError('Service has been disposed');
+    }
+
     try {
       if (kDebugMode) {
         print('📥 Fetching Pokemon list: offset=$offset, limit=$limit');
@@ -48,17 +58,16 @@ class PokemonService {
       final pokemonList = <PokemonModel>[];
 
       final response = await _apiHelper.get<List<dynamic>>(
-        '$baseUrl/pokemon?offset=$offset&limit=$limit',
-        cancellationToken: requestToken,
+        endpoint: '$baseUrl${ApiPaths.pokemonList}?offset=$offset&limit=$limit',
         parser: (data) => data['results'] as List<dynamic>,
       );
 
-      if (response.isCancelled) {
-        throw const RequestCancelledException();
+      if (response.status == ApiStatus.error) {
+        throw response.error ?? 'Failed to load pokemon list';
       }
 
-      if (!response.isSuccess || response.data == null) {
-        throw response.error ?? 'Failed to load pokemon list';
+      if (response.data == null || response.data!.isEmpty) {
+        return [];
       }
 
       // Fetch details for each Pokemon
@@ -100,6 +109,10 @@ class PokemonService {
     String idOrName, {
     CancellationToken? cancellationToken,
   }) async {
+    if (_isDisposed) {
+      throw StateError('Service has been disposed');
+    }
+
     try {
       if (kDebugMode) {
         print('📥 Fetching Pokemon detail: $idOrName');
@@ -112,34 +125,26 @@ class PokemonService {
 
       // Get base Pokemon data
       final response = await _apiHelper.get<Map<String, dynamic>>(
-        '$baseUrl/pokemon/$idOrName',
-        cancellationToken: requestToken,
+        endpoint:
+            '$baseUrl${ApiPaths.pokemonDetail.replaceAll('{id}', idOrName)}',
         parser: (data) => data,
       );
 
-      if (response.isCancelled) {
-        throw const RequestCancelledException();
-      }
-
-      if (!response.isSuccess || response.data == null) {
+      if (response.status == ApiStatus.error || response.data == null) {
         throw response.error ?? 'Failed to load pokemon detail';
       }
 
       final pokemonData = response.data!;
-      final speciesUrl = pokemonData['species']['url'] as String;
 
       // Fetch species data
+      final speciesUrl = pokemonData['species']['url'] as String;
       final speciesResponse = await _apiHelper.get<Map<String, dynamic>>(
-        speciesUrl,
-        cancellationToken: requestToken,
+        endpoint: speciesUrl,
         parser: (data) => data,
       );
 
-      if (speciesResponse.isCancelled) {
-        throw const RequestCancelledException();
-      }
-
-      if (!speciesResponse.isSuccess || speciesResponse.data == null) {
+      if (speciesResponse.status == ApiStatus.error ||
+          speciesResponse.data == null) {
         throw speciesResponse.error ?? 'Failed to load species data';
       }
 
@@ -152,8 +157,6 @@ class PokemonService {
           requestToken,
         );
         pokemonData['evolution'] = evolutionChain;
-      } else {
-        pokemonData['evolution'] = null;
       }
 
       // Create Pokemon detail model
@@ -185,16 +188,11 @@ class PokemonService {
   ) async {
     try {
       final response = await _apiHelper.get<Map<String, dynamic>>(
-        url,
-        cancellationToken: token,
+        endpoint: url,
         parser: (data) => data,
       );
 
-      if (response.isCancelled) {
-        return null;
-      }
-
-      if (response.isSuccess && response.data != null) {
+      if (response.status == ApiStatus.success && response.data != null) {
         return response.data;
       }
       return null;
@@ -212,22 +210,17 @@ class PokemonService {
   ) async {
     try {
       final response = await _apiHelper.get<Map<String, dynamic>>(
-        url,
-        cancellationToken: token,
-        parser: (data) {
-          final chain = data['chain'] as Map<String, dynamic>?;
-          return _parseEvolutionChain(chain);
-        },
+        endpoint: url,
+        parser: (data) => _parseEvolutionChain(data['chain']),
       );
 
-      if (response.isCancelled) {
+      if (response.status == ApiStatus.error) {
         return {
           'chain_id': 0,
           'stages': <Map<String, dynamic>>[],
         };
       }
 
-      // Ensure we always return non-null Map
       return response.data ??
           {
             'chain_id': 0,
@@ -300,8 +293,13 @@ class PokemonService {
 
   // Cancel specific request
   void cancelRequest(String identifier) {
+    if (_isDisposed) return;
+
     final token = _activeTokens[identifier];
     if (token != null) {
+      if (kDebugMode) {
+        print('🚫 Cancelling request: $identifier');
+      }
       token.cancel();
       _activeTokens.remove(identifier);
     }
@@ -309,14 +307,23 @@ class PokemonService {
 
   // Cancel all active requests
   void cancelAllRequests() {
-    for (final token in _activeTokens.values) {
+    if (_isDisposed) return;
+
+    if (kDebugMode) {
+      print('🚫 Cancelling all requests');
+    }
+    for (var token in _activeTokens.values) {
       token.cancel();
     }
     _activeTokens.clear();
-    _apiHelper.cancelAllRequests();
   }
 
   void dispose() {
+    if (_isDisposed) return;
+
+    if (kDebugMode) {
+      print('🧹 Disposing PokemonService');
+    }
     cancelAllRequests();
     _isDisposed = true;
   }
