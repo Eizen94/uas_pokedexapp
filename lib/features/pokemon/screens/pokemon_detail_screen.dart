@@ -85,6 +85,7 @@ class _PokemonDetailScreenState extends State<PokemonDetailScreen> {
 
         final int pokemonId = args['id'];
         final pokemon = provider.getPokemonById(pokemonId);
+        
 
         if (pokemon == null) {
           return const Scaffold(
