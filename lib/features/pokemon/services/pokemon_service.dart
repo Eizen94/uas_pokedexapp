@@ -11,7 +11,9 @@ import '../../../core/utils/request_manager.dart';
 class PokemonService {
   static const String baseUrl = 'https://pokeapi.co/api/v2';
   final ApiHelper _apiHelper = ApiHelper();
+  final _requestManager = RequestManager();
   bool _hasInitialized = false;
+  bool _isDisposed = false;
 
   // Request tracking
   final Map<String, CancellationToken> _activeTokens = {};
@@ -316,6 +318,6 @@ class PokemonService {
 
   void dispose() {
     cancelAllRequests();
-    _hasInitialized = false;
+    _isDisposed = true;
   }
 }
