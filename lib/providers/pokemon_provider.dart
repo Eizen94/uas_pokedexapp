@@ -359,7 +359,7 @@ class PokemonProvider extends ChangeNotifier {
   Future<void> _cacheData(List<PokemonModel> pokemon) async {
     try {
       final cacheKey = 'pokemon_list_$_currentPage';
-      await _apiHelper._cacheData(cacheKey, pokemon, _cacheTimeout);
+      await _apiHelper.cacheResponse(cacheKey, pokemon);
     } catch (e) {
       if (kDebugMode) {
         print('❌ Cache error: $e');
