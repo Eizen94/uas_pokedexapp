@@ -1,416 +1,158 @@
-// lib/core/utils/connectivity_manager.dart
-
 import 'dart:async';
-import 'package:flutter/foundation.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
-import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
-import './request_manager.dart';
+import 'package:rxdart/rxdart.dart';
 
-/// Enhanced connectivity manager optimized for Pokedex app with improved
-/// offline support and network quality monitoring
+/// A comprehensive connectivity manager that handles network state monitoring,
+/// connection quality management, and offline state handling.
 class ConnectivityManager {
-  // Singleton with proper initialization
   static final ConnectivityManager _instance = ConnectivityManager._internal();
   factory ConnectivityManager() => _instance;
   ConnectivityManager._internal();
 
-  // Core components
   final Connectivity _connectivity = Connectivity();
-  final _networkStateController = StreamController<NetworkState>.broadcast();
-  final _qualityTestResults = <DateTime, Duration>{};
-  late final SharedPreferences _prefs;
-
-  // Connection tracking
-  Timer? _monitorTimer;
+  final BehaviorSubject<bool> _connectionStateController = BehaviorSubject<bool>();
+  final BehaviorSubject<ConnectionQuality> _connectionQualityController = BehaviorSubject<ConnectionQuality>();
+  
   StreamSubscription<ConnectivityResult>? _connectivitySubscription;
-  NetworkState _currentState = NetworkState.unknown;
-  DateTime? _lastOnlineTime;
-  DateTime? _lastSyncTime;
-  bool _isInitialized = false;
-  bool _isMonitoring = false;
-  int _consecutiveFailures = 0;
+  Timer? _qualityCheckTimer;
+  
+  /// Stream of connection states (true = connected, false = disconnected)
+  Stream<bool> get connectionState => _connectionStateController.stream;
+  
+  /// Stream of connection quality updates
+  Stream<ConnectionQuality> get connectionQuality => _connectionQualityController.stream;
+  
+  /// Current connection state
+  bool get isConnected => _connectionStateController.value;
+  
+  /// Current connection quality
+  ConnectionQuality get currentQuality => _connectionQualityController.value;
 
-  // Constants tuned for Pokedex app
-  static const Duration _monitorInterval = Duration(seconds: 15);
-  static const Duration _qualityTestTimeout = Duration(seconds: 5);
-  static const Duration _backoffInterval = Duration(seconds: 30);
-  static const Duration _minSyncInterval = Duration(minutes: 15);
-  static const int _maxConsecutiveFailures = 3;
-  static const String _testEndpoint = 'https://pokeapi.co/api/v2/pokemon/1';
-  static const String _lastOnlineKey = 'last_online_timestamp';
-  static const String _lastSyncKey = 'last_sync_timestamp';
-
-  // Public stream access
-  Stream<NetworkState> get networkStateStream => _networkStateController.stream;
-  NetworkState get currentState => _currentState;
-  bool get isOnline => _currentState.isOnline;
-  bool get isHighSpeed => _currentState.isHighSpeed;
-  bool get needsOptimization => _currentState.needsOptimization;
-
-  /// Initialize with proper error handling and state persistence
+  /// Initialize the connectivity manager
   Future<void> initialize() async {
-    if (_isInitialized) return;
+    // Set initial states
+    final initialState = await _connectivity.checkConnectivity();
+    _updateConnectionState(initialState);
+    _connectionQualityController.add(ConnectionQuality.unknown);
+    
+    // Start monitoring connectivity changes
+    _connectivitySubscription = _connectivity.onConnectivityChanged.listen(_updateConnectionState);
+    
+    // Start periodic quality checks
+    _startQualityChecks();
+  }
+
+  /// Update the connection state based on connectivity result
+  void _updateConnectionState(ConnectivityResult result) {
+    final isConnected = result != ConnectivityResult.none;
+    _connectionStateController.add(isConnected);
+    
+    // Trigger quality check on connection change
+    if (isConnected) {
+      _checkConnectionQuality();
+    } else {
+      _connectionQualityController.add(ConnectionQuality.none);
+    }
+  }
+
+  /// Start periodic connection quality checks
+  void _startQualityChecks() {
+    _qualityCheckTimer?.cancel();
+    _qualityCheckTimer = Timer.periodic(
+      const Duration(minutes: 1),
+      (_) => _checkConnectionQuality(),
+    );
+  }
+
+  /// Check connection quality by performing a speed test
+  Future<void> _checkConnectionQuality() async {
+    if (!_connectionStateController.value) {
+      _connectionQualityController.add(ConnectionQuality.none);
+      return;
+    }
 
     try {
-      // Initialize preferences
-      _prefs = await SharedPreferences.getInstance();
-      await _loadPersistedState();
-
-      // Initial connectivity check
-      final result = await _connectivity.checkConnectivity();
-      _updateNetworkState(result);
-
-      // Setup real-time monitoring with error handling
-      _connectivitySubscription = _connectivity.onConnectivityChanged
-          .listen(_handleConnectivityChange, onError: (error) {
-        if (kDebugMode) {
-          print('⚠️ Connectivity listener error: $error');
-        }
-        _updateNetworkState(ConnectivityResult.none);
-      });
-
-      // Start periodic quality checks
-      _startMonitoring();
-
-      _isInitialized = true;
-
-      if (kDebugMode) {
-        print('✅ ConnectivityManager initialized: ${_currentState.name}');
-      }
+      final startTime = DateTime.now();
+      final response = await _performSpeedTest();
+      final duration = DateTime.now().difference(startTime);
+      
+      final quality = _calculateQuality(duration.inMilliseconds, response.length);
+      _connectionQualityController.add(quality);
     } catch (e) {
-      if (kDebugMode) {
-        print('❌ ConnectivityManager initialization error: $e');
-      }
-      _isInitialized = false;
+      _connectionQualityController.add(ConnectionQuality.poor);
+    }
+  }
+
+  /// Perform a basic speed test by downloading a small payload
+  Future<String> _performSpeedTest() async {
+    try {
+      const testUrl = 'https://pokeapi.co/api/v2/pokemon/1';
+      final httpClient = HttpClient();
+      httpClient.connectionTimeout = const Duration(seconds: 5);
+      
+      final request = await httpClient.getUrl(Uri.parse(testUrl));
+      final response = await request.close();
+      final responseBody = await response.transform(utf8.decoder).join();
+      
+      return responseBody;
+    } catch (e) {
       rethrow;
     }
   }
 
-  /// Load persisted state from preferences
-  Future<void> _loadPersistedState() async {
-    final lastOnlineTimestamp = _prefs.getInt(_lastOnlineKey);
-    if (lastOnlineTimestamp != null) {
-      _lastOnlineTime =
-          DateTime.fromMillisecondsSinceEpoch(lastOnlineTimestamp);
-    }
-
-    final lastSyncTimestamp = _prefs.getInt(_lastSyncKey);
-    if (lastSyncTimestamp != null) {
-      _lastSyncTime = DateTime.fromMillisecondsSinceEpoch(lastSyncTimestamp);
-    }
+  /// Calculate connection quality based on response time and data size
+  ConnectionQuality _calculateQuality(int responseTime, int dataSize) {
+    final speedBps = (dataSize * 8) / (responseTime / 1000);
+    
+    if (responseTime < 300) return ConnectionQuality.excellent;
+    if (responseTime < 1000) return ConnectionQuality.good;
+    if (responseTime < 3000) return ConnectionQuality.fair;
+    return ConnectionQuality.poor;
   }
 
-  /// Enhanced connectivity check with quality testing and caching
-  Future<bool> checkConnectivity() async {
-    if (!_isInitialized) await initialize();
+  /// Force a manual connection quality check
+  Future<void> checkQualityNow() => _checkConnectionQuality();
 
-    try {
-      final result = await _connectivity.checkConnectivity();
-      if (result == ConnectivityResult.none) {
-        _updateNetworkState(result);
-        return false;
-      }
-
-      // Perform real connection test for reliability
-      final isReachable = await _testConnection();
-      _updateNetworkState(isReachable ? result : ConnectivityResult.none,
-          forceNotify: true);
-
-      return isReachable;
-    } catch (e) {
-      if (kDebugMode) {
-        print('⚠️ Connectivity check error: $e');
-      }
-      _updateNetworkState(ConnectivityResult.none);
-      return false;
-    }
-  }
-
-  /// Check if device is offline with caching
-  Future<bool> isOffline() async {
-    // Use cached state if recently checked
-    if (_lastOnlineTime != null) {
-      final timeSinceLastCheck = DateTime.now().difference(_lastOnlineTime!);
-      if (timeSinceLastCheck < const Duration(seconds: 30)) {
-        return !isOnline;
-      }
-    }
-    return !(await checkConnectivity());
-  }
-
-  /// Start monitoring with smart backoff and battery optimization
-  void _startMonitoring() {
-    if (_isMonitoring) return;
-    _isMonitoring = true;
-
-    _monitorTimer?.cancel();
-    _monitorTimer = Timer.periodic(_monitorInterval, (_) {
-      if (_consecutiveFailures >= _maxConsecutiveFailures) {
-        // Increase interval on repeated failures
-        _monitorTimer?.cancel();
-        _monitorTimer =
-            Timer.periodic(_backoffInterval, (_) => _checkQuality());
-      } else {
-        _checkQuality();
-      }
-    });
-  }
-
-  /// Handle connectivity changes with debouncing and verification
-  void _handleConnectivityChange(ConnectivityResult result) async {
-    if (_currentState.type == result && !_currentState.needsOptimization)
-      return;
-
-    // Verify change with actual connection test
-    final isReachable = await _testConnection();
-    _updateNetworkState(isReachable ? result : ConnectivityResult.none,
-        forceNotify: true);
-
-    if (kDebugMode) {
-      print('🌐 Network state changed: ${_currentState.name}');
-    }
-  }
-
-  /// Test actual connection quality with timeout
-  Future<bool> _testConnection() async {
-    try {
-      final response = await RequestManager().executeRequest(
-        id: 'connectivity_test',
-        request: () =>
-            http.get(Uri.parse(_testEndpoint)).timeout(_qualityTestTimeout),
-      );
-
-      final success = response.statusCode == 200;
-      if (success) {
-        _consecutiveFailures = 0;
-        _lastOnlineTime = DateTime.now();
-        await _prefs.setInt(
-            _lastOnlineKey, _lastOnlineTime!.millisecondsSinceEpoch);
-      } else {
-        _consecutiveFailures++;
-      }
-
-      return success;
-    } catch (e) {
-      _consecutiveFailures++;
-      return false;
-    }
-  }
-
-  /// Check network quality with response time tracking
-  Future<void> _checkQuality() async {
-    if (_currentState == NetworkState.offline) return;
-
-    try {
-      final startTime = DateTime.now();
-      final isReachable = await _testConnection();
-
-      if (isReachable) {
-        final responseTime = DateTime.now().difference(startTime);
-        _qualityTestResults[startTime] = responseTime;
-
-        // Keep last 5 results for moving average
-        if (_qualityTestResults.length > 5) {
-          _qualityTestResults.remove(_qualityTestResults.keys.first);
-        }
-
-        _updateNetworkQuality();
-      }
-    } catch (e) {
-      if (kDebugMode) {
-        print('⚠️ Quality check error: $e');
-      }
-    }
-  }
-
-  /// Update network quality based on response times and history
-  void _updateNetworkQuality() {
-    if (_qualityTestResults.isEmpty) return;
-
-    // Calculate weighted moving average
-    final weightedSum =
-        _qualityTestResults.entries.fold<Duration>(Duration.zero, (sum, entry) {
-      final age = DateTime.now().difference(entry.key);
-      final weight = 1.0 / (age.inSeconds + 1);
-      return sum + (entry.value * weight.toInt());
-    });
-
-    final avgResponseTime = weightedSum ~/ _qualityTestResults.length;
-
-    NetworkState newState;
-    if (avgResponseTime < const Duration(milliseconds: 300)) {
-      newState = NetworkState.excellent;
-    } else if (avgResponseTime < const Duration(milliseconds: 1000)) {
-      newState = NetworkState.good;
-    } else if (avgResponseTime < const Duration(milliseconds: 2000)) {
-      newState = NetworkState.poor;
-    } else {
-      newState = NetworkState.unstable;
-    }
-
-    _updateNetworkState(_currentState.type, quality: newState);
-  }
-
-  /// Update network state with proper notifications and persistence
-  void _updateNetworkState(
-    ConnectivityResult result, {
-    NetworkState? quality,
-    bool forceNotify = false,
-  }) {
-    final newState = quality ?? _getNetworkState(result);
-    if (_currentState == newState && !forceNotify) return;
-
-    _currentState = newState;
-    if (!_networkStateController.isClosed) {
-      _networkStateController.add(newState);
-    }
-
-    // Update sync time for major state changes
-    if (newState.isOnline && _lastSyncTime == null) {
-      _lastSyncTime = DateTime.now();
-      _prefs.setInt(_lastSyncKey, _lastSyncTime!.millisecondsSinceEpoch);
-    }
-  }
-
-  /// Convert connectivity result to network state with quality consideration
-  NetworkState _getNetworkState(ConnectivityResult result) {
-    switch (result) {
-      case ConnectivityResult.mobile:
-        return NetworkState.mobile;
-      case ConnectivityResult.wifi:
-        return NetworkState.wifi;
-      case ConnectivityResult.ethernet:
-        return NetworkState.ethernet;
-      case ConnectivityResult.none:
-        return NetworkState.offline;
-      default:
-        return NetworkState.unknown;
-    }
-  }
-
-  /// Get time since last successful connection
-  Duration? getTimeSinceLastOnline() {
-    if (_lastOnlineTime == null) return null;
-    return DateTime.now().difference(_lastOnlineTime!);
-  }
-
-  /// Get time since last sync
-  Duration? getTimeSinceLastSync() {
-    if (_lastSyncTime == null) return null;
-    return DateTime.now().difference(_lastSyncTime!);
-  }
-
-  /// Check if sync is needed based on interval
-  bool needsSync() {
-    final timeSinceSync = getTimeSinceLastSync();
-    if (timeSinceSync == null) return true;
-    return timeSinceSync > _minSyncInterval;
-  }
-
-  /// Check if was recently online within threshold
-  bool wasRecentlyOnline({Duration threshold = const Duration(minutes: 5)}) {
-    if (_lastOnlineTime == null) return false;
-    return DateTime.now().difference(_lastOnlineTime!) < threshold;
-  }
-
-  /// Wait for connectivity with timeout and cancellation
-  Future<bool> waitForConnectivity({Duration? timeout}) async {
-    if (isOnline) return true;
-
-    final completer = Completer<bool>();
-
-    // Setup timeout
-    Timer? timeoutTimer;
-    if (timeout != null) {
-      timeoutTimer = Timer(timeout, () {
-        if (!completer.isCompleted) {
-          completer.complete(false);
-        }
-      });
-    }
-
-    // Listen for connectivity
-    StreamSubscription? subscription;
-    subscription = networkStateStream.listen((state) {
-      if (state.isOnline && !completer.isCompleted) {
-        timeoutTimer?.cancel();
-        completer.complete(true);
-        subscription?.cancel();
-      }
-    });
-
-    return completer.future;
-  }
-
-  /// Reset monitoring state and clear history
-  void reset() {
-    _consecutiveFailures = 0;
-    _qualityTestResults.clear();
-    _lastSyncTime = null;
-    _prefs.remove(_lastSyncKey);
-    _startMonitoring();
-  }
-
-  /// Stop monitoring
-  void stopMonitoring() {
-    _isMonitoring = false;
-    _monitorTimer?.cancel();
-  }
-
-  /// Cleanup resources properly
-  Future<void> dispose() async {
-    stopMonitoring();
-    await _connectivitySubscription?.cancel();
-    await _networkStateController.close();
-    _qualityTestResults.clear();
-    _isInitialized = false;
+  /// Clean up resources
+  void dispose() {
+    _connectivitySubscription?.cancel();
+    _qualityCheckTimer?.cancel();
+    _connectionStateController.close();
+    _connectionQualityController.close();
   }
 }
 
-/// Enhanced network state enum with quality levels
-enum NetworkState {
-  wifi('WiFi', true),
-  mobile('Mobile', true),
-  ethernet('Ethernet', true),
-  offline('Offline', false),
-  unknown('Unknown', false),
-  excellent('Excellent', true),
-  good('Good', true),
-  poor('Poor', true),
-  unstable('Unstable', true);
+/// Represents different levels of connection quality
+enum ConnectionQuality {
+  none,
+  unknown,
+  poor,
+  fair,
+  good,
+  excellent
+}
 
-  final String name;
-  final bool isOnline;
-
-  const NetworkState(this.name, this.isOnline);
-
-  ConnectivityResult get type {
+/// Extension methods for ConnectionQuality
+extension ConnectionQualityExt on ConnectionQuality {
+  /// Get the recommended number of concurrent requests based on connection quality
+  int get recommendedConcurrentRequests {
     switch (this) {
-      case NetworkState.wifi:
-        return ConnectivityResult.wifi;
-      case NetworkState.mobile:
-        return ConnectivityResult.mobile;
-      case NetworkState.ethernet:
-        return ConnectivityResult.ethernet;
-      default:
-        return ConnectivityResult.none;
+      case ConnectionQuality.excellent: return 5;
+      case ConnectionQuality.good: return 3;
+      case ConnectionQuality.fair: return 2;
+      case ConnectionQuality.poor: return 1;
+      default: return 1;
     }
   }
 
-  bool get isHighSpeed =>
-      this == NetworkState.wifi ||
-      this == NetworkState.ethernet ||
-      this == NetworkState.excellent;
-
-  bool get isReliable =>
-      this == NetworkState.wifi ||
-      this == NetworkState.ethernet ||
-      this == NetworkState.excellent ||
-      this == NetworkState.good;
-
-  bool get needsOptimization =>
-      this == NetworkState.mobile ||
-      this == NetworkState.poor ||
-      this == NetworkState.unstable;
+  /// Get the recommended cache duration based on connection quality
+  Duration get recommendedCacheDuration {
+    switch (this) {
+      case ConnectionQuality.excellent: return const Duration(minutes: 30);
+      case ConnectionQuality.good: return const Duration(hours: 1);
+      case ConnectionQuality.fair: return const Duration(hours: 2);
+      case ConnectionQuality.poor: return const Duration(hours: 4);
+      default: return const Duration(hours: 24);
+    }
+  }
 }
