@@ -1,6 +1,7 @@
 // lib/core/utils/offline_operation.dart
 
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -36,7 +37,10 @@ abstract class OfflineOperation {
   Map<String, dynamic> toJson();
 
   /// Create operation from stored format
-  static OfflineOperation? fromJson(Map<String, dynamic> json);
+  static OfflineOperation? fromJson(Map<String, dynamic> json) {
+    // This needs to be implemented by child classes
+    return null;
+  }
 
   /// Maximum number of retry attempts
   static const int maxRetries = 3;
@@ -148,10 +152,13 @@ class OfflineOperationStorage {
   Future<Map<String, dynamic>> _loadOperations() async {
     final String? data = _prefs.getString(_storageKey);
     if (data == null) return {};
-    
+
     try {
-      return Map<String, dynamic>.from(
-        const JsonDecoder().convert(data) as Map);
+      final decodedData = jsonDecode(data);
+      if (decodedData is Map<String, dynamic>) {
+        return decodedData;
+      }
+      return {};
     } catch (e) {
       if (kDebugMode) {
         print('⚠️ Error parsing stored operations: $e');
@@ -162,7 +169,7 @@ class OfflineOperationStorage {
 
   /// Save operations to storage
   Future<void> _saveOperations(Map<String, dynamic> operations) async {
-    final data = const JsonEncoder().convert(operations);
+    final data = jsonEncode(operations);
     await _prefs.setString(_storageKey, data);
   }
 }
@@ -171,7 +178,7 @@ class OfflineOperationStorage {
 class OfflineOperationExecutor {
   final Duration _retryDelay;
   final int _maxConcurrent;
-  
+
   OfflineOperationExecutor({
     Duration? retryDelay,
     int? maxConcurrent,
@@ -191,7 +198,8 @@ class OfflineOperationExecutor {
       operation.status = OperationStatus.inProgress;
 
       if (kDebugMode) {
-        print('🚀 Executing operation: ${operation.id} (Attempt: ${operation.retryCount + 1})');
+        print(
+            '🚀 Executing operation: ${operation.id} (Attempt: ${operation.retryCount + 1})');
       }
 
       await operation.execute().timeout(operation.timeout);
