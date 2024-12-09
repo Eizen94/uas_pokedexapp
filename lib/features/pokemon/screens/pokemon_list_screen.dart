@@ -22,9 +22,6 @@ class _PokemonListScreenState extends State<PokemonListScreen> {
   @override
   void initState() {
     super.initState();
-    if (kDebugMode) {
-      print('🔄 Initializing Pokemon List Screen');
-    }
     _scrollController.addListener(_scrollListener);
     _initializePokemonList();
   }
