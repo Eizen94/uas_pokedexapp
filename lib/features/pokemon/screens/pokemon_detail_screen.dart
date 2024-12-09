@@ -18,6 +18,10 @@ class PokemonDetailScreen extends StatefulWidget {
 }
 
 class _PokemonDetailScreenState extends State<PokemonDetailScreen> {
+  PokemonDetailModel? _pokemonDetail;
+  bool _isLoading = true;
+  String? _errorMessage;
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -44,9 +48,21 @@ class _PokemonDetailScreenState extends State<PokemonDetailScreen> {
   }
 
   Future<void> _loadPokemonDetail(int id) async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
     try {
       final provider = context.read<PokemonProvider>();
-      await provider.getPokemonDetail(id);
+      final pokemonDetail = await provider.getPokemonDetail(id);
+      
+      if (mounted) {
+        setState(() {
+          _pokemonDetail = pokemonDetail;
+          _isLoading = false;
+        });
+      }
     } catch (e) {
       if (mounted) {
         _showError(e.toString());
@@ -55,6 +71,11 @@ class _PokemonDetailScreenState extends State<PokemonDetailScreen> {
   }
 
   void _showError(String message) {
+    setState(() {
+      _isLoading = false;
+      _errorMessage = message;
+    });
+
     ErrorDialog.show(
       context,
       title: 'Error',
@@ -71,98 +92,116 @@ class _PokemonDetailScreenState extends State<PokemonDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<PokemonProvider>(
-      builder: (context, provider, child) {
-        final args =
-            ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
-        if (args == null || args['id'] == null) {
-          return const Scaffold(
-            body: Center(
-              child: Text('Invalid Pokemon ID'),
-            ),
-          );
-        }
+    final args =
+        ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
+    
+    // Validasi argumen
+    if (args == null || args['id'] == null) {
+      return const Scaffold(
+        body: Center(
+          child: Text('Invalid Pokemon ID'),
+        ),
+      );
+    }
 
-        final int pokemonId = args['id'];
-        final pokemon = provider.getPokemonById(pokemonId);
+    // Tampilan loading
+    if (_isLoading) {
+      return const Scaffold(
+        body: Center(
+          child: LoadingIndicator(message: 'Loading Pokemon details...'),
+        ),
+      );
+    }
 
-        if (pokemon == null) {
-          return const Scaffold(
-            body: Center(
-              child: LoadingIndicator(message: 'Loading Pokemon details...'),
-            ),
-          );
-        }
+    // Tampilan error
+    if (_errorMessage != null) {
+      return Scaffold(
+        body: Center(
+          child: Text(_errorMessage!),
+        ),
+      );
+    }
 
-        return Scaffold(
-          body: CustomScrollView(
-            slivers: [
-              SliverAppBar(
-                expandedHeight: 200,
-                pinned: true,
-                flexibleSpace: FlexibleSpaceBar(
-                  title: Text(
-                    pokemon.getFormattedName(),
-                    style: AppTextStyles.headlineMedium.copyWith(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  background: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      Container(
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            colors: AppColors.getTypeGradient(
-                                pokemon.getPrimaryType()),
-                          ),
-                        ),
-                      ),
-                      Hero(
-                        tag: 'pokemon-${pokemon.id}',
-                        child: CachedNetworkImage(
-                          imageUrl: pokemon.imageUrl,
-                          fit: BoxFit.contain,
-                          placeholder: (context, url) => const Center(
-                            child: CircularProgressIndicator(),
-                          ),
-                          errorWidget: (context, url, error) => const Icon(
-                            Icons.error,
-                            size: 50,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+    // Validasi pokemon detail
+    if (_pokemonDetail == null) {
+      return const Scaffold(
+        body: Center(
+          child: Text('Pokemon not found'),
+        ),
+      );
+    }
+
+    // Build UI dengan pokemon detail
+    return Scaffold(
+      body: CustomScrollView(
+        slivers: [
+          _buildSliverAppBar(_pokemonDetail!),
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildInfoCard(_pokemonDetail!),
+                  const SizedBox(height: 16),
+                  _buildStatsSection(_pokemonDetail!),
+                  const SizedBox(height: 16),
+                  _buildAbilitiesSection(_pokemonDetail!),
+                  if (_pokemonDetail!.evolution != null &&
+                      _pokemonDetail!.evolution!.hasMultipleStages()) ...[
+                    const SizedBox(height: 16),
+                    _buildEvolutionSection(_pokemonDetail!),
+                  ],
+                ],
               ),
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _buildInfoCard(pokemon),
-                      const SizedBox(height: 16),
-                      _buildStatsSection(pokemon),
-                      const SizedBox(height: 16),
-                      _buildAbilitiesSection(pokemon),
-                      if (pokemon.evolution != null &&
-                          pokemon.evolution!.hasMultipleStages()) ...[
-                        const SizedBox(height: 16),
-                        _buildEvolutionSection(pokemon),
-                      ],
-                    ],
-                  ),
-                ),
-              ),
-            ],
+            ),
           ),
-        );
-      },
+        ],
+      ),
+    );
+  }
+
+  SliverAppBar _buildSliverAppBar(PokemonDetailModel pokemon) {
+    return SliverAppBar(
+      expandedHeight: 200,
+      pinned: true,
+      flexibleSpace: FlexibleSpaceBar(
+        title: Text(
+          pokemon.getFormattedName(),
+          style: AppTextStyles.headlineMedium.copyWith(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        background: Stack(
+          fit: StackFit.expand,
+          children: [
+            Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: AppColors.getTypeGradient(pokemon.getPrimaryType()),
+                ),
+              ),
+            ),
+            Hero(
+              tag: 'pokemon-${pokemon.id}',
+              child: CachedNetworkImage(
+                imageUrl: pokemon.imageUrl,
+                fit: BoxFit.contain,
+                placeholder: (context, url) => const Center(
+                  child: CircularProgressIndicator(),
+                ),
+                errorWidget: (context, url, error) => const Icon(
+                  Icons.error,
+                  size: 50,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -213,7 +252,7 @@ class _PokemonDetailScreenState extends State<PokemonDetailScreen> {
                     type.toUpperCase(),
                     style: AppTextStyles.pokemonType,
                   ),
-                  backgroundColor: AppColors.typeColors[type.toLowerCase()],
+                   backgroundColor: AppColors.typeColors[type.toLowerCase()],
                 );
               }).toList(),
             ),
@@ -390,7 +429,8 @@ class _PokemonDetailScreenState extends State<PokemonDetailScreen> {
                     children: [
                       CachedNetworkImage(
                         imageUrl:
-                            'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${stage.pokemonId}.png',
+                            'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${stage ```dart
+.pokemonId}.png',
                         height: 80,
                         width: 80,
                         placeholder: (context, url) =>
