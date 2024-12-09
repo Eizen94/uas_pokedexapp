@@ -12,6 +12,7 @@ import 'package:uas_pokedexapp/features/auth/screens/profile_screen.dart';
 import 'package:uas_pokedexapp/features/pokemon/screens/pokemon_list_screen.dart';
 import 'package:uas_pokedexapp/features/pokemon/screens/pokemon_detail_screen.dart';
 import 'package:uas_pokedexapp/dev/tools/test_screen.dart';
+import 'package:uas_pokedexapp/dev/tools/dev_tools.dart';
 import 'package:uas_pokedexapp/providers/auth_provider.dart';
 import 'package:uas_pokedexapp/providers/theme_provider.dart';
 import 'package:uas_pokedexapp/providers/pokemon_provider.dart';
@@ -20,6 +21,11 @@ import 'package:uas_pokedexapp/widgets/loading_indicator.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  if (DevTools.isDevMode) {
+    await DevTools().initialize();
+  }
+
+  runApp(const AppRoot());
   try {
     if (kDebugMode) {
       print('🚀 Starting app initialization...');
@@ -73,7 +79,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final themeProvider = context.watch<ThemeProvider>();
-    
+
     return MaterialApp(
       title: 'UAS Pokedex',
       debugShowCheckedModeBanner: false,
@@ -86,6 +92,7 @@ class MyApp extends StatelessWidget {
         '/home': (context) => const PokemonListScreen(),
         '/pokemon/detail': (context) => const PokemonDetailScreen(),
         '/test': (context) => const TestScreen(),
+        '/dev/test': (context) => DevTools.getTestScreen(),
       },
     );
   }
