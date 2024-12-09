@@ -7,12 +7,16 @@ import '../features/pokemon/models/pokemon_detail_model.dart';
 import '../features/pokemon/services/pokemon_service.dart';
 import '../core/utils/request_manager.dart';
 import '../core/utils/connectivity_manager.dart';
+import '../core/utils/api_helper.dart';
+import '../services/firebase_service.dart';
 import 'auth_provider.dart';
 
 class PokemonProvider extends ChangeNotifier {
   // Services
   final PokemonService _pokemonService = PokemonService();
   final ConnectivityManager _connectivityManager = ConnectivityManager();
+  final FirebaseService _firebaseService = FirebaseService();
+  final ApiHelper _apiHelper = ApiHelper();
 
   // Cache & Data Management
   final Map<String, Timer> _cacheExpiryTimers = {};
@@ -24,6 +28,12 @@ class PokemonProvider extends ChangeNotifier {
   final List<PokemonModel> _pokemonList = [];
   List<PokemonModel> _filteredList = [];
   final Map<int, PokemonDetailModel> _pokemonDetails = {};
+
+  // Network State Management
+  StreamSubscription<NetworkState>? _networkSubscription;
+  bool _isOffline = false;
+  bool _isWeakConnection = false;
+  bool _isSyncing = false;
 
   // Pagination & Search
   int _currentPage = 0;
@@ -43,8 +53,7 @@ class PokemonProvider extends ChangeNotifier {
 
   // Public Getters
   List<PokemonModel> get pokemonList => _filteredList;
-  Map<int, PokemonDetailModel> get pokemonDetails =>
-      Map.unmodifiable(_pokemonDetails);
+  Map<int, PokemonDetailModel> get pokemonDetails => Map.unmodifiable(_pokemonDetails);
   bool get isLoading => _isLoading;
   bool get isLoadingMore => _isLoadingMore;
   bool get hasMore => _hasMore;
@@ -52,65 +61,84 @@ class PokemonProvider extends ChangeNotifier {
   bool get hasError => _error.isNotEmpty;
   String get searchQuery => _searchQuery;
   int get currentPage => _currentPage;
+  bool get isOffline => _isOffline;
+  bool get isSyncing => _isSyncing;
 
-  // Memory Management Methods
-  void _cleanupCache() {
-    if (_pokemonDetails.length > _maxCacheItems) {
-      // Remove least recently used items
-      final sortedKeys = _pokemonDetails.keys.toList()
-        ..sort((a, b) =>
-            _cacheExpiryTimers[a.toString()]?.tick.compareTo(
-                  _cacheExpiryTimers[b.toString()]?.tick ?? 0,
-                ) ??
-            0);
+  PokemonProvider() {
+    _initializeProvider();
+  }
 
-      for (var i = 0; i < sortedKeys.length - _maxCacheItems; i++) {
-        _removeFromCache(sortedKeys[i]);
+  Future<void> _initializeProvider() async {
+    try {
+      await _connectivityManager.initialize();
+      await _apiHelper.initialize();
+      
+      _networkSubscription = _connectivityManager.networkStateStream.listen(_handleNetworkStateChange);
+
+      // Initial network check
+      _isOffline = !_connectivityManager.isOnline;
+      _isWeakConnection = _connectivityManager.currentState.needsOptimization;
+
+      if (kDebugMode) {
+        print('✅ Pokemon Provider initialized');
       }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error initializing Pokemon Provider: $e');
+      }
+      _error = 'Failed to initialize provider';
     }
   }
 
-  void _removeFromCache(int id) {
-    _pokemonDetails.remove(id);
-    _cacheExpiryTimers[id.toString()]?.cancel();
-    _cacheExpiryTimers.remove(id.toString());
-  }
+  void _handleNetworkStateChange(NetworkState state) {
+    final wasOffline = _isOffline;
+    _isOffline = !state.isOnline;
+    _isWeakConnection = state.needsOptimization;
 
-  void _setCacheExpiry(int id) {
-    _cacheExpiryTimers[id.toString()]?.cancel();
-    _cacheExpiryTimers[id.toString()] = Timer(_cacheTimeout, () {
-      if (!_isDisposed) {
-        _removeFromCache(id);
-      }
-    });
-  }
-
-  // Request Management
-  Future<T?> _executeRequest<T>(
-    String key,
-    Future<T> Function() request,
-  ) async {
-    // Check for pending request
-    if (_pendingRequests.containsKey(key)) {
-      return _pendingRequests[key]!.future.then((_) => null);
+    if (wasOffline && state.isOnline) {
+      _syncDataAfterOffline();
     }
 
-    final completer = Completer<void>();
-    _pendingRequests[key] = completer;
+    if (!wasOffline && !state.isOnline) {
+      _handleOfflineTransition();
+    }
+
+    notifyListeners();
+  }
+
+  Future<void> _syncDataAfterOffline() async {
+    if (_isSyncing || _isDisposed) return;
 
     try {
-      final result = await request();
-      completer.complete();
-      _pendingRequests.remove(key);
-      return result;
+      _isSyncing = true;
+      notifyListeners();
+
+      if (_pokemonList.isEmpty) {
+        await initializePokemonList();
+      } else {
+        await refreshPokemonList();
+      }
+
+      _error = '';
     } catch (e) {
-      completer.completeError(e);
-      _pendingRequests.remove(key);
-      rethrow;
+      _error = 'Failed to sync data';
+      if (kDebugMode) {
+        print('❌ Sync error: $e');
+      }
+    } finally {
+      _isSyncing = false;
+      if (!_isDisposed) {
+        notifyListeners();
+      }
     }
   }
 
-  // Pokemon List Management
+  void _handleOfflineTransition() {
+    cancelAllRequests();
+    _error = 'Working in offline mode. Some features may be limited.';
+    notifyListeners();
+  }
+
   Future<void> initializePokemonList() async {
     if (_pokemonList.isEmpty) {
       await loadPokemon(showLoading: true);
@@ -129,7 +157,14 @@ class PokemonProvider extends ChangeNotifier {
       }
       notifyListeners();
 
-      // Cancel previous request
+      if (_isOffline) {
+        final cachedData = await _loadFromCache();
+        if (cachedData.isEmpty && _pokemonList.isEmpty) {
+          _error = 'No cached data available offline';
+        }
+        return;
+      }
+
       _requestTokens['pokemon_list']?.cancel();
       final token = CancellationToken();
       _requestTokens['pokemon_list'] = token;
@@ -138,7 +173,7 @@ class PokemonProvider extends ChangeNotifier {
         'pokemon_list_$_currentPage',
         () => _pokemonService.getPokemonList(
           offset: _currentPage * 20,
-          limit: 20,
+          limit: _isWeakConnection ? 10 : 20,
           cancellationToken: token,
         ),
       );
@@ -147,32 +182,43 @@ class PokemonProvider extends ChangeNotifier {
         _pokemonList.addAll(newPokemon);
         _filterPokemon(_searchQuery);
         _currentPage++;
-        _hasMore = newPokemon.length == 20;
+        _hasMore = newPokemon.length == (_isWeakConnection ? 10 : 20);
         _error = '';
+        
+        await _cacheData(newPokemon);
+
+        // Sync with Firebase if authenticated
+        if (isAuthenticated) {
+          await _syncWithFirebase(newPokemon);
+        }
       }
     } catch (e) {
       if (e is! RequestCancelledException) {
         _error = e.toString();
         if (kDebugMode) {
-          print('Error loading Pokemon: $_error');
+          print('❌ Error loading Pokemon: $_error');
         }
       }
     } finally {
       _setLoading(false);
       _isLoadingMore = false;
-      notifyListeners();
+      if (!_isDisposed) {
+        notifyListeners();
+      }
     }
   }
 
-  // Pokemon Detail Management
   Future<PokemonDetailModel?> getPokemonDetail(int id) async {
     if (_pokemonDetails.containsKey(id)) {
-      _setCacheExpiry(id); // Reset expiry timer
+      _setCacheExpiry(id);
       return _pokemonDetails[id];
     }
 
     try {
-      // Cancel previous request for this ID
+      if (_isOffline) {
+        return await _loadDetailFromCache(id);
+      }
+
       _requestTokens[id.toString()]?.cancel();
       final token = CancellationToken();
       _requestTokens[id.toString()] = token;
@@ -189,7 +235,11 @@ class PokemonProvider extends ChangeNotifier {
         _pokemonDetails[id] = detail;
         _cleanupCache();
         _setCacheExpiry(id);
-        notifyListeners();
+        await _cacheDetailData(id, detail);
+        
+        if (!_isDisposed) {
+          notifyListeners();
+        }
         return detail;
       }
       return null;
@@ -197,7 +247,7 @@ class PokemonProvider extends ChangeNotifier {
       if (e is! RequestCancelledException) {
         _error = e.toString();
         if (kDebugMode) {
-          print('Error loading Pokemon detail: $_error');
+          print('❌ Error loading Pokemon detail: $_error');
         }
       }
       return null;
@@ -206,11 +256,15 @@ class PokemonProvider extends ChangeNotifier {
     }
   }
 
-  // Search & Filter
-  void searchPokemon(String query) {
+  Future<void> searchPokemon(String query) async {
     _searchQuery = query.toLowerCase();
     _filterPokemon(_searchQuery);
     notifyListeners();
+
+    // Load more if results are few and not offline
+    if (_filteredList.length < 5 && !_isOffline && _hasMore) {
+      await loadPokemon();
+    }
   }
 
   void _filterPokemon(String query) {
@@ -219,13 +273,12 @@ class PokemonProvider extends ChangeNotifier {
     } else {
       _filteredList = _pokemonList.where((pokemon) {
         return pokemon.name.toLowerCase().contains(query) ||
-            pokemon.id.toString() == query ||
-            pokemon.types.any((type) => type.toLowerCase().contains(query));
+               pokemon.id.toString() == query ||
+               pokemon.types.any((type) => type.toLowerCase().contains(query));
       }).toList();
     }
   }
 
-  // Refresh & Reset
   Future<void> refreshPokemonList() async {
     _pokemonList.clear();
     _filteredList.clear();
@@ -249,7 +302,6 @@ class PokemonProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  // Request Management
   void cancelPokemonDetailRequest(int id) {
     final token = _requestTokens[id.toString()];
     if (token != null) {
@@ -266,7 +318,123 @@ class PokemonProvider extends ChangeNotifier {
     _pokemonService.cancelAllRequests();
   }
 
-  // State Management
+  Future<T?> _executeRequest<T>(String key, Future<T> Function() request) async {
+    if (_pendingRequests.containsKey(key)) {
+      return _pendingRequests[key]!.future.then((_) => null);
+    }
+
+    final completer = Completer<void>();
+    _pendingRequests[key] = completer;
+
+    try {
+      final result = await request();
+      completer.complete();
+      _pendingRequests.remove(key);
+      return result;
+    } catch (e) {
+      completer.completeError(e);
+      _pendingRequests.remove(key);
+      rethrow;
+    }
+  }
+
+  Future<void> _syncWithFirebase(List<PokemonModel> pokemon) async {
+    if (!isAuthenticated) return;
+
+    try {
+      final userId = _authProvider?.user?.uid;
+      if (userId == null) return;
+
+      await _firebaseService.updateUserData(userId, {
+        'lastSync': DateTime.now().toIso8601String(),
+        'pokemonCount': _pokemonList.length,
+      });
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Firebase sync error: $e');
+      }
+    }
+  }
+
+  Future<void> _cacheData(List<PokemonModel> pokemon) async {
+    try {
+      final cacheKey = 'pokemon_list_${_currentPage}';
+      await _apiHelper.cacheResponse(cacheKey, pokemon);
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Cache error: $e');
+      }
+    }
+  }
+
+  Future<void> _cacheDetailData(int id, PokemonDetailModel detail) async {
+    try {
+      final cacheKey = 'pokemon_detail_$id';
+      await _apiHelper.cacheResponse(cacheKey, detail);
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Detail cache error: $e');
+      }
+    }
+  }
+
+  Future<List<PokemonModel>> _loadFromCache() async {
+    try {
+      final cacheKey = 'pokemon_list_${_currentPage}';
+      final cachedData = await _apiHelper.getCachedResponse(cacheKey);
+      if (cachedData != null) {
+        return (cachedData as List).map((item) => PokemonModel.fromJson(item)).toList();
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Cache load error: $e');
+      }
+    }
+    return [];
+  }
+
+  Future<PokemonDetailModel?> _loadDetailFromCache(int id) async {
+    try {
+      final cacheKey = 'pokemon_detail_$id';
+      final cachedData = await _apiHelper.getCachedResponse(cacheKey);
+      if (cachedData != null) {
+        return PokemonDetailModel.fromJson(cachedData);
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Detail cache load error: $e');
+      }
+    }
+    return null;
+  }
+
+  void _cleanupCache() {
+    if (_pokemonDetails.length > _maxCacheItems) {
+      final sortedKeys = _pokemonDetails.keys.toList()
+        ..sort((a, b) => (_cacheExpiryTimers[a.toString()]?.tick ?? 0)
+            .compareTo(_cacheExpiryTimers[b.toString()]?.tick ?? 0));
+
+      for (var i = 0; i < sortedKeys.length - _maxCacheItems; i++) {
+        _removeFromCache(sortedKeys[i]);
+      }
+    }
+  }
+
+  void _removeFromCache(int id) {
+    _pokemonDetails.remove(id);
+    _cacheExpiryTimers[id.toString()]?.cancel();
+    _cacheExpiryTimers.remove(id.toString());
+  }
+
+  void _setCacheExpiry(int id) {
+    _cacheExpiryTimers[id.toString()]?.cancel();
+    _cacheExpiryTimers[id.toString()] = Timer(_cacheTimeout, () {
+      if (!_isDisposed) {
+        _removeFromCache(id);
+      }
+    });
+  }
+
   void _setLoading(bool value) {
     _isLoading = value;
     if (!value) {
@@ -279,7 +447,6 @@ class PokemonProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  // Auth State Management
   void updateAuth(AppAuthProvider auth) {
     _authProvider = auth;
     if (auth.isAuthenticated) {
@@ -291,12 +458,23 @@ class PokemonProvider extends ChangeNotifier {
 
   Future<void> _loadUserPreferences() async {
     if (_authProvider?.user == null) return;
+
     try {
-      // Load user preferences like favorite Pokemon, view settings, etc.
-      // Implement when needed
+      final userId = _authProvider!.user!.uid;
+      final userDoc = await _firebaseService.getUserDocument(userId);
+      
+      if (userDoc != null) {
+        // Load user-specific Pokemon preferences if any
+        final favorites = userDoc['favorites'] as List? ?? [];
+        for (var id in favorites) {
+          if (!_pokemonDetails.containsKey(id)) {
+            await getPokemonDetail(id);
+          }
+        }
+      }
     } catch (e) {
       if (kDebugMode) {
-        print('Error loading user preferences: $e');
+        print('❌ Error loading user preferences: $e');
       }
     }
   }
@@ -313,10 +491,10 @@ class PokemonProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  // Resource Cleanup
   @override
   void dispose() {
     _isDisposed = true;
+    _networkSubscription?.cancel();
     cancelAllRequests();
     for (var timer in _cacheExpiryTimers.values) {
       timer.cancel();
@@ -325,4 +503,3 @@ class PokemonProvider extends ChangeNotifier {
     _pendingRequests.clear();
     super.dispose();
   }
-}
