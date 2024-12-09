@@ -7,6 +7,7 @@ import '../models/pokemon_model.dart';
 import '../models/pokemon_detail_model.dart';
 import '../../../core/utils/api_helper.dart';
 import '../../../core/constants/api_paths.dart';
+import '../../../core/utils/request_manager.dart';
 
 class PokemonService {
   static const String baseUrl = ApiPaths.pokeApiBase;
