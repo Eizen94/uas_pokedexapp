@@ -9,73 +9,118 @@ import '../../core/utils/connectivity_manager.dart';
 import '../../core/utils/monitoring_manager.dart';
 import '../../services/firebase_service.dart';
 
-/// Development tools and utilities manager
+/// DevTools with comprehensive error handling, resource management
+/// and proper initialization chain
 class DevTools {
-  // Singleton instance
+  // Singleton instance with lazy initialization
   static final DevTools _instance = DevTools._internal();
   factory DevTools() => _instance;
   DevTools._internal();
 
-  // Service instances
+  // Core services
   final ApiHelper _apiHelper = ApiHelper();
   final ConnectivityManager _connectivityManager = ConnectivityManager();
   final MonitoringManager _monitoringManager = MonitoringManager();
   final FirebaseService _firebaseService = FirebaseService();
 
   // Resource management
-  final Map<String, Timer> _cacheExpiryTimers = {};
-  final List<StreamSubscription> _activeSubscriptions = [];
+  final _resourceManager = _DevToolsResourceManager();
 
+  // State management
   bool _isInitialized = false;
   bool _isDebugMode = false;
+  bool _disposed = false;
 
-  /// Initialize dev tools
+  // Public getters
+  bool get isInitialized => _isInitialized;
+  bool get isDebugBuild => _isDebugMode;
+
+  /// Initialize DevTools with proper error handling and state management
   Future<void> initialize() async {
+    if (_disposed) {
+      throw DevToolsException('Cannot initialize disposed instance');
+    }
+
+    if (_isInitialized) {
+      if (kDebugMode) {
+        print('DevTools already initialized');
+      }
+      return;
+    }
+
     try {
       _isDebugMode = kDebugMode;
 
       if (_isDebugMode) {
+        // Sequential initialization with error handling
         await Future.wait([
-          _apiHelper.initialize(),
-          _connectivityManager.initialize(),
-          _monitoringManager.startMonitoring(),
-          _firebaseService.initialize(),
+          _apiHelper.initialize().catchError(_handleInitError('ApiHelper')),
+          _connectivityManager
+              .initialize()
+              .catchError(_handleInitError('ConnectivityManager')),
+          _monitoringManager
+              .initialize()
+              .catchError(_handleInitError('MonitoringManager')),
+          _firebaseService
+              .initialize()
+              .catchError(_handleInitError('FirebaseService')),
         ]);
 
-        // Setup network state monitoring
-        _setupNetworkMonitoring();
+        // Setup state synchronization
+        _setupStateSynchronization();
 
         if (kDebugMode) {
-          debugPrint('✅ DevTools initialized');
+          print('✅ DevTools initialized successfully');
         }
       }
 
       _isInitialized = true;
     } catch (e) {
-      if (kDebugMode) {
-        debugPrint('❌ DevTools initialization error: $e');
-      }
-      rethrow;
+      await dispose();
+      throw DevToolsException(
+        'Initialization failed',
+        originalError: e is Exception ? e : null,
+      );
     }
   }
 
-  void _setupNetworkMonitoring() {
+  /// Handle initialization errors
+  Function _handleInitError(String service) {
+    return (error) {
+      if (kDebugMode) {
+        print('❌ $service initialization error: $error');
+      }
+      throw DevToolsException(
+        '$service initialization failed',
+        originalError: error is Exception ? error : null,
+      );
+    };
+  }
+
+  /// Setup state synchronization between managers
+  void _setupStateSynchronization() {
+    if (_disposed) return;
+
+    // Monitor network state changes
     final subscription = _connectivityManager.networkStateStream.listen(
       (state) async {
+        if (_disposed) return;
+
         try {
-          // MonitoringManager already listens to connectivity changes internally
+          await _monitoringManager.updateNetworkState(state);
+          await _apiHelper.updateConnectivityState(state);
+
           if (kDebugMode) {
-            debugPrint('🔄 Network state changed: ${state.name}');
+            print('🔄 Network state synchronized: ${state.name}');
           }
         } catch (e) {
-          if (kDebugMode) {
-            debugPrint('❌ Error handling network state: $e');
-          }
+          logError('State synchronization failed', e);
         }
       },
+      onError: (error) => logError('Network state monitoring error', error),
     );
 
-    _activeSubscriptions.add(subscription);
+    _resourceManager.registerSubscription(subscription);
   }
 
   /// Check if running in development mode
@@ -86,46 +131,44 @@ class DevTools {
     if (isDevMode) {
       return const TestScreen();
     }
-    return const SizedBox.shrink(); // Empty widget for production
+    return const SizedBox.shrink();
   }
 
-  // Development mode checks
-  bool get isDebugBuild => _isDebugMode;
-  bool get isInitialized => _isInitialized;
-
-  /// Debug helpers
+  /// Enhanced logging with error context
   void logDebug(String message) {
     if (_isDebugMode) {
-      debugPrint('🔧 [DEBUG] $message');
+      print('🔧 [DEBUG] $message');
     }
   }
 
-  void logError(String message, [Object? error]) {
+  void logError(String message, [Object? error, StackTrace? stackTrace]) {
     if (_isDebugMode) {
-      debugPrint('❌ [ERROR] $message');
+      print('❌ [ERROR] $message');
       if (error != null) {
-        debugPrint('Stack trace:');
-        debugPrint(error.toString());
+        print('Error details: $error');
+        if (stackTrace != null) {
+          print('Stack trace:\n$stackTrace');
+        }
       }
     }
   }
 
   void logWarning(String message) {
     if (_isDebugMode) {
-      debugPrint('⚠️ [WARNING] $message');
+      print('⚠️ [WARNING] $message');
     }
   }
 
   void logInfo(String message) {
     if (_isDebugMode) {
-      debugPrint('ℹ️ [INFO] $message');
+      print('ℹ️ [INFO] $message');
     }
   }
 
   /// Performance monitoring
   void logPerformance(String operation, Duration duration) {
     if (_isDebugMode) {
-      debugPrint('⚡ [PERF] $operation took ${duration.inMilliseconds}ms');
+      print('⚡ [PERF] $operation took ${duration.inMilliseconds}ms');
     }
   }
 
@@ -145,40 +188,82 @@ class DevTools {
   /// Service status
   Map<String, bool> getServiceStatus() {
     return {
-      'api': _apiHelper.active,
-      'connectivity': _connectivityManager.hasConnection,
+      'api': _apiHelper.isInitialized,
+      'connectivity': _connectivityManager.isInitialized,
       'monitoring': _monitoringManager.isMonitoring,
-      'firebase': _firebaseService.active
+      'firebase': _firebaseService.isInitialized,
     };
   }
 
-  /// Resource cleanup
+  /// Resource cleanup with proper error handling
   Future<void> dispose() async {
-    if (_isInitialized) {
-      // Cancel timers
-      for (var timer in _cacheExpiryTimers.values) {
-        timer.cancel();
-      }
-      _cacheExpiryTimers.clear();
+    if (_disposed) return;
 
-      // Cancel subscriptions
-      for (var subscription in _activeSubscriptions) {
-        await subscription.cancel();
-      }
-      _activeSubscriptions.clear();
+    _disposed = true;
 
-      // Dispose services
+    try {
       await Future.wait([
         _apiHelper.dispose(),
         _connectivityManager.dispose(),
         _monitoringManager.dispose(),
+        _resourceManager.dispose(),
       ]);
 
       _isInitialized = false;
 
       if (kDebugMode) {
-        debugPrint('🧹 DevTools disposed');
+        print('🧹 DevTools disposed successfully');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error during DevTools disposal: $e');
       }
     }
+  }
+}
+
+/// Resource manager for DevTools
+class _DevToolsResourceManager {
+  final Map<String, Timer> _activeTimers = {};
+  final List<StreamSubscription> _activeSubscriptions = [];
+
+  void registerTimer(String id, Timer timer) {
+    _activeTimers[id]?.cancel();
+    _activeTimers[id] = timer;
+  }
+
+  void registerSubscription(StreamSubscription subscription) {
+    _activeSubscriptions.add(subscription);
+  }
+
+  Future<void> dispose() async {
+    for (var timer in _activeTimers.values) {
+      timer.cancel();
+    }
+
+    await Future.wait(
+      _activeSubscriptions.map((sub) => sub.cancel()),
+    );
+
+    _activeTimers.clear();
+    _activeSubscriptions.clear();
+  }
+}
+
+/// Custom exception for DevTools
+class DevToolsException implements Exception {
+  final String message;
+  final String? code;
+  final Exception? originalError;
+
+  DevToolsException(
+    this.message, {
+    this.code,
+    this.originalError,
+  });
+
+  @override
+  String toString() {
+    return 'DevToolsException: $message${code != null ? ' ($code)' : ''}';
   }
 }
