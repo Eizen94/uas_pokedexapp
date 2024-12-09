@@ -10,6 +10,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import './request_manager.dart';
 import './connectivity_manager.dart';
 import './sync_manager.dart';
+import '../../features/pokemon/models/pokemon_model.dart';
+import '../../features/pokemon/models/pokemon_detail_model.dart';
 
 /// Enhanced ApiHelper optimized for Pokedex with smart caching and network handling
 class ApiHelper {
@@ -681,6 +683,76 @@ class ApiHelper {
     }
   }
 
+  /// Type-safe interface for caching response
+  Future<void> cacheResponse<T>(String key, T data) async {
+    Map<String, dynamic> jsonData;
+    
+    if (data is List<PokemonModel>) {
+      jsonData = {
+        'type': 'pokemon_list',
+        'data': data.map((model) => model.toJson()).toList(),
+      };
+    } else if (data is PokemonDetailModel) {
+      jsonData = {
+        'type': 'pokemon_detail',
+        'data': data.toJson(),
+      };
+    } else if (data is Map<String, dynamic>) {
+      jsonData = data;
+    } else {
+      throw const ApiException(
+        message: 'Unsupported data type for caching',
+        isRetryable: false,
+      );
+    }
+    
+    await _cacheData(key, jsonData, _defaultCacheDuration);
+  }
+
+  /// Type-safe interface for getting cached response
+  Future<T?> getCachedResponse<T>(String key) async {
+    final data = await _getCachedData(key);
+    if (data == null) return null;
+
+    if (T == List<PokemonModel> && data['type'] == 'pokemon_list') {
+      final list = (data['data'] as List)
+          .map((item) => PokemonModel.fromJson(Map<String, dynamic>.from(item)))
+          .toList();
+      return list as T;
+    } else if (T == PokemonDetailModel && data['type'] == 'pokemon_detail') {
+      return PokemonDetailModel.fromJson(
+        Map<String, dynamic>.from(data['data']),
+      ) as T;
+    }
+
+    throw const ApiException(
+      message: 'Invalid cached data type',
+      isRetryable: false,
+    );
+  }
+
+  /// Private helper for type-safe json conversion
+  Map<String, dynamic> _convertToJson(dynamic data) {
+    if (data is List<PokemonModel>) {
+      return {
+        'type': 'pokemon_list',
+        'data': data.map((model) => model.toJson()).toList(),
+      };
+    } else if (data is PokemonDetailModel) {
+      return {
+        'type': 'pokemon_detail',
+        'data': data.toJson(),
+      };
+    } else if (data is Map<String, dynamic>) {
+      return data;
+    }
+    
+    throw const ApiException(
+      message: 'Unsupported data type for conversion',
+      isRetryable: false,
+    );
+  }
+
   /// Resource cleanup
   Future<void> dispose() async {
     _isDisposed = true;
@@ -689,7 +761,6 @@ class ApiHelper {
     _pendingRequests.clear();
     _downloadProgress.clear();
   }
-}
 
 /// LRU Cache with size limit and eviction
 class _LruCache<K, V> {
