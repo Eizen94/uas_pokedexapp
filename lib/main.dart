@@ -11,7 +11,7 @@ import 'package:uas_pokedexapp/features/auth/screens/register_screen.dart';
 import 'package:uas_pokedexapp/features/auth/screens/profile_screen.dart';
 import 'package:uas_pokedexapp/features/pokemon/screens/pokemon_list_screen.dart';
 import 'package:uas_pokedexapp/features/pokemon/screens/pokemon_detail_screen.dart';
-import 'package:uas_pokedexapp/features/test/screens/test_screen.dart';
+import 'package:uas_pokedexapp/dev/tools/test_screen.dart';
 import 'package:uas_pokedexapp/providers/auth_provider.dart';
 import 'package:uas_pokedexapp/providers/theme_provider.dart';
 import 'package:uas_pokedexapp/providers/pokemon_provider.dart';
