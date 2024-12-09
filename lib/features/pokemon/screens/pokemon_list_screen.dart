@@ -22,13 +22,18 @@ class _PokemonListScreenState extends State<PokemonListScreen> {
   @override
   void initState() {
     super.initState();
+    if (kDebugMode) {
+      print('🏁 Initializing Pokemon list screen');
+    }
     _scrollController.addListener(_scrollListener);
     _initializePokemonList();
   }
 
   @override
   void dispose() {
-    // Cancel any ongoing requests
+    if (kDebugMode) {
+      print('🧹 Disposing Pokemon list screen');
+    }
     context.read<PokemonProvider>().cancelAllRequests();
     _scrollController.dispose();
     _searchController.dispose();
@@ -36,6 +41,9 @@ class _PokemonListScreenState extends State<PokemonListScreen> {
   }
 
   Future<void> _initializePokemonList() async {
+    if (kDebugMode) {
+      print('🔄 Initializing Pokemon list data');
+    }
     await context.read<PokemonProvider>().initializePokemonList();
   }
 
@@ -46,15 +54,24 @@ class _PokemonListScreenState extends State<PokemonListScreen> {
         !_scrollController.position.outOfRange &&
         !provider.isLoading &&
         provider.hasMore) {
+      if (kDebugMode) {
+        print('📜 Loading more Pokemon');
+      }
       provider.loadPokemon();
     }
   }
 
   Future<void> _refreshPokemonList() async {
+    if (kDebugMode) {
+      print('🔄 Refreshing Pokemon list');
+    }
     await context.read<PokemonProvider>().refreshPokemonList();
   }
 
   void _showError(String message) {
+    if (kDebugMode) {
+      print('❌ Error in Pokemon list: $message');
+    }
     ErrorDialog.show(
       context,
       title: 'Error',
@@ -64,12 +81,13 @@ class _PokemonListScreenState extends State<PokemonListScreen> {
   }
 
   void _navigateToPokemonDetail(BuildContext context, int pokemonId) {
+    if (kDebugMode) {
+      print('🔍 Navigating to Pokemon detail: $pokemonId');
+    }
     Navigator.pushNamed(
       context,
       '/pokemon/detail',
-      arguments: {
-        'id': pokemonId
-      }, // Memastikan struktur arguments sesuai dengan yang diharapkan detail screen
+      arguments: {'id': pokemonId},
     );
   }
 
@@ -130,6 +148,9 @@ class _PokemonListScreenState extends State<PokemonListScreen> {
               ? IconButton(
                   icon: const Icon(Icons.clear),
                   onPressed: () {
+                    if (kDebugMode) {
+                      print('🔍 Clearing search');
+                    }
                     _searchController.clear();
                     provider.searchPokemon('');
                   },
@@ -146,7 +167,12 @@ class _PokemonListScreenState extends State<PokemonListScreen> {
             vertical: 12,
           ),
         ),
-        onChanged: provider.searchPokemon,
+        onChanged: (value) {
+          if (kDebugMode) {
+            print('🔍 Searching: $value');
+          }
+          provider.searchPokemon(value);
+        },
         textInputAction: TextInputAction.search,
       ),
     );
@@ -154,12 +180,18 @@ class _PokemonListScreenState extends State<PokemonListScreen> {
 
   Widget _buildPokemonGrid(PokemonProvider provider) {
     if (provider.isLoading && provider.pokemonList.isEmpty) {
+      if (kDebugMode) {
+        print('⌛ Loading initial Pokemon data');
+      }
       return const Center(
         child: LoadingIndicator(message: 'Loading Pokemon...'),
       );
     }
 
     if (provider.pokemonList.isEmpty) {
+      if (kDebugMode) {
+        print('ℹ️ No Pokemon found for query: ${provider.searchQuery}');
+      }
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
