@@ -3,10 +3,13 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
+import './connectivity_manager.dart';
+import './request_manager.dart';
+import '../constants/api_paths.dart';
 
 /// Manages network monitoring, connection quality, and system metrics
 class MonitoringManager {
-  // Singleton pattern
+  // Singleton with thread safety
   static final MonitoringManager _instance = MonitoringManager._internal();
   factory MonitoringManager() => _instance;
   MonitoringManager._internal();
@@ -22,13 +25,14 @@ class MonitoringManager {
       StreamController<NetworkQuality>.broadcast();
   final _metricsController = StreamController<MonitoringMetrics>.broadcast();
 
-  // Monitoring state
+  // Monitoring state management
   Timer? _monitorTimer;
   Timer? _metricsTimer;
   bool _isMonitoring = false;
   ConnectivityResult? _lastResult;
   DateTime? _lastCheckTime;
   int _consecutiveFailures = 0;
+  bool _isDisposed = false;
 
   // Constants
   static const Duration _monitorInterval = Duration(seconds: 30);
@@ -36,15 +40,16 @@ class MonitoringManager {
   static const int _maxConsecutiveFailures = 3;
   static const Duration _timeout = Duration(seconds: 5);
 
-  // Getters for streams
+  // Public getters
   Stream<ConnectionStatus> get connectionStatus =>
       _connectionStatusController.stream;
   Stream<NetworkQuality> get networkQuality => _networkQualityController.stream;
   Stream<MonitoringMetrics> get metrics => _metricsController.stream;
+  bool get isMonitoring => _isMonitoring;
 
   /// Start monitoring system
   Future<void> startMonitoring() async {
-    if (_isMonitoring) return;
+    if (_isMonitoring || _isDisposed) return;
 
     try {
       _isMonitoring = true;
@@ -70,7 +75,6 @@ class MonitoringManager {
       if (kDebugMode) {
         print('✅ Monitoring started');
       }
-      return;
     } catch (e) {
       _isMonitoring = false;
       if (kDebugMode) {
@@ -89,17 +93,16 @@ class MonitoringManager {
     if (kDebugMode) {
       print('⏹️ Monitoring stopped');
     }
-    return;
   }
 
   /// Check current connectivity
   Future<void> _checkConnectivity() async {
     try {
       final result = await _connectivity.checkConnectivity().timeout(_timeout);
+
       _lastCheckTime = DateTime.now();
       await _updateConnectionStatus(result);
       _consecutiveFailures = 0;
-      return;
     } catch (e) {
       _consecutiveFailures++;
 
@@ -115,12 +118,12 @@ class MonitoringManager {
 
   /// Update connection status
   Future<void> _updateConnectionStatus(ConnectivityResult result) async {
-    if (result == _lastResult) return;
+    if (result == _lastResult && !_needsQualityCheck(result)) return;
 
     _lastResult = result;
     final status = _getConnectionStatus(result);
 
-    if (!_connectionStatusController.isClosed) {
+    if (!_connectionStatusController.isClosed && !_isDisposed) {
       _connectionStatusController.add(status);
     }
 
@@ -131,14 +134,18 @@ class MonitoringManager {
     if (kDebugMode) {
       print('🔄 Connection status updated: $status');
     }
-    return;
+  }
+
+  bool _needsQualityCheck(ConnectivityResult result) {
+    return result == ConnectivityResult.wifi ||
+        result == ConnectivityResult.mobile;
   }
 
   /// Handle connection failure
   Future<void> _handleConnectionFailure() async {
     final status = ConnectionStatus.offline;
 
-    if (!_connectionStatusController.isClosed) {
+    if (!_connectionStatusController.isClosed && !_isDisposed) {
       _connectionStatusController.add(status);
     }
 
@@ -149,12 +156,11 @@ class MonitoringManager {
     if (kDebugMode) {
       print('❌ Connection failure detected');
     }
-    return;
   }
 
   /// Update monitoring metrics
   Future<void> _updateMetrics() async {
-    if (!_metricsController.isClosed) {
+    if (!_metricsController.isClosed && !_isDisposed) {
       final currentMetrics = MonitoringMetrics(
         uptime: _metrics.uptime,
         connectionFailures: _metrics.connectionFailures,
@@ -163,10 +169,9 @@ class MonitoringManager {
       );
       _metricsController.add(currentMetrics);
     }
-    return;
   }
 
-  /// Get connection status from result
+  /// Convert to connection status
   ConnectionStatus _getConnectionStatus(ConnectivityResult? result) {
     switch (result) {
       case ConnectivityResult.wifi:
@@ -180,21 +185,11 @@ class MonitoringManager {
       case ConnectivityResult.vpn:
         return ConnectionStatus.vpn;
       case ConnectivityResult.none:
-      case ConnectivityResult.other:
         return ConnectionStatus.offline;
       default:
         return ConnectionStatus.unknown;
     }
   }
-
-  /// Check if monitoring is active
-  bool get isMonitoring => _isMonitoring;
-
-  /// Get current connection status
-  ConnectionStatus get currentStatus => _getConnectionStatus(_lastResult);
-
-  /// Check if currently online
-  bool get isOnline => currentStatus.isOnline;
 
   /// Get time since last check
   Duration? getTimeSinceLastCheck() {
@@ -210,6 +205,9 @@ class MonitoringManager {
 
   /// Cleanup resources
   Future<void> dispose() async {
+    if (_isDisposed) return;
+
+    _isDisposed = true;
     await stopMonitoring();
 
     await Future.wait([
@@ -232,7 +230,7 @@ class _MonitoringMetrics {
   Duration get uptime => DateTime.now().difference(_startTime);
 
   void updateConnectionStatus(ConnectionStatus status) {
-    // Add any additional metric tracking here
+    // Additional metric tracking can be added here
   }
 
   void reset() {
@@ -259,7 +257,7 @@ class MonitoringMetrics {
       'MonitoringMetrics(uptime: $uptime, failures: $connectionFailures, status: $currentStatus)';
 }
 
-/// Connection status
+/// Connection status enum matching ConnectivityManager
 enum ConnectionStatus {
   wifi('WiFi'),
   cellular('Cellular'),
