@@ -21,22 +21,23 @@ import 'package:uas_pokedexapp/widgets/loading_indicator.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  if (DevTools.isDevMode) {
-    await DevTools().initialize();
-  }
-
-  runApp(const AppRoot());
   try {
     if (kDebugMode) {
       print('🚀 Starting app initialization...');
     }
 
+    // Firebase harus diinisialisasi terlebih dahulu karena service lain bergantung padanya
     await FirebaseConfig.instance.initializeApp().timeout(
       const Duration(seconds: 10),
       onTimeout: () {
         throw Exception('Firebase initialization timeout');
       },
     );
+
+    // DevTools diinisialisasi setelah Firebase siap
+    if (DevTools.isDevMode) {
+      await DevTools().initialize();
+    }
 
     if (kDebugMode) {
       print('✅ App initialization complete');
