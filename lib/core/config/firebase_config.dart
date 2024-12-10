@@ -39,6 +39,16 @@ class FirebaseConfig {
       return;
     }
 
+    // Tambahkan setelah line 53:
+    if (Firebase.apps.isNotEmpty) {
+      _initialized = true;
+      _initCompleter?.complete();
+      if (kDebugMode) {
+        print('♻️ Using existing Firebase app');
+      }
+      return;
+    }
+
     // If initialization is in progress, wait for it
     if (_initializing) {
       if (kDebugMode) {

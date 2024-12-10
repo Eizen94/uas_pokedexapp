@@ -20,7 +20,7 @@ class ConnectivityManager {
   final Connectivity _connectivity = Connectivity();
   final _networkStateController = StreamController<NetworkState>.broadcast();
   final _qualityTestResults = <DateTime, Duration>{};
-  late final SharedPreferences _prefs;
+  SharedPreferences? _prefs;
 
   // Connection tracking
   Timer? _monitorTimer;
