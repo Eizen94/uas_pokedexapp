@@ -58,11 +58,14 @@ class ConnectivityManager {
 
     try {
       _prefsHelper = await PrefsHelper.getInstance();
+      await _loadPersistedState(); // Panggil _loadPersistedState
+
       final result = await _connectivity.checkConnectivity();
       _updateNetworkState(result);
 
+      // Setup connectivity listener
       _connectivitySubscription = _connectivity.onConnectivityChanged.listen(
-        _updateNetworkState,
+        _handleConnectivityChange, // Gunakan _handleConnectivityChange sebagai listener
         onError: (e) => debugPrint('⚠️ Connectivity listener error: $e'),
       );
 
@@ -76,15 +79,22 @@ class ConnectivityManager {
 
   /// Load persisted state from preferences
   Future<void> _loadPersistedState() async {
-    final lastOnlineTimestamp = _prefs.getInt(_lastOnlineKey);
-    if (lastOnlineTimestamp != null) {
-      _lastOnlineTime =
-          DateTime.fromMillisecondsSinceEpoch(lastOnlineTimestamp);
-    }
+    try {
+      final prefs = _prefsHelper?.prefs;
+      if (prefs == null) return;
 
-    final lastSyncTimestamp = _prefs.getInt(_lastSyncKey);
-    if (lastSyncTimestamp != null) {
-      _lastSyncTime = DateTime.fromMillisecondsSinceEpoch(lastSyncTimestamp);
+      final lastOnlineTimestamp = prefs.getInt(_lastOnlineKey);
+      if (lastOnlineTimestamp != null) {
+        _lastOnlineTime =
+            DateTime.fromMillisecondsSinceEpoch(lastOnlineTimestamp);
+      }
+
+      final lastSyncTimestamp = prefs.getInt(_lastSyncKey);
+      if (lastSyncTimestamp != null) {
+        _lastSyncTime = DateTime.fromMillisecondsSinceEpoch(lastSyncTimestamp);
+      }
+    } catch (e) {
+      debugPrint('⚠️ Error loading persisted state: $e');
     }
   }
 
@@ -146,17 +156,16 @@ class ConnectivityManager {
 
   /// Handle connectivity changes with debouncing and verification
   void _handleConnectivityChange(ConnectivityResult result) async {
-    if (_currentState.type == result && !_currentState.needsOptimization)
-      return;
+    if (_currentState.type == result && !_currentState.needsOptimization) {
+      return; // Tambahkan curly braces
+    }
 
     // Verify change with actual connection test
     final isReachable = await _testConnection();
     _updateNetworkState(isReachable ? result : ConnectivityResult.none,
         forceNotify: true);
 
-    if (kDebugMode) {
-      print('🌐 Network state changed: ${_currentState.name}');
-    }
+    debugPrint('🌐 Network state changed: ${_currentState.name}');
   }
 
   /// Test actual connection quality with timeout
