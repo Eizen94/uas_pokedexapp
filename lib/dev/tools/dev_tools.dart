@@ -194,6 +194,18 @@ class DevTools {
     };
   }
 
+  Future<void> reset() async {
+    if (_disposed) return;
+
+    await dispose();
+    _disposed = false;
+    _isInitialized = false;
+
+    if (kDebugMode) {
+      print('🔄 DevTools reset completed');
+    }
+  }
+
   /// Resource cleanup with proper error handling
   Future<void> dispose() async {
     if (_disposed) return;
