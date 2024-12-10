@@ -22,6 +22,7 @@ class DevTools {
   final ConnectivityManager _connectivityManager = ConnectivityManager();
   final MonitoringManager _monitoringManager = MonitoringManager();
   final FirebaseService _firebaseService = FirebaseService();
+  final List<StreamSubscription> _activeSubscriptions = [];
 
   // Resource management
   final _resourceManager = _DevToolsResourceManager();
