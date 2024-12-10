@@ -57,7 +57,7 @@ class ConnectivityManager {
     if (_isInitialized || _disposed) return;
 
     try {
-      _prefsHelper = await PrefsHelper.getInstance();
+      _prefsHelper = await PrefsHelper.instance;
       await _loadPersistedState(); // Panggil _loadPersistedState
 
       final result = await _connectivity.checkConnectivity();
@@ -181,9 +181,9 @@ class ConnectivityManager {
       if (success) {
         _consecutiveFailures = 0;
         _lastOnlineTime = DateTime.now();
-      //   await _prefs.setInt(
-      //       _lastOnlineKey, _lastOnlineTime!.millisecondsSinceEpoch);
-      // } else {
+        //   await _prefs.setInt(
+        //       _lastOnlineKey, _lastOnlineTime!.millisecondsSinceEpoch);
+        // } else {
         _consecutiveFailures++;
       }
 
