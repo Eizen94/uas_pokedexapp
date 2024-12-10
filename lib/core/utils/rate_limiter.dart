@@ -3,133 +3,159 @@
 import 'dart:async';
 import 'dart:collection';
 import 'package:flutter/foundation.dart';
-import 'package:uas_pokedexapp/core/constants/api_paths.dart';
+import '../constants/api_paths.dart';
 
+/// Enhanced rate limiter with precise rate control and resource management
 class RateLimiter {
-  // Singleton instance
+  // Singleton instance with thread safety
   static final RateLimiter _instance = RateLimiter._internal();
   factory RateLimiter() => _instance;
   RateLimiter._internal();
 
-  // Configuration
+  // Configuration management
   final Map<String, _RateLimitConfig> _configs = {};
   final Map<String, Queue<DateTime>> _requestTimestamps = {};
   final Map<String, Queue<_QueuedOperation>> _operationQueues = {};
   final Map<String, Timer> _queueProcessors = {};
   final Map<String, bool> _isProcessingQueue = {};
 
-  // Initialize configuration for an endpoint
-  void initializeEndpoint(
+  // Thread safety
+  final _lock = Lock();
+  bool _disposed = false;
+
+  /// Initialize endpoint with configuration
+  Future<void> initializeEndpoint(
     String endpoint, {
     int requestsPerMinute = ApiPaths.publicApiLimit,
     Duration timeWindow = const Duration(minutes: 1),
     Duration minimumDelay = const Duration(milliseconds: 100),
-  }) {
-    _configs[endpoint] = _RateLimitConfig(
-      requestsPerMinute: requestsPerMinute,
-      timeWindow: timeWindow,
-      minimumDelay: minimumDelay,
-    );
-    _requestTimestamps[endpoint] = Queue<DateTime>();
-    _operationQueues[endpoint] = Queue<_QueuedOperation>();
-    _isProcessingQueue[endpoint] = false;
+  }) async {
+    await _lock.synchronized(() async {
+      _configs[endpoint] = _RateLimitConfig(
+        requestsPerMinute: requestsPerMinute,
+        timeWindow: timeWindow,
+        minimumDelay: minimumDelay,
+      );
+      _requestTimestamps[endpoint] = Queue<DateTime>();
+      _operationQueues[endpoint] = Queue<_QueuedOperation>();
+      _isProcessingQueue[endpoint] = false;
+    });
   }
 
-  // Execute rate-limited operation
-  Future<T> executeRateLimited<T>(
+  /// Check if request can be executed
+  Future<bool> checkLimit(String endpoint) async {
+    _ensureEndpointInitialized(endpoint);
+
+    return await _lock.synchronized(() async {
+      final timestamps = _requestTimestamps[endpoint]!;
+      final config = _configs[endpoint]!;
+      final now = DateTime.now();
+
+      // Clean old timestamps
+      while (timestamps.isNotEmpty &&
+          now.difference(timestamps.first) > config.timeWindow) {
+        timestamps.removeFirst();
+      }
+
+      // Check rate limit
+      if (timestamps.isEmpty) return true;
+
+      // Check minimum delay between requests
+      if (now.difference(timestamps.last) < config.minimumDelay) return false;
+
+      return timestamps.length < config.requestsPerMinute;
+    });
+  }
+
+  /// Track request for rate limiting
+  Future<void> trackRequest(String endpoint) async {
+    await _lock.synchronized(() async {
+      _requestTimestamps[endpoint]?.addLast(DateTime.now());
+    });
+  }
+
+  /// Get remaining requests for endpoint
+  Future<int> getRemainingRequests(String endpoint) async {
+    _ensureEndpointInitialized(endpoint);
+
+    return await _lock.synchronized(() async {
+      final config = _configs[endpoint]!;
+      final timestamps = _requestTimestamps[endpoint]!;
+      return config.requestsPerMinute - timestamps.length;
+    });
+  }
+
+  /// Get estimated wait time for next request
+  Future<Duration> getEstimatedWaitTime(String endpoint) async {
+    _ensureEndpointInitialized(endpoint);
+
+    return await _lock.synchronized(() async {
+      final timestamps = _requestTimestamps[endpoint]!;
+      if (timestamps.isEmpty) return Duration.zero;
+
+      final config = _configs[endpoint]!;
+      final now = DateTime.now();
+      final oldestTimestamp = timestamps.first;
+      final timeWindowEnd = oldestTimestamp.add(config.timeWindow);
+
+      return now.isAfter(timeWindowEnd)
+          ? Duration.zero
+          : timeWindowEnd.difference(now);
+    });
+  }
+
+  /// Queue operation for later execution
+  Future<T> queueOperation<T>(
     String endpoint,
     Future<T> Function() operation,
   ) async {
     _ensureEndpointInitialized(endpoint);
 
-    if (await _canExecuteNow(endpoint)) {
-      return await _executeOperation(endpoint, operation);
-    } else {
-      return await _queueOperation(endpoint, operation);
-    }
-  }
-
-  // Ensure endpoint is initialized with default config
-  void _ensureEndpointInitialized(String endpoint) {
-    if (!_configs.containsKey(endpoint)) {
-      if (kDebugMode) {
-        print('Initializing rate limiter for endpoint: $endpoint');
-      }
-      initializeEndpoint(endpoint);
-    }
-  }
-
-  // Check if operation can be executed now
-  Future<bool> _canExecuteNow(String endpoint) async {
-    final timestamps = _requestTimestamps[endpoint]!;
-    final config = _configs[endpoint]!;
-    final now = DateTime.now();
-
-    // Clean old timestamps
-    while (timestamps.isNotEmpty &&
-        now.difference(timestamps.first) > config.timeWindow) {
-      timestamps.removeFirst();
-    }
-
-    // Check rate limit
-    if (timestamps.isEmpty) return true;
-
-    // Check minimum delay between requests
-    if (now.difference(timestamps.last) < config.minimumDelay) return false;
-
-    return timestamps.length < config.requestsPerMinute;
-  }
-
-  // Execute operation with rate limiting
-  Future<T> _executeOperation<T>(
-    String endpoint,
-    Future<T> Function() operation,
-  ) async {
-    try {
-      _trackRequest(endpoint);
-      if (kDebugMode) {
-        print('Executing operation for endpoint: $endpoint');
-      }
-      return await operation();
-    } catch (e) {
-      if (kDebugMode) {
-        print('Error executing operation for endpoint $endpoint: $e');
-      }
-      rethrow;
-    }
-  }
-
-  // Track request timestamp
-  void _trackRequest(String endpoint) {
-    _requestTimestamps[endpoint]!.addLast(DateTime.now());
-  }
-
-  // Queue operation for later execution
-  Future<T> _queueOperation<T>(
-    String endpoint,
-    Future<T> Function() operation,
-  ) {
     final completer = Completer<T>();
     final queuedOp = _QueuedOperation(
       operation: operation,
       completer: completer,
     );
 
-    _operationQueues[endpoint]!.addLast(queuedOp);
-    _startQueueProcessor(endpoint);
-
-    if (kDebugMode) {
-      final queueLength = _operationQueues[endpoint]!.length;
-      print(
-          'Operation queued for endpoint $endpoint. Queue length: $queueLength');
-    }
+    await _lock.synchronized(() async {
+      _operationQueues[endpoint]!.addLast(queuedOp);
+      _startQueueProcessor(endpoint);
+    });
 
     return completer.future;
   }
 
-  // Start queue processor if not already running
+  /// Process queued operations
+  Future<void> _processQueue(String endpoint) async {
+    if (_disposed) return;
+
+    await _lock.synchronized(() async {
+      final queue = _operationQueues[endpoint]!;
+      if (queue.isEmpty) {
+        _stopQueueProcessor(endpoint);
+        return;
+      }
+
+      if (!await checkLimit(endpoint)) return;
+
+      final operation = queue.removeFirst();
+      try {
+        final result = await operation.operation();
+        await trackRequest(endpoint);
+        operation.completer.complete(result);
+      } catch (e) {
+        operation.completer.completeError(e);
+      }
+
+      if (queue.isEmpty) {
+        _stopQueueProcessor(endpoint);
+      }
+    });
+  }
+
+  /// Start queue processor
   void _startQueueProcessor(String endpoint) {
-    if (_isProcessingQueue[endpoint]!) return;
+    if (_isProcessingQueue[endpoint] ?? false) return;
 
     _isProcessingQueue[endpoint] = true;
     _queueProcessors[endpoint]?.cancel();
@@ -140,97 +166,52 @@ class RateLimiter {
     );
   }
 
-  // Process queued operations
-  Future<void> _processQueue(String endpoint) async {
-    final queue = _operationQueues[endpoint]!;
-    if (queue.isEmpty) {
-      _stopQueueProcessor(endpoint);
-      return;
-    }
-
-    if (!await _canExecuteNow(endpoint)) return;
-
-    final operation = queue.removeFirst();
-    try {
-      final result = await _executeOperation(
-        endpoint,
-        operation.operation,
-      );
-      operation.completer.complete(result);
-    } catch (e) {
-      operation.completer.completeError(e);
-    }
-
-    if (queue.isEmpty) {
-      _stopQueueProcessor(endpoint);
-    }
-  }
-
-  // Stop queue processor
+  /// Stop queue processor
   void _stopQueueProcessor(String endpoint) {
     _queueProcessors[endpoint]?.cancel();
     _queueProcessors.remove(endpoint);
     _isProcessingQueue[endpoint] = false;
   }
 
-  // Get current queue length for endpoint
-  int getQueueLength(String endpoint) {
-    _ensureEndpointInitialized(endpoint);
-    return _operationQueues[endpoint]!.length;
-  }
-
-  // Get remaining requests for endpoint
-  int getRemainingRequests(String endpoint) {
-    _ensureEndpointInitialized(endpoint);
-    final config = _configs[endpoint]!;
-    final timestamps = _requestTimestamps[endpoint]!;
-    return config.requestsPerMinute - timestamps.length;
-  }
-
-  // Clear all queues and timestamps
-  void reset() {
-    for (final endpoint in _configs.keys) {
-      _requestTimestamps[endpoint]?.clear();
-      _operationQueues[endpoint]?.clear();
-      _stopQueueProcessor(endpoint);
+  /// Ensure endpoint is initialized
+  void _ensureEndpointInitialized(String endpoint) {
+    if (!_configs.containsKey(endpoint)) {
+      if (kDebugMode) {
+        print('Initializing rate limiter for endpoint: $endpoint');
+      }
+      initializeEndpoint(endpoint);
     }
   }
 
-  // Check if endpoint is rate limited
-  bool isRateLimited(String endpoint) {
-    _ensureEndpointInitialized(endpoint);
-    return getRemainingRequests(endpoint) <= 0;
+  /// Reset all limits
+  Future<void> reset() async {
+    await _lock.synchronized(() async {
+      for (final endpoint in _configs.keys) {
+        _requestTimestamps[endpoint]?.clear();
+        _operationQueues[endpoint]?.clear();
+        _stopQueueProcessor(endpoint);
+      }
+    });
   }
 
-  // Get estimated wait time for next available slot
-  Duration getEstimatedWaitTime(String endpoint) {
-    _ensureEndpointInitialized(endpoint);
-    final timestamps = _requestTimestamps[endpoint]!;
-    if (timestamps.isEmpty) return Duration.zero;
+  /// Resource cleanup
+  Future<void> dispose() async {
+    if (_disposed) return;
 
-    final config = _configs[endpoint]!;
-    final now = DateTime.now();
-    final oldestTimestamp = timestamps.first;
-    final timeWindowEnd = oldestTimestamp.add(config.timeWindow);
-
-    if (now.isAfter(timeWindowEnd)) return Duration.zero;
-    return timeWindowEnd.difference(now);
-  }
-
-  // Cleanup resources
-  void dispose() {
+    _disposed = true;
+    await reset();
+    _configs.clear();
+    _requestTimestamps.clear();
+    _operationQueues.clear();
     for (final timer in _queueProcessors.values) {
       timer.cancel();
     }
     _queueProcessors.clear();
-    _operationQueues.clear();
-    _requestTimestamps.clear();
-    _configs.clear();
     _isProcessingQueue.clear();
   }
 }
 
-// Configuration for rate limiting
+/// Rate limit configuration
 class _RateLimitConfig {
   final int requestsPerMinute;
   final Duration timeWindow;
@@ -243,7 +224,7 @@ class _RateLimitConfig {
   });
 }
 
-// Queued operation
+/// Queued operation with completion handling
 class _QueuedOperation<T> {
   final Future<T> Function() operation;
   final Completer<T> completer;
@@ -252,4 +233,25 @@ class _QueuedOperation<T> {
     required this.operation,
     required this.completer,
   });
+}
+
+/// Thread-safe lock implementation
+class Lock {
+  Completer<void>? _completer;
+  bool _locked = false;
+
+  Future<T> synchronized<T>(Future<T> Function() operation) async {
+    while (_locked) {
+      _completer = Completer<void>();
+      await _completer?.future;
+    }
+
+    _locked = true;
+    try {
+      return await operation();
+    } finally {
+      _locked = false;
+      _completer?.complete();
+    }
+  }
 }
