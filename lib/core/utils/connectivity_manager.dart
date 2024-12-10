@@ -28,6 +28,8 @@ class ConnectivityManager {
   DateTime? _lastOnlineTime;
   DateTime? _lastSyncTime;
   bool _isInitialized = false;
+  final bool _disposed = false;
+  PrefsHelper? _prefsHelper;
   bool get isInitialized => _isInitialized;
   bool _isMonitoring = false;
   int _consecutiveFailures = 0;
@@ -51,43 +53,25 @@ class ConnectivityManager {
 
   /// Initialize with proper error handling and state persistence
   Future<void> initialize() async {
-    if (_isInitialized) return;
+  if (_isInitialized || _disposed) return;
 
-    try {
-      // Initialize preferences
-      _prefs = await SharedPreferences.getInstance();
-      await _loadPersistedState();
+  try {
+    _prefsHelper = await PrefsHelper.getInstance();
+    final result = await _connectivity.checkConnectivity();
+    _updateNetworkState(result);
+    
+    _connectivitySubscription = _connectivity.onConnectivityChanged.listen(
+      _updateNetworkState,
+      onError: (e) => debugPrint('⚠️ Connectivity listener error: $e'),
+    );
 
-      // Initial connectivity check
-      final result = await _connectivity.checkConnectivity();
-      _updateNetworkState(result);
-
-      // Setup real-time monitoring with error handling
-      _connectivitySubscription = _connectivity.onConnectivityChanged
-          .listen(_handleConnectivityChange, onError: (error) {
-        if (kDebugMode) {
-          print('⚠️ Connectivity listener error: $error');
-        }
-        _updateNetworkState(ConnectivityResult.none);
-      });
-
-      // Start periodic quality checks
-      _startMonitoring();
-
-      _isInitialized = true;
-
-      if (kDebugMode) {
-        print('✅ ConnectivityManager initialized: ${_currentState.name}');
-      }
-    } catch (e) {
-      if (kDebugMode) {
-        print('❌ ConnectivityManager initialization error: $e');
-      }
-      _isInitialized = false;
-      rethrow;
-    }
+    _isInitialized = true;
+    debugPrint('✅ ConnectivityManager initialized: ${_currentState.name}');
+  } catch (e) {
+    debugPrint('❌ ConnectivityManager initialization error: $e');
+    rethrow;
   }
-
+}
   /// Load persisted state from preferences
   Future<void> _loadPersistedState() async {
     final lastOnlineTimestamp = _prefs.getInt(_lastOnlineKey);
