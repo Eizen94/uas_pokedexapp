@@ -107,7 +107,7 @@ class DevTools {
         if (_disposed) return;
 
         try {
-          await _monitoringManager.updateNetworkState(state);
+          await _monitoringManager.handleNetworkStateChange(state);
           await _apiHelper.updateConnectivityState(state);
 
           if (kDebugMode) {
