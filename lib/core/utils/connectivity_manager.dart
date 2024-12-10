@@ -181,9 +181,9 @@ class ConnectivityManager {
       if (success) {
         _consecutiveFailures = 0;
         _lastOnlineTime = DateTime.now();
-        await _prefs.setInt(
-            _lastOnlineKey, _lastOnlineTime!.millisecondsSinceEpoch);
-      } else {
+      //   await _prefs.setInt(
+      //       _lastOnlineKey, _lastOnlineTime!.millisecondsSinceEpoch);
+      // } else {
         _consecutiveFailures++;
       }
 
@@ -265,7 +265,7 @@ class ConnectivityManager {
     // Update sync time for major state changes
     if (newState.isOnline && _lastSyncTime == null) {
       _lastSyncTime = DateTime.now();
-      _prefs.setInt(_lastSyncKey, _lastSyncTime!.millisecondsSinceEpoch);
+      // _prefs.setInt(_lastSyncKey, _lastSyncTime!.millisecondsSinceEpoch);
     }
   }
 
@@ -344,7 +344,7 @@ class ConnectivityManager {
     _consecutiveFailures = 0;
     _qualityTestResults.clear();
     _lastSyncTime = null;
-    _prefs.remove(_lastSyncKey);
+    // _prefs.remove(_lastSyncKey);
     _startMonitoring();
   }
 
