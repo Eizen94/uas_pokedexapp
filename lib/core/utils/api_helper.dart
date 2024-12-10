@@ -10,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import './request_manager.dart';
 import './connectivity_manager.dart';
 import './sync_manager.dart';
+import '../utils/prefs_helper.dart';
 
 /// Enhanced ApiHelper optimized for Pokedex with smart caching and network handling
 class ApiHelper {

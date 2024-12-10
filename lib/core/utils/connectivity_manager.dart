@@ -6,6 +6,7 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import './request_manager.dart';
+import '../utils/prefs_helper.dart';
 
 /// Enhanced connectivity manager optimized for Pokedex app with improved
 /// offline support and network quality monitoring
@@ -53,25 +54,26 @@ class ConnectivityManager {
 
   /// Initialize with proper error handling and state persistence
   Future<void> initialize() async {
-  if (_isInitialized || _disposed) return;
+    if (_isInitialized || _disposed) return;
 
-  try {
-    _prefsHelper = await PrefsHelper.getInstance();
-    final result = await _connectivity.checkConnectivity();
-    _updateNetworkState(result);
-    
-    _connectivitySubscription = _connectivity.onConnectivityChanged.listen(
-      _updateNetworkState,
-      onError: (e) => debugPrint('⚠️ Connectivity listener error: $e'),
-    );
+    try {
+      _prefsHelper = await PrefsHelper.getInstance();
+      final result = await _connectivity.checkConnectivity();
+      _updateNetworkState(result);
 
-    _isInitialized = true;
-    debugPrint('✅ ConnectivityManager initialized: ${_currentState.name}');
-  } catch (e) {
-    debugPrint('❌ ConnectivityManager initialization error: $e');
-    rethrow;
+      _connectivitySubscription = _connectivity.onConnectivityChanged.listen(
+        _updateNetworkState,
+        onError: (e) => debugPrint('⚠️ Connectivity listener error: $e'),
+      );
+
+      _isInitialized = true;
+      debugPrint('✅ ConnectivityManager initialized: ${_currentState.name}');
+    } catch (e) {
+      debugPrint('❌ ConnectivityManager initialization error: $e');
+      rethrow;
+    }
   }
-}
+
   /// Load persisted state from preferences
   Future<void> _loadPersistedState() async {
     final lastOnlineTimestamp = _prefs.getInt(_lastOnlineKey);
