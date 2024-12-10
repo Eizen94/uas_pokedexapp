@@ -136,17 +136,17 @@ class DevTools {
   /// Enhanced logging with error context
   void logDebug(String message) {
     if (_isDebugMode) {
-      print('🔧 [DEBUG] $message');
+      debugPrint('🔧 [DEBUG] $message');
     }
   }
 
   void logError(String message, [Object? error, StackTrace? stackTrace]) {
     if (_isDebugMode) {
-      print('❌ [ERROR] $message');
+      debugPrint('❌ [ERROR] $message');
       if (error != null) {
-        print('Error details: $error');
+        debugPrint('Error details: $error');
         if (stackTrace != null) {
-          print('Stack trace:\n$stackTrace');
+          debugPrint('Stack trace:\n$stackTrace');
         }
       }
     }
@@ -154,20 +154,20 @@ class DevTools {
 
   void logWarning(String message) {
     if (_isDebugMode) {
-      print('⚠️ [WARNING] $message');
+      debugPrint('⚠️ [WARNING] $message');
     }
   }
 
   void logInfo(String message) {
     if (_isDebugMode) {
-      print('ℹ️ [INFO] $message');
+      debugPrint('ℹ️ [INFO] $message');
     }
   }
 
   /// Performance monitoring
   void logPerformance(String operation, Duration duration) {
     if (_isDebugMode) {
-      print('⚡ [PERF] $operation took ${duration.inMilliseconds}ms');
+      debugPrint('⚡ [PERF] $operation took ${duration.inMilliseconds}ms');
     }
   }
 

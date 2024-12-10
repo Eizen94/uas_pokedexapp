@@ -285,7 +285,7 @@ class FirebaseService {
     final isLoggedIn = _auth.currentUser != null;
 
     if (kDebugMode && !isLoggedIn) {
-      print('⚠️ User must be logged in for offline operations');
+      debugPrint('⚠️ User must be logged in for offline operations');
     }
 
     return isLoggedIn;
