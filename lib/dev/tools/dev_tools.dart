@@ -104,7 +104,7 @@ class DevTools {
     final subscription = _connectivityManager.networkStateStream.listen(
       (state) async {
         if (_disposed) return;
-        
+
         try {
           // MonitoringManager & ApiHelper sudah handle state changes internally
           if (kDebugMode) {
@@ -119,7 +119,7 @@ class DevTools {
     );
 
     _activeSubscriptions.add(subscription);
-}
+  }
 
   /// Check if running in development mode
   static bool get isDevMode => !const bool.fromEnvironment('dart.vm.product');
