@@ -7,31 +7,28 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 
 class FirebaseConfig {
-  // Private constructor and instance
+  // Private constructor and singleton instance
   FirebaseConfig._();
   static final FirebaseConfig _instance = FirebaseConfig._();
-
-  // Getter for instance
-  static FirebaseConfig get instance => _instance;
 
   // State management
   bool _initialized = false;
   bool _initializing = false;
-  Completer<void>? _initCompleter;
+  final _initCompleter = Completer<void>();
 
   // Service status controllers
   final _authStatusController = StreamController<bool>.broadcast();
   final _firestoreStatusController = StreamController<bool>.broadcast();
 
   // Getters
+  static FirebaseConfig get instance => _instance;
   bool get isInitialized => _initialized;
   bool get isInitializing => _initializing;
   Stream<bool> get authStatus => _authStatusController.stream;
   Stream<bool> get firestoreStatus => _firestoreStatusController.stream;
 
-  // Initialize Firebase with retry mechanism
+  // Initialize Firebase with retry mechanism and proper cleanup
   Future<void> initializeApp({int maxRetries = 3}) async {
-    // If already initialized, return immediately
     if (_initialized) {
       if (kDebugMode) {
         print('🔥 Firebase already initialized');
@@ -39,46 +36,34 @@ class FirebaseConfig {
       return;
     }
 
-    // Tambahkan setelah line 53:
-    if (Firebase.apps.isNotEmpty) {
-      _initialized = true;
-      _initCompleter?.complete();
-      if (kDebugMode) {
-        print('♻️ Using existing Firebase app');
-      }
-      return;
-    }
-
-    // If initialization is in progress, wait for it
+    // Handle initialization in progress
     if (_initializing) {
       if (kDebugMode) {
         print('⏳ Firebase initialization in progress, waiting...');
       }
-      return _initCompleter?.future;
+      return _initCompleter.future;
     }
 
-    // Start initialization
     _initializing = true;
-    _initCompleter = Completer<void>();
-
     int retryCount = 0;
+
     while (retryCount < maxRetries) {
       try {
         if (kDebugMode) {
           print('🚀 Initializing Firebase (Attempt ${retryCount + 1})...');
         }
 
-        // Check for existing Firebase apps
+        // Check existing Firebase apps
         if (Firebase.apps.isNotEmpty) {
+          _initialized = true;
+          _initCompleter.complete();
           if (kDebugMode) {
             print('♻️ Using existing Firebase app');
           }
-          _initialized = true;
-          _initCompleter?.complete();
           return;
         }
 
-        // Initialize Firebase with configuration
+        // Initialize Firebase with optimized settings
         await Firebase.initializeApp(
           options: const FirebaseOptions(
             apiKey: 'AIzaSyA788aYkne3gRiwAtZLtsVMRl5reUPMcXg',
@@ -89,11 +74,10 @@ class FirebaseConfig {
           ),
         );
 
-        // Initialize services with optimized settings
         await _initializeServices();
 
         _initialized = true;
-        _initCompleter?.complete();
+        _initCompleter.complete();
 
         if (kDebugMode) {
           print('✅ Firebase initialized successfully');
@@ -111,11 +95,10 @@ class FirebaseConfig {
             message:
                 'Failed to initialize Firebase after $maxRetries attempts: $e',
           );
-          _initCompleter?.completeError(error);
+          _initCompleter.completeError(error);
           throw error;
         }
 
-        // Wait before retrying with exponential backoff
         await Future.delayed(Duration(seconds: retryCount * 2));
       }
     }
@@ -135,8 +118,6 @@ class FirebaseConfig {
 
       // Initialize Firestore with optimized settings
       final firestore = FirebaseFirestore.instance;
-
-      // Configure Firestore settings
       firestore.settings = const Settings(
         persistenceEnabled: true,
         cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
@@ -154,11 +135,10 @@ class FirebaseConfig {
       if (kDebugMode) {
         print('⚠️ Service initialization warning: $e');
       }
-      // Don't throw - services can be initialized later if needed
     }
   }
 
-  // Reset Firebase configuration
+  // Reset Firebase configuration with proper cleanup
   Future<void> reset() async {
     if (kDebugMode) {
       print('🔄 Resetting Firebase configuration...');
@@ -167,7 +147,6 @@ class FirebaseConfig {
     try {
       _initialized = false;
       _initializing = false;
-      _initCompleter = null;
 
       // Reset service status
       _authStatusController.add(false);
@@ -193,7 +172,7 @@ class FirebaseConfig {
     }
   }
 
-  // Cleanup resources
+  // Clean resource disposal
   Future<void> dispose() async {
     await Future.wait([
       _authStatusController.close(),
@@ -201,10 +180,8 @@ class FirebaseConfig {
     ]);
     _initialized = false;
     _initializing = false;
-    _initCompleter = null;
   }
 
   // Get initialization status
-  Future<void> get initializationComplete =>
-      _initCompleter?.future ?? Future.value();
+  Future<void> get initializationComplete => _initCompleter.future;
 }
