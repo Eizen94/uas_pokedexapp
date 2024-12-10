@@ -1,5 +1,4 @@
-// lib/core/utils/prefs_helper.dart
-
+import 'dart:async';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/foundation.dart';
 
@@ -66,19 +65,24 @@ class PrefsHelper {
   }
 }
 
-// Helper for synchronization
+/// Helper for synchronization
 Future<T> synchronized<T>(
   Object lock,
   Future<T> Function() computation,
 ) async {
-  if (!lock.toString().contains('_Lock')) {
-    final oldLock = lock;
-    lock = Object();
-    lock.toString = () => '_Lock(${oldLock.toString()})';
-  }
   try {
     return await computation();
   } finally {
     // Lock is automatically released when computation completes
   }
+}
+
+/// Class to represent a lock object
+class _SyncLock {
+  final String id;
+
+  _SyncLock(this.id);
+
+  @override
+  String toString() => '_Lock($id)';
 }
