@@ -101,27 +101,25 @@ class DevTools {
   void _setupStateSynchronization() {
     if (_disposed) return;
 
-    // Monitor network state changes
     final subscription = _connectivityManager.networkStateStream.listen(
       (state) async {
         if (_disposed) return;
-
+        
         try {
-          await _monitoringManager.handleNetworkStateChange(state);
-          await _apiHelper.updateConnectivityState(state);
-
+          // MonitoringManager & ApiHelper sudah handle state changes internally
           if (kDebugMode) {
-            print('🔄 Network state synchronized: ${state.name}');
+            debugPrint('🔄 Network state changed: ${state.name}');
           }
         } catch (e) {
-          logError('State synchronization failed', e);
+          if (kDebugMode) {
+            debugPrint('❌ Error handling network state: $e');
+          }
         }
       },
-      onError: (error) => logError('Network state monitoring error', error),
     );
 
-    _resourceManager.registerSubscription(subscription);
-  }
+    _activeSubscriptions.add(subscription);
+}
 
   /// Check if running in development mode
   static bool get isDevMode => !const bool.fromEnvironment('dart.vm.product');
