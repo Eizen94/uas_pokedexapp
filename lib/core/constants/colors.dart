@@ -2,38 +2,39 @@
 
 import 'package:flutter/material.dart';
 
+/// Application color system with proper organization and accessibility support
 class AppColors {
-  // Primary colors
-  static const Color primary = Color(0xFFDC0A2D); // Classic Pokedex Red
-  static const Color primaryDark = Color(0xFFAE0927); // Darker Pokedex Red
-  static const Color primaryLight = Color(0xFFFF4C4C); // Lighter Pokedex Red
-  static const Color accent = Color(0xFFFFCB05); // Pokemon Yellow
+  // Primary brand colors with semantic meaning
+  static const Color primary = Color(0xFFDC0A2D);
+  static const Color primaryDark = Color(0xFFAE0927);
+  static const Color primaryLight = Color(0xFFFF4C4C);
+  static const Color accent = Color(0xFFFFCB05);
 
-  // Background colors
+  // Background system with proper contrast
   static const Color backgroundLight = Color(0xFFF5F5F5);
   static const Color backgroundDark = Color(0xFF121212);
   static const Color surfaceLight = Color(0xFFFFFFFF);
   static const Color surfaceDark = Color(0xFF1E1E1E);
 
-  // Card colors
+  // Card colors with elevation support
   static const Color cardLight = Colors.white;
   static const Color cardDark = Color(0xFF1E1E1E);
   static const Color cardShadowLight = Color(0x1A000000);
   static const Color cardShadowDark = Color(0x1AFFFFFF);
 
-  // Text colors
+  // Text colors with accessibility contrast
   static const Color textPrimaryLight = Color(0xFF212121);
   static const Color textSecondaryLight = Color(0xFF666666);
   static const Color textPrimaryDark = Color(0xFFF5F5F5);
   static const Color textSecondaryDark = Color(0xFFB3B3B3);
 
-  // Status colors
+  // Status colors with semantic meaning
   static const Color success = Color(0xFF4CAF50);
   static const Color error = Color(0xFFDC3545);
   static const Color warning = Color(0xFFFFC107);
   static const Color info = Color(0xFF2196F3);
 
-  // Stats colors
+  // Pokemon stats colors
   static const Color statHp = Color(0xFFFF5959);
   static const Color statAttack = Color(0xFFF5AC78);
   static const Color statDefense = Color(0xFFFAE078);
@@ -41,7 +42,7 @@ class AppColors {
   static const Color statSpDef = Color(0xFFA7DB8D);
   static const Color statSpeed = Color(0xFFFA92B2);
 
-  // Pokemon type colors
+  // Pokemon type colors with accessibility support
   static final Map<String, Color> typeColors = {
     'normal': const Color(0xFFA8A878),
     'fire': const Color(0xFFF08030),
@@ -63,7 +64,7 @@ class AppColors {
     'fairy': const Color(0xFFEE99AC),
   };
 
-  // Type background colors (lighter versions for backgrounds)
+  // Type background colors with proper contrast
   static final Map<String, Color> typeBackgroundColors = {
     'normal': const Color(0xFFBCBCAC),
     'fire': const Color(0xFFF5AC78),
@@ -85,34 +86,36 @@ class AppColors {
     'fairy': const Color(0xFFF4BDC9),
   };
 
-  // Stat value colors (for progress bars)
+  // Helper method for stat colors
   static Color getStatColor(int value) {
     if (value < 50) return error;
     if (value < 100) return warning;
     return success;
   }
 
-  // Gradient colors for type backgrounds
+  // Gradient generator for type backgrounds
   static List<Color> getTypeGradient(String type) {
     final mainColor = typeColors[type.toLowerCase()] ?? typeColors['normal']!;
-    final darkColor = _darken(mainColor, 0.1);
-    final lightColor = _lighten(mainColor, 0.1);
+    final darkColor = _darken(mainColor);
+    final lightColor = _lighten(mainColor);
     return [darkColor, mainColor, lightColor];
   }
 
-  // Helper method to lighten a color
-  static Color _lighten(Color color, [double amount = 0.3]) {
+  // Color manipulation helpers
+  static Color _lighten(Color color, [double amount = 0.1]) {
     final hsl = HSLColor.fromColor(color);
     return hsl
         .withLightness((hsl.lightness + amount).clamp(0.0, 1.0))
         .toColor();
   }
 
-  // Helper method to darken a color
-  static Color _darken(Color color, [double amount = 0.3]) {
+  static Color _darken(Color color, [double amount = 0.1]) {
     final hsl = HSLColor.fromColor(color);
     return hsl
         .withLightness((hsl.lightness - amount).clamp(0.0, 1.0))
         .toColor();
   }
+
+  // Private constructor to prevent instantiation
+  const AppColors._();
 }

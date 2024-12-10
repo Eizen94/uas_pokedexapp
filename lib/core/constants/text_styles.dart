@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'colors.dart';
 
 class AppTextStyles {
-  // Headings
+  // Headings with proper scaling and accessibility
   static TextStyle get headlineLarge => TextStyle(
         fontSize: 32,
         fontWeight: FontWeight.bold,
@@ -24,7 +24,7 @@ class AppTextStyles {
         color: AppColors.textPrimaryLight,
       );
 
-  // Body text
+  // Body text with readability optimization
   static TextStyle get bodyLarge => TextStyle(
         fontSize: 16,
         fontWeight: FontWeight.normal,
@@ -43,7 +43,7 @@ class AppTextStyles {
         color: AppColors.textPrimaryLight,
       );
 
-  // Special styles
+  // Special styles for interactive elements
   static TextStyle get buttonText => TextStyle(
         fontSize: 16,
         fontWeight: FontWeight.w600,
@@ -58,7 +58,7 @@ class AppTextStyles {
         color: AppColors.textSecondaryLight,
       );
 
-  // List text styles
+  // List text styles for hierarchy
   static TextStyle get listTitle => TextStyle(
         fontSize: 16,
         fontWeight: FontWeight.w600,
@@ -97,7 +97,7 @@ class AppTextStyles {
         color: AppColors.textPrimaryLight,
       );
 
-  // Title styles
+  // Title styles for consistency
   static TextStyle get titleLarge => TextStyle(
         fontSize: 22,
         fontWeight: FontWeight.bold,
@@ -120,7 +120,7 @@ class AppTextStyles {
   static TextStyle get error => TextStyle(
         fontSize: 14,
         fontWeight: FontWeight.w500,
-        color: AppColors.primary,
+        color: AppColors.error,
       );
 
   static TextStyle get info => const TextStyle(
@@ -165,4 +165,7 @@ class AppTextStyles {
   static TextStyle get pokemonStatDark => pokemonStat.copyWith(
         color: AppColors.textPrimaryDark,
       );
+
+  // Private constructor to prevent instantiation
+  const AppTextStyles._();
 }
