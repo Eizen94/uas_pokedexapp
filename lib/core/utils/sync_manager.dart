@@ -1,36 +1,39 @@
 // lib/core/utils/sync_manager.dart
 
+// Dart imports
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
+
+// Package imports
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
-import './connectivity_manager.dart';
-import './request_manager.dart';
-import './prefs_helper.dart';
-import './cancellation_token.dart';
-import '../constants/api_paths.dart';
 
-/// Manages data synchronization and offline operations with comprehensive
-/// retry logic and error handling
+// Local imports
+import '../constants/api_paths.dart';
+import 'connectivity_manager.dart';
+import 'request_manager.dart';
+import 'prefs_helper.dart';
+import 'cancellation_token.dart';
+import 'monitoring_manager.dart';
+
+/// Enhanced sync manager for data synchronization and offline operations.
+/// Provides comprehensive sync lifecycle management with proper error handling.
 class SyncManager {
-  // Singleton pattern with thread safety
-  static final SyncManager _instance = SyncManager._internal();
-  factory SyncManager() => _instance;
-  SyncManager._internal();
+  // Singleton implementation
+  static SyncManager? _instance;
+  static final _lock = Object();
 
   // Core components
-  late final SharedPreferences _prefs;
   final ConnectivityManager _connectivityManager = ConnectivityManager();
   final RequestManager _requestManager = RequestManager();
   final _stateController = StreamController<SyncState>.broadcast();
   final _progressController = StreamController<double>.broadcast();
-  final _pendingOperations = <String, OfflineOperation>{};
-  final _operationFailures = <String, int>{};
-  final _lock = Lock();
+  final Map<String, OfflineOperation> _pendingOperations = {};
+  final Map<String, int> _operationFailures = {};
 
   // State management
+  late final PrefsHelper _prefsHelper;
   bool _isInitialized = false;
   bool _isSyncing = false;
   bool _isDisposed = false;
@@ -38,6 +41,7 @@ class SyncManager {
   Timer? _syncTimer;
   Timer? _retryTimer;
   DateTime? _lastSyncAttempt;
+  CancellationToken? _currentSyncToken;
 
   // Constants
   static const Duration _syncInterval = Duration(minutes: 15);
@@ -52,7 +56,13 @@ class SyncManager {
   static const int _maxConsecutiveFailures = 5;
   static const int _batchSize = 10;
 
-  // Public getters
+  // Private constructor
+  SyncManager._internal();
+
+  // Factory constructor
+  factory SyncManager() => _instance ??= SyncManager._internal();
+
+  // Getters
   Stream<SyncState> get stateStream => _stateController.stream;
   Stream<double> get progressStream => _progressController.stream;
   SyncState get currentState => _currentState;
@@ -60,14 +70,15 @@ class SyncManager {
   DateTime? get lastSyncAttempt => _lastSyncAttempt;
   int get pendingOperationsCount => _pendingOperations.length;
 
-  /// Initialize with proper error handling and state restoration
+  /// Initialize with proper error handling
   Future<void> initialize() async {
     if (_isInitialized || _isDisposed) return;
 
     try {
       await _lock.synchronized(() async {
+        // Initialize dependencies
         await _connectivityManager.initialize();
-        _prefs = await PrefsHelper.instance.prefs;
+        _prefsHelper = await PrefsHelper.getInstance();
 
         // Restore state
         await Future.wait([
@@ -77,116 +88,117 @@ class SyncManager {
         ]);
 
         // Start monitoring
-        _startPeriodicSync();
         _setupConnectivityListener();
+        _startPeriodicSync();
+
         _isInitialized = true;
       });
 
       if (kDebugMode) {
         print(
-            '✅ SyncManager initialized with ${_pendingOperations.length} pending operations');
+            '✅ SyncManager initialized with ${_pendingOperations.length} operations');
       }
     } catch (e) {
-      if (kDebugMode) {
-        print('❌ SyncManager initialization failed: $e');
-      }
+      _handleError(SyncError(
+        type: SyncErrorType.initialization,
+        message: 'Failed to initialize: $e',
+      ));
       rethrow;
     }
   }
 
-  /// Load persisted operations
-  Future<void> _loadPendingOperations() async {
-    try {
-      final operationsJson = _prefs.getString(_operationsKey);
-      if (operationsJson != null) {
-        final operations = json.decode(operationsJson) as Map<String, dynamic>;
-        operations.forEach((key, value) {
-          final operation = OfflineOperation.fromJson(value);
-          // Filter out expired operations
-          if (DateTime.now().difference(operation.timestamp) <=
-              _maxOperationAge) {
-            _pendingOperations[key] = operation;
-          }
-        });
-      }
-    } catch (e) {
-      if (kDebugMode) {
-        print('⚠️ Error loading pending operations: $e');
-      }
-    }
-  }
-
-  /// Queue operation for offline sync
-  Future<void> queueOfflineOperation(String endpoint) async {
-    if (!_isInitialized) await initialize();
-
-    await _lock.synchronized(() async {
-      final operation = OfflineOperation(
-        id: DateTime.now().millisecondsSinceEpoch.toString(),
-        endpoint: endpoint,
-        timestamp: DateTime.now(),
-      );
-
-      _pendingOperations[operation.id] = operation;
-      await _savePendingOperations();
-
-      if (_connectivityManager.isOnline && !_isSyncing) {
+  /// Start periodic sync
+  void _startPeriodicSync() {
+    _syncTimer?.cancel();
+    _syncTimer = Timer.periodic(_syncInterval, (_) {
+      if (_shouldSync()) {
         _startSync();
-      }
-
-      if (kDebugMode) {
-        print('📝 Queued offline operation: ${operation.endpoint}');
       }
     });
   }
 
-  /// Process pending operations with batching
-  Future<void> _processPendingOperations() async {
-    final operations = _pendingOperations.values.toList();
-    final totalOperations = operations.length;
-    var completedOperations = 0;
-    var consecutiveFailures = 0;
+  /// Setup connectivity listener
+  void _setupConnectivityListener() {
+    _connectivityManager.networkStateStream.listen((state) {
+      if (state.isOnline && _shouldSync()) {
+        _startSync();
+      }
+    });
+  }
 
-    for (var i = 0; i < operations.length; i += _batchSize) {
-      if (_isDisposed) return;
+  /// Check if sync is needed
+  bool _shouldSync() {
+    if (_isSyncing || _isDisposed) return false;
+    if (_lastSyncAttempt == null) return true;
 
-      final batch = operations.skip(i).take(_batchSize);
+    final timeSinceLastSync = DateTime.now().difference(_lastSyncAttempt!);
+    return timeSinceLastSync >= _syncInterval;
+  }
 
-      try {
-        await Future.wait(
-          batch.map((operation) => _processOperation(operation)),
-          eagerError: true,
-        );
+  /// Start sync process
+  Future<void> _startSync() async {
+    if (_isSyncing || _isDisposed) return;
+
+    _isSyncing = true;
+    _currentSyncToken = CancellationToken();
+    _updateState(SyncState.syncing);
+
+    try {
+      // Process pending operations in batches
+      final operations = _pendingOperations.values.toList();
+      final totalOperations = operations.length;
+      var completedOperations = 0;
+
+      for (var i = 0; i < operations.length; i += _batchSize) {
+        if (_isDisposed || _currentSyncToken?.isCancelled == true) break;
+
+        final batch = operations.skip(i).take(_batchSize);
+        await _processBatch(batch);
 
         completedOperations += batch.length;
-        consecutiveFailures = 0;
         _updateProgress(completedOperations / totalOperations);
-      } catch (e) {
-        consecutiveFailures++;
-        if (consecutiveFailures >= _maxConsecutiveFailures) {
-          throw Exception('Too many consecutive failures');
-        }
-        await Future.delayed(_retryInterval * (1 << consecutiveFailures));
       }
+
+      _lastSyncAttempt = DateTime.now();
+      await _persistSyncState();
+      _updateState(SyncState.completed);
+    } catch (e) {
+      _handleError(SyncError(
+        type: SyncErrorType.sync,
+        message: 'Sync failed: $e',
+      ));
+      _updateState(SyncState.error);
+    } finally {
+      _isSyncing = false;
+      _currentSyncToken = null;
     }
   }
 
-  /// Process single operation with timeout and retry
+  /// Process batch of operations
+  Future<void> _processBatch(Iterable<OfflineOperation> batch) async {
+    try {
+      await Future.wait(
+        batch.map((operation) => _processOperation(operation)),
+        eagerError: true,
+      );
+    } catch (e) {
+      _handleError(SyncError(
+        type: SyncErrorType.batch,
+        message: 'Batch processing failed: $e',
+      ));
+      rethrow;
+    }
+  }
+
+  /// Process single operation
   Future<void> _processOperation(OfflineOperation operation) async {
     try {
-      final token = CancellationToken.withTimeout(_operationTimeout);
+      _currentSyncToken?.throwIfCancelled();
 
       final response = await _requestManager.executeRequest(
         id: operation.id,
-        request: () async {
-          final response = await http.get(Uri.parse(operation.endpoint));
-          token.throwIfCancelled();
-
-          if (response.statusCode != 200) {
-            throw HttpException('Failed with status: ${response.statusCode}');
-          }
-          return response;
-        },
+        request: () => http.get(Uri.parse(operation.endpoint)),
+        timeout: _operationTimeout,
       );
 
       if (response.statusCode == 200) {
@@ -199,36 +211,243 @@ class SyncManager {
     }
   }
 
-  /// Handle successful operation completion
+  /// Handle successful operation
   Future<void> _handleSuccessfulOperation(OfflineOperation operation) async {
     await _lock.synchronized(() async {
       _pendingOperations.remove(operation.id);
       _operationFailures.remove(operation.id);
       await Future.wait([
-        _savePendingOperations(),
-        _saveOperationFailures(),
+        _persistPendingOperations(),
+        _persistOperationFailures(),
       ]);
     });
+  }
 
-    if (kDebugMode) {
-      print('✅ Operation completed: ${operation.endpoint}');
+  /// Handle failed operation
+  Future<void> _handleFailedOperation(OfflineOperation operation) async {
+    final failures = _operationFailures[operation.id] ?? 0;
+
+    if (failures < _maxRetries) {
+      _operationFailures[operation.id] = failures + 1;
+      await _persistOperationFailures();
+    } else {
+      await _lock.synchronized(() async {
+        _pendingOperations.remove(operation.id);
+        _operationFailures.remove(operation.id);
+        await Future.wait([
+          _persistPendingOperations(),
+          _persistOperationFailures(),
+        ]);
+      });
     }
   }
 
-  /// Clean resource disposal
+  /// Handle operation error
+  Future<void> _handleOperationError(
+    OfflineOperation operation,
+    Object error,
+  ) async {
+    _handleError(SyncError(
+      type: SyncErrorType.operation,
+      message: 'Operation failed: $error',
+      operation: operation,
+    ));
+
+    await _handleFailedOperation(operation);
+  }
+
+  /// Queue operation for offline sync
+  Future<void> queueOfflineOperation(String endpoint) async {
+    if (!_isInitialized) {
+      throw StateError('SyncManager not initialized');
+    }
+
+    await _lock.synchronized(() async {
+      final operation = OfflineOperation(
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        endpoint: endpoint,
+        timestamp: DateTime.now(),
+      );
+
+      _pendingOperations[operation.id] = operation;
+      await _persistPendingOperations();
+
+      if (_connectivityManager.isOnline && !_isSyncing) {
+        _startSync();
+      }
+    });
+  }
+
+  /// Load persisted operations
+  Future<void> _loadPendingOperations() async {
+    try {
+      final json = _prefsHelper.prefs.getString(_operationsKey);
+      if (json != null) {
+        final data = jsonDecode(json) as Map<String, dynamic>;
+        final now = DateTime.now();
+
+        data.forEach((key, value) {
+          final operation = OfflineOperation.fromJson(value);
+          if (now.difference(operation.timestamp) <= _maxOperationAge) {
+            _pendingOperations[key] = operation;
+          }
+        });
+      }
+    } catch (e) {
+      _handleError(SyncError(
+        type: SyncErrorType.storage,
+        message: 'Failed to load operations: $e',
+      ));
+    }
+  }
+
+  /// Persist pending operations
+  Future<void> _persistPendingOperations() async {
+    try {
+      final data = {
+        for (var entry in _pendingOperations.entries)
+          entry.key: entry.value.toJson()
+      };
+
+      await _prefsHelper.prefs.setString(_operationsKey, jsonEncode(data));
+    } catch (e) {
+      _handleError(SyncError(
+        type: SyncErrorType.storage,
+        message: 'Failed to persist operations: $e',
+      ));
+    }
+  }
+
+  /// Load operation failures
+  Future<void> _loadOperationFailures() async {
+    try {
+      final json = _prefsHelper.prefs.getString(_failuresKey);
+      if (json != null) {
+        final data = jsonDecode(json) as Map<String, dynamic>;
+        _operationFailures.clear();
+        _operationFailures.addAll(
+          data.map((key, value) => MapEntry(key, value as int)),
+        );
+      }
+    } catch (e) {
+      _handleError(SyncError(
+        type: SyncErrorType.storage,
+        message: 'Failed to load failures: $e',
+      ));
+    }
+  }
+
+  /// Persist operation failures
+  Future<void> _persistOperationFailures() async {
+    try {
+      await _prefsHelper.prefs.setString(
+        _failuresKey,
+        jsonEncode(_operationFailures),
+      );
+    } catch (e) {
+      _handleError(SyncError(
+        type: SyncErrorType.storage,
+        message: 'Failed to persist failures: $e',
+      ));
+    }
+  }
+
+  /// Load last sync attempt
+  Future<void> _loadLastSyncAttempt() async {
+    try {
+      final timestamp = _prefsHelper.prefs.getInt(_lastSyncKey);
+      if (timestamp != null) {
+        _lastSyncAttempt = DateTime.fromMillisecondsSinceEpoch(timestamp);
+      }
+    } catch (e) {
+      _handleError(SyncError(
+        type: SyncErrorType.storage,
+        message: 'Failed to load last sync: $e',
+      ));
+    }
+  }
+
+  /// Persist sync state
+  Future<void> _persistSyncState() async {
+    try {
+      await _prefsHelper.prefs.setInt(
+        _lastSyncKey,
+        _lastSyncAttempt?.millisecondsSinceEpoch ?? 0,
+      );
+    } catch (e) {
+      _handleError(SyncError(
+        type: SyncErrorType.storage,
+        message: 'Failed to persist sync state: $e',
+      ));
+    }
+  }
+
+  /// Update sync state
+  void _updateState(SyncState state) {
+    if (_isDisposed) return;
+
+    _currentState = state;
+    if (!_stateController.isClosed) {
+      _stateController.add(state);
+    }
+  }
+
+  /// Update sync progress
+  void _updateProgress(double progress) {
+    if (_isDisposed) return;
+
+    if (!_progressController.isClosed) {
+      _progressController.add(progress.clamp(0.0, 1.0));
+    }
+  }
+
+  /// Handle sync error
+  void _handleError(SyncError error) {
+    if (kDebugMode) {
+      print('❌ Sync error: ${error.message}');
+    }
+  }
+
+  /// Cancel current sync
+  void cancelSync() {
+    _currentSyncToken?.cancel(reason: 'Sync cancelled by user');
+  }
+
+  /// Reset sync manager
+  Future<void> reset() async {
+    await _lock.synchronized(() async {
+      cancelSync();
+      _pendingOperations.clear();
+      _operationFailures.clear();
+      _lastSyncAttempt = null;
+
+      await Future.wait([
+        _persistPendingOperations(),
+        _persistOperationFailures(),
+        _persistSyncState(),
+      ]);
+
+      _updateState(SyncState.idle);
+    });
+  }
+
+  /// Resource cleanup
   Future<void> dispose() async {
     if (_isDisposed) return;
 
     _isDisposed = true;
+    cancelSync();
     _syncTimer?.cancel();
     _retryTimer?.cancel();
+
     await Future.wait([
       _stateController.close(),
       _progressController.close(),
     ]);
+
     _pendingOperations.clear();
     _operationFailures.clear();
-    _isInitialized = false;
+    _instance = null;
 
     if (kDebugMode) {
       print('🧹 SyncManager disposed');
@@ -236,7 +455,7 @@ class SyncManager {
   }
 }
 
-/// Offline operation with retry tracking
+/// Offline operation tracking
 class OfflineOperation {
   final String id;
   final String endpoint;
@@ -272,6 +491,9 @@ class OfflineOperation {
 
   @override
   int get hashCode => id.hashCode;
+
+  @override
+  String toString() => 'OfflineOperation(id: $id, endpoint: $endpoint)';
 }
 
 /// Sync state enum
@@ -286,31 +508,46 @@ enum SyncState {
   const SyncState(this.status);
 
   bool get isActive => this == SyncState.syncing;
+
   bool get needsRetry =>
       this == SyncState.error || this == SyncState.waitingForConnection;
+
   bool get isComplete => this == SyncState.completed;
 
   @override
   String toString() => status;
 }
 
-/// Thread-safe lock implementation
-class Lock {
-  Completer<void>? _completer;
-  bool _locked = false;
+/// Sync error types
+enum SyncErrorType { initialization, sync, operation, batch, storage, network }
 
-  Future<T> synchronized<T>(Future<T> Function() operation) async {
-    while (_locked) {
-      _completer = Completer<void>();
-      await _completer?.future;
-    }
+/// Sync error tracking
+class SyncError {
+  final SyncErrorType type;
+  final String message;
+  final OfflineOperation? operation;
+  final DateTime timestamp;
 
-    _locked = true;
-    try {
-      return await operation();
-    } finally {
-      _locked = false;
-      _completer?.complete();
-    }
+  SyncError({
+    required this.type,
+    required this.message,
+    this.operation,
+    DateTime? timestamp,
+  }) : timestamp = timestamp ?? DateTime.now();
+
+  @override
+  String toString() => 'SyncError(type: $type, message: $message)';
+}
+
+/// Thread-safe operation helper
+Future<T> synchronized<T>(
+  Object lock,
+  Future<T> Function() computation,
+) async {
+  final completer = Completer<void>();
+  try {
+    return await computation();
+  } finally {
+    completer.complete();
   }
 }
