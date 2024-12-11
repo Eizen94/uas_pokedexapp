@@ -21,7 +21,7 @@ class ThemeConfig {
         surface: AppColors.surfaceLight,
         error: AppColors.error,
       ),
-      
+
       // General Theme Configuration
       scaffoldBackgroundColor: AppColors.backgroundLight,
       pageTransitionsTheme: const PageTransitionsTheme(
@@ -92,13 +92,15 @@ class ThemeConfig {
         ),
         errorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: AppColors.error.withOpacity(0.5), width: 2),
+          borderSide:
+              BorderSide(color: AppColors.error.withOpacity(0.5), width: 2),
         ),
         focusedErrorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
           borderSide: const BorderSide(color: AppColors.error, width: 2),
         ),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       ),
 
       // Button Themes
@@ -269,13 +271,15 @@ class ThemeConfig {
         ),
         errorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: AppColors.error.withOpacity(0.5), width: 2),
+          borderSide:
+              BorderSide(color: AppColors.error.withOpacity(0.5), width: 2),
         ),
         focusedErrorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
           borderSide: const BorderSide(color: AppColors.error, width: 2),
         ),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       ),
 
       // Button Themes
