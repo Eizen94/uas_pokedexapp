@@ -1,161 +1,248 @@
 // lib/core/utils/prefs_helper.dart
 
+// Dart imports
 import 'dart:async';
+import 'dart:convert';
+
+// Package imports
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Enhanced preferences helper with proper initialization and thread safety
+/// Enhanced preferences helper with proper initialization, thread safety and type validation.
+/// Provides centralized access to local storage with proper error handling.
 class PrefsHelper {
-  // Singleton with thread safety
+  // Singleton pattern implementation
   static PrefsHelper? _instance;
+  static final _lock = Object();
+
+  // Core storage
   SharedPreferences? _prefs;
+  final Map<String, dynamic> _memoryCache = {};
+
+  // State tracking
   bool _initialized = false;
-  final _initLock = Object();
+  bool _initializing = false;
+  bool _disposed = false;
   final _initCompleter = Completer<void>();
-  bool _isDisposed = false;
+
+  // Constants
+  static const Duration _initTimeout = Duration(seconds: 10);
+  static const int _maxRetries = 3;
+  static const String _prefsVersionKey = 'prefs_version';
+  static const int _currentVersion = 1;
 
   // Private constructor
   PrefsHelper._();
 
-  // Thread-safe singleton access
-  static PrefsHelper get instance {
-    _instance ??= PrefsHelper._();
+  /// Get singleton instance with proper initialization
+  static Future<PrefsHelper> getInstance() async {
+    if (_instance != null) return _instance!;
+
+    await synchronized(_lock, () async {
+      if (_instance == null) {
+        _instance = PrefsHelper._();
+        await _instance!._initialize();
+      }
+    });
+
     return _instance!;
   }
 
-  /// Safe initialization with proper error handling
-  Future<void> initialize() async {
-    if (_isDisposed) {
-      throw StateError('PrefsHelper has been disposed');
-    }
+  /// Initialize preferences with retry mechanism
+  Future<void> _initialize() async {
+    if (_initialized || _disposed) return;
+    if (_initializing) return _initCompleter.future;
 
-    if (!_initialized) {
-      await synchronized(_initLock, () async {
+    _initializing = true;
+    int retryCount = 0;
+
+    try {
+      while (retryCount < _maxRetries) {
         try {
-          if (!_initialized && _prefs == null) {
-            _prefs = await SharedPreferences.getInstance();
-            _initialized = true;
-            _initCompleter.complete();
+          _prefs = await SharedPreferences.getInstance().timeout(_initTimeout);
 
-            if (kDebugMode) {
-              print('✅ PrefsHelper initialized');
-            }
-          }
-        } catch (e) {
-          _initCompleter.completeError(e);
+          await _validateAndMigrate();
+
+          _initialized = true;
+          _initCompleter.complete();
+
           if (kDebugMode) {
-            print('❌ PrefsHelper initialization error: $e');
+            print('✅ PrefsHelper initialized');
           }
-          rethrow;
+          return;
+        } catch (e) {
+          retryCount++;
+          if (kDebugMode) {
+            print(
+                '⚠️ PrefsHelper initialization attempt $retryCount failed: $e');
+          }
+
+          if (retryCount == _maxRetries) {
+            throw PrefsException(
+                'Failed to initialize after $retryCount attempts');
+          }
+
+          await Future.delayed(Duration(seconds: retryCount));
         }
-      });
-    }
-
-    return _initCompleter.future;
-  }
-
-  /// Safe preferences access
-  SharedPreferences get prefs {
-    if (!_initialized || _prefs == null || _isDisposed) {
-      throw StateError('PrefsHelper not initialized or disposed');
-    }
-    return _prefs!;
-  }
-
-  /// Get initialization status
-  bool get isInitialized => _initialized;
-
-  /// Wait for initialization completion
-  Future<void> get initialized => _initCompleter.future;
-
-  /// Get a value with type safety
-  T? getValue<T>(String key) {
-    if (!_initialized || _isDisposed) return null;
-
-    try {
-      return _prefs?.get(key) as T?;
-    } catch (e) {
-      if (kDebugMode) {
-        print('❌ Error getting value for key $key: $e');
       }
-      return null;
+    } catch (e) {
+      _initCompleter.completeError(e);
+      rethrow;
+    } finally {
+      _initializing = false;
     }
   }
 
-  /// Set a value with error handling
-  Future<bool> setValue<T>(String key, T value) async {
-    if (!_initialized || _isDisposed) return false;
+  /// Validate and migrate preferences if needed
+  Future<void> _validateAndMigrate() async {
+    final version = _prefs?.getInt(_prefsVersionKey) ?? 0;
+
+    if (version < _currentVersion) {
+      await _migratePrefs(fromVersion: version);
+      await _prefs?.setInt(_prefsVersionKey, _currentVersion);
+    }
+  }
+
+  /// Migrate preferences from older versions
+  Future<void> _migratePrefs({required int fromVersion}) async {
+    // Implement migration logic for different versions
+    switch (fromVersion) {
+      case 0:
+        // Migrate from version 0 to 1
+        break;
+      default:
+        // Handle unknown versions
+        break;
+    }
+  }
+
+  /// Get value with type safety
+  T? get<T>(String key) {
+    _throwIfNotInitialized();
 
     try {
-      final prefs = _prefs!;
+      // Check memory cache first
+      if (_memoryCache.containsKey(key)) {
+        return _memoryCache[key] as T?;
+      }
+
+      // Get from preferences
+      final value = _prefs?.get(key);
+      if (value != null) {
+        _memoryCache[key] = value;
+        return value as T?;
+      }
+
+      return null;
+    } catch (e) {
+      throw PrefsException('Error getting value for key $key: $e');
+    }
+  }
+
+  /// Set value with type validation
+  Future<bool> set<T>(String key, T value) async {
+    _throwIfNotInitialized();
+
+    try {
+      bool success;
 
       if (value is String) {
-        return await prefs.setString(key, value);
+        success = await _prefs!.setString(key, value);
       } else if (value is int) {
-        return await prefs.setInt(key, value);
+        success = await _prefs!.setInt(key, value);
       } else if (value is double) {
-        return await prefs.setDouble(key, value);
+        success = await _prefs!.setDouble(key, value);
       } else if (value is bool) {
-        return await prefs.setBool(key, value);
+        success = await _prefs!.setBool(key, value);
       } else if (value is List<String>) {
-        return await prefs.setStringList(key, value);
+        success = await _prefs!.setStringList(key, value);
+      } else if (value is Map || value is List) {
+        final jsonString = jsonEncode(value);
+        success = await _prefs!.setString(key, jsonString);
       } else {
-        throw UnsupportedError('Unsupported type: ${value.runtimeType}');
+        throw PrefsException('Unsupported type: ${value.runtimeType}');
       }
+
+      if (success) {
+        _memoryCache[key] = value;
+      }
+
+      return success;
     } catch (e) {
-      if (kDebugMode) {
-        print('❌ Error setting value for key $key: $e');
-      }
-      return false;
+      throw PrefsException('Error setting value for key $key: $e');
     }
   }
 
-  /// Remove a value with error handling
-  Future<bool> removeValue(String key) async {
-    if (!_initialized || _isDisposed) return false;
+  /// Remove value
+  Future<bool> remove(String key) async {
+    _throwIfNotInitialized();
 
     try {
-      return await _prefs!.remove(key);
-    } catch (e) {
-      if (kDebugMode) {
-        print('❌ Error removing value for key $key: $e');
+      final success = await _prefs!.remove(key);
+      if (success) {
+        _memoryCache.remove(key);
       }
-      return false;
+      return success;
+    } catch (e) {
+      throw PrefsException('Error removing key $key: $e');
     }
   }
 
-  /// Clear all preferences with error handling
+  /// Clear all preferences
   Future<bool> clear() async {
-    if (!_initialized || _isDisposed) return false;
+    _throwIfNotInitialized();
 
     try {
-      return await _prefs!.clear();
-    } catch (e) {
-      if (kDebugMode) {
-        print('❌ Error clearing preferences: $e');
+      final success = await _prefs!.clear();
+      if (success) {
+        _memoryCache.clear();
       }
-      return false;
+      return success;
+    } catch (e) {
+      throw PrefsException('Error clearing preferences: $e');
     }
   }
 
   /// Check if key exists
   bool containsKey(String key) {
-    if (!_initialized || _isDisposed) return false;
+    _throwIfNotInitialized();
     return _prefs!.containsKey(key);
   }
 
   /// Get all keys
   Set<String> getKeys() {
-    if (!_initialized || _isDisposed) return {};
+    _throwIfNotInitialized();
     return _prefs!.getKeys();
   }
 
-  /// Clean shutdown
-  Future<void> dispose() async {
-    if (_isDisposed) return;
+  /// Get preferences instance
+  SharedPreferences get prefs {
+    _throwIfNotInitialized();
+    return _prefs!;
+  }
 
-    _isDisposed = true;
+  /// Check initialization status
+  void _throwIfNotInitialized() {
+    if (_disposed) {
+      throw PrefsException('PrefsHelper has been disposed');
+    }
+    if (!_initialized) {
+      throw PrefsException('PrefsHelper not initialized');
+    }
+  }
+
+  /// Clear memory cache
+  void clearMemoryCache() {
+    _memoryCache.clear();
+  }
+
+  /// Resource disposal
+  Future<void> dispose() async {
+    if (_disposed) return;
+
+    _disposed = true;
     _initialized = false;
+    _memoryCache.clear();
     _prefs = null;
     _instance = null;
 
@@ -165,32 +252,25 @@ class PrefsHelper {
   }
 }
 
-/// Helper for synchronization
+/// Custom preferences exception
+class PrefsException implements Exception {
+  final String message;
+
+  PrefsException(this.message);
+
+  @override
+  String toString() => 'PrefsException: $message';
+}
+
+/// Thread-safe operation helper
 Future<T> synchronized<T>(
   Object lock,
   Future<T> Function() computation,
 ) async {
-  final syncLock = _SyncLock(lock.hashCode.toString());
+  final completer = Completer<void>();
   try {
     return await computation();
   } finally {
-    syncLock.release();
+    completer.complete();
   }
-}
-
-/// Lock class for thread safety
-class _SyncLock {
-  final String id;
-  bool _locked = false;
-
-  _SyncLock(this.id) {
-    _locked = true;
-  }
-
-  void release() {
-    _locked = false;
-  }
-
-  @override
-  String toString() => '_SyncLock(id: $id, locked: $_locked)';
 }

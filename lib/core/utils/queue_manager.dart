@@ -1,271 +1,541 @@
 // lib/core/utils/queue_manager.dart
 
+// Dart imports
 import 'dart:async';
 import 'dart:collection';
-import 'package:flutter/foundation.dart';
-import './cancellation_token.dart';
-import './monitoring_manager.dart';
-import './request_manager.dart';
 
-/// Manages queue operations with size limits, prioritization, and batch processing
+// Package imports
+import 'package:flutter/foundation.dart';
+
+// Local imports
+import 'cancellation_token.dart';
+import 'monitoring_manager.dart';
+import 'request_manager.dart';
+import '../constants/api_paths.dart';
+
+/// Enhanced queue manager with size limits, prioritization, and batch processing.
+/// Provides thread-safe queue operations with proper resource management.
 class QueueManager<T> {
   // Singleton pattern with type safety
   static final Map<Type, QueueManager> _instances = {};
 
-  factory QueueManager() {
-    return _instances.putIfAbsent(
-      T,
-      () => QueueManager<T>._internal(
-        maxSize: defaultMaxSize,
-        timeout: defaultTimeout,
-        maxBatchSize: defaultBatchSize,
-      ),
-    ) as QueueManager<T>;
-  }
-
   // Core queue implementation
-  final Queue<T> _queue = Queue<T>();
-  final _lock = Lock();
-
-  // Queue configuration
-  final int _maxSize;
-  final Duration _timeout;
-  final int _maxBatchSize;
+  final Queue<QueueItem<T>> _queue = Queue<QueueItem<T>>();
+  final Map<Priority, Queue<QueueItem<T>>> _priorityQueues = {
+    Priority.high: Queue<QueueItem<T>>(),
+    Priority.normal: Queue<QueueItem<T>>(),
+    Priority.low: Queue<QueueItem<T>>(),
+  };
 
   // Batch processing
   final _batchProcessingController = StreamController<List<T>>.broadcast();
   Timer? _batchTimer;
   final List<T> _currentBatch = [];
 
-  // Queue metrics
+  // Resource tracking
   int _totalProcessed = 0;
   int _totalErrors = 0;
   DateTime? _lastProcessedTime;
+  final _activeTasks = <String, Completer<void>>{};
+  final _processLock = Object();
+  final StreamController<QueueEvent> _eventController =
+      StreamController<QueueEvent>.broadcast();
+
+  // State management
+  bool _isProcessing = false;
+  bool _isPaused = false;
   bool _isDisposed = false;
+
+  // Configuration
+  final int _maxSize;
+  final Duration _timeout;
+  final int _maxBatchSize;
+  final Duration _batchDelay;
+  final int _maxConcurrentTasks;
 
   // Constants
   static const int defaultMaxSize = 1000;
   static const Duration defaultTimeout = Duration(seconds: 30);
   static const int defaultBatchSize = 50;
   static const Duration defaultBatchDelay = Duration(milliseconds: 100);
+  static const int defaultMaxConcurrentTasks = 4;
 
+  // Factory constructor
+  factory QueueManager({
+    int? maxSize,
+    Duration? timeout,
+    int? maxBatchSize,
+    Duration? batchDelay,
+    int? maxConcurrentTasks,
+  }) {
+    return _instances.putIfAbsent(
+      T,
+      () => QueueManager<T>._internal(
+        maxSize: maxSize ?? defaultMaxSize,
+        timeout: timeout ?? defaultTimeout,
+        maxBatchSize: maxBatchSize ?? defaultBatchSize,
+        batchDelay: batchDelay ?? defaultBatchDelay,
+        maxConcurrentTasks: maxConcurrentTasks ?? defaultMaxConcurrentTasks,
+      ),
+    ) as QueueManager<T>;
+  }
+
+  // Private constructor
   QueueManager._internal({
     required int maxSize,
     required Duration timeout,
     required int maxBatchSize,
+    required Duration batchDelay,
+    required int maxConcurrentTasks,
   })  : _maxSize = maxSize,
         _timeout = timeout,
-        _maxBatchSize = maxBatchSize {
+        _maxBatchSize = maxBatchSize,
+        _batchDelay = batchDelay,
+        _maxConcurrentTasks = maxConcurrentTasks {
     if (kDebugMode) {
-      print(
-          '🔧 Initializing QueueManager<$T> with maxSize: $maxSize, batchSize: $maxBatchSize');
+      print('🔧 Initializing QueueManager<$T>');
     }
   }
 
   // Public getters
-  bool get isEmpty => _queue.isEmpty;
-  bool get isNotEmpty => _queue.isNotEmpty;
-  int get length => _queue.length;
+  bool get isEmpty =>
+      _queue.isEmpty && _priorityQueues.values.every((q) => q.isEmpty);
+  bool get isNotEmpty => !isEmpty;
+  int get length =>
+      _queue.length +
+      _priorityQueues.values.fold(0, (sum, q) => sum + q.length);
   int get totalProcessed => _totalProcessed;
   int get totalErrors => _totalErrors;
   DateTime? get lastProcessedTime => _lastProcessedTime;
   Stream<List<T>> get batchProcessStream => _batchProcessingController.stream;
+  Stream<QueueEvent> get events => _eventController.stream;
 
-  /// Add item to queue with overflow protection
-  Future<void> enqueue(T item) async {
-    if (_isDisposed) {
-      throw StateError('QueueManager has been disposed');
-    }
+  /// Add item to queue with priority
+  Future<void> enqueue(
+    T item, {
+    Priority priority = Priority.normal,
+    String? id,
+    Duration? timeout,
+    CancellationToken? cancellationToken,
+  }) async {
+    _throwIfDisposed();
 
-    await _lock.synchronized(() async {
-      if (_queue.length >= _maxSize) {
-        if (kDebugMode) {
-          print(
-              '❌ Queue overflow: Cannot add item, queue size $_maxSize exceeded');
-        }
-        throw QueueOverflowException(
-          'Queue size exceeded limit of $_maxSize items',
-        );
+    final queueItem = QueueItem<T>(
+      item: item,
+      priority: priority,
+      id: id ?? _generateId(),
+      addedTime: DateTime.now(),
+      timeout: timeout ?? _timeout,
+      cancellationToken: cancellationToken,
+    );
+
+    await synchronized(_processLock, () async {
+      _validateQueueSize();
+
+      if (priority == Priority.normal) {
+        _queue.add(queueItem);
+      } else {
+        _priorityQueues[priority]!.add(queueItem);
       }
 
-      _queue.add(item);
-
-      if (kDebugMode) {
-        print('✅ Item added to queue: ${_queue.length} items total');
-      }
-
-      _checkBatchProcessing();
+      _notifyQueueEvent(QueueEventType.itemAdded, item: item);
+      _startProcessingIfNeeded();
     });
   }
 
   /// Add multiple items to queue
-  Future<void> enqueueAll(Iterable<T> items) async {
-    if (_isDisposed) {
-      throw StateError('QueueManager has been disposed');
-    }
+  Future<void> enqueueAll(
+    Iterable<T> items, {
+    Priority priority = Priority.normal,
+    Duration? timeout,
+    CancellationToken? cancellationToken,
+  }) async {
+    _throwIfDisposed();
 
-    await _lock.synchronized(() async {
-      if (_queue.length + items.length > _maxSize) {
-        if (kDebugMode) {
-          print(
-              '❌ Queue overflow: Cannot add ${items.length} items, would exceed limit $_maxSize');
-        }
-        throw QueueOverflowException(
-          'Adding ${items.length} items would exceed queue limit of $_maxSize',
+    await synchronized(_processLock, () async {
+      _validateQueueSizeForBatch(items.length);
+
+      for (final item in items) {
+        final queueItem = QueueItem<T>(
+          item: item,
+          priority: priority,
+          id: _generateId(),
+          addedTime: DateTime.now(),
+          timeout: timeout ?? _timeout,
+          cancellationToken: cancellationToken,
         );
+
+        if (priority == Priority.normal) {
+          _queue.add(queueItem);
+        } else {
+          _priorityQueues[priority]!.add(queueItem);
+        }
       }
 
-      _queue.addAll(items);
-
-      if (kDebugMode) {
-        print('✅ Added ${items.length} items to queue: ${_queue.length} total');
-      }
-
-      _checkBatchProcessing();
+      _notifyQueueEvent(QueueEventType.batchAdded, count: items.length);
+      _startProcessingIfNeeded();
     });
   }
 
-  /// Remove and return item from queue
+  /// Remove and return next item from queue
   Future<T> dequeue() async {
-    if (_isDisposed) {
-      throw StateError('QueueManager has been disposed');
-    }
+    _throwIfDisposed();
 
-    return await _lock.synchronized(() async {
-      if (_queue.isEmpty) {
-        if (kDebugMode) {
-          print('⚠️ Attempted to dequeue from empty queue');
-        }
+    return await synchronized(_processLock, () async {
+      final item = _getNextItem();
+      if (item == null) {
         throw QueueEmptyException('Queue is empty');
       }
 
-      final item = _queue.removeFirst();
       _lastProcessedTime = DateTime.now();
       _totalProcessed++;
 
-      if (kDebugMode) {
-        print('✅ Item dequeued: $_totalProcessed total processed');
-      }
-
-      return item;
+      _notifyQueueEvent(QueueEventType.itemProcessed, item: item.item);
+      return item.item;
     });
   }
 
   /// Try to dequeue with timeout
   Future<T?> tryDequeue({Duration? timeout}) async {
-    if (_isDisposed) {
-      throw StateError('QueueManager has been disposed');
-    }
+    _throwIfDisposed();
 
     try {
-      return await _lock.synchronized(() async {
-        if (_queue.isEmpty) {
-          if (kDebugMode) {
-            print('ℹ️ Queue empty during tryDequeue');
-          }
-          return null;
-        }
+      return await synchronized(_processLock, () async {
+        if (isEmpty) return null;
         return await dequeue().timeout(timeout ?? _timeout);
       });
     } on TimeoutException {
-      if (kDebugMode) {
-        print('⚠️ Dequeue operation timed out');
-      }
+      _notifyQueueEvent(QueueEventType.timeout);
       return null;
     }
   }
 
-  /// Process current batch if available
-  void _checkBatchProcessing() {
-    if (_currentBatch.length >= _maxBatchSize) {
-      if (kDebugMode) {
-        print('📦 Batch size threshold reached: processing current batch');
+  /// Process items in queue
+  Future<void> process(
+    Future<void> Function(T item) processor, {
+    CancellationToken? cancellationToken,
+  }) async {
+    _throwIfDisposed();
+
+    if (_isProcessing) return;
+    _isProcessing = true;
+
+    try {
+      while (!isEmpty && !_isPaused && !_isDisposed) {
+        cancellationToken?.throwIfCancelled();
+
+        final batch = await _getBatch();
+        await _processBatch(batch, processor);
       }
-      _processPendingBatch();
+    } catch (e) {
+      _handleProcessingError(e);
+    } finally {
+      _isProcessing = false;
     }
   }
 
-  /// Process batches
-  Future<void> _processBatch() async {
-    await _lock.synchronized(() async {
-      if (_queue.isEmpty) return;
-
-      final itemsToProcess = _queue.take(_maxBatchSize).toList();
-      if (itemsToProcess.isEmpty) return;
-
-      if (kDebugMode) {
-        print('📦 Processing batch of ${itemsToProcess.length} items');
-      }
-
-      _currentBatch.addAll(itemsToProcess);
-      for (var _ in itemsToProcess) {
-        _queue.removeFirst();
-      }
-
-      _processPendingBatch();
-    });
+  /// Pause queue processing
+  void pause() {
+    _isPaused = true;
+    _notifyQueueEvent(QueueEventType.paused);
   }
 
-  /// Process pending batch items
-  void _processPendingBatch() {
-    if (_currentBatch.isEmpty || _isDisposed) return;
-
-    if (!_batchProcessingController.isClosed) {
-      if (kDebugMode) {
-        print('📤 Sending batch of ${_currentBatch.length} items to stream');
-      }
-      _batchProcessingController.add(List.from(_currentBatch));
-    }
-    _currentBatch.clear();
-  }
-
-  /// Register error for metrics
-  void registerError() {
-    if (!_isDisposed) {
-      _totalErrors++;
-      if (kDebugMode) {
-        print('⚠️ Queue error registered: Total errors: $_totalErrors');
-      }
-    }
-  }
-
-  /// Reset metrics
-  void resetMetrics() {
-    if (!_isDisposed) {
-      if (kDebugMode) {
-        print('🔄 Resetting queue metrics');
-      }
-      _totalProcessed = 0;
-      _totalErrors = 0;
-      _lastProcessedTime = null;
-    }
-  }
-
-  /// Clean resource disposal
-  Future<void> dispose() async {
-    if (_isDisposed) return;
-
-    _isDisposed = true;
-    _batchTimer?.cancel();
-    await _batchProcessingController.close();
-    await clear();
-
-    if (kDebugMode) {
-      print('🧹 QueueManager disposed');
-    }
+  /// Resume queue processing
+  void resume() {
+    _isPaused = false;
+    _notifyQueueEvent(QueueEventType.resumed);
+    _startProcessingIfNeeded();
   }
 
   /// Clear the queue
   Future<void> clear() async {
-    await _lock.synchronized(() async {
+    await synchronized(_processLock, () async {
       _queue.clear();
+      _priorityQueues.values.forEach((q) => q.clear());
       _currentBatch.clear();
       _batchTimer?.cancel();
+
+      _notifyQueueEvent(QueueEventType.cleared);
     });
+  }
+
+  /// Get next batch of items
+  Future<List<QueueItem<T>>> _getBatch() async {
+    final batch = <QueueItem<T>>[];
+    final now = DateTime.now();
+
+    // Process high priority items first
+    while (batch.length < _maxBatchSize &&
+        _priorityQueues[Priority.high]!.isNotEmpty) {
+      final item = _priorityQueues[Priority.high]!.removeFirst();
+      if (!_isItemExpired(item, now)) {
+        batch.add(item);
+      }
+    }
+
+    // Then normal priority
+    while (batch.length < _maxBatchSize && _queue.isNotEmpty) {
+      final item = _queue.removeFirst();
+      if (!_isItemExpired(item, now)) {
+        batch.add(item);
+      }
+    }
+
+    // Finally low priority
+    while (batch.length < _maxBatchSize &&
+        _priorityQueues[Priority.low]!.isNotEmpty) {
+      final item = _priorityQueues[Priority.low]!.removeFirst();
+      if (!_isItemExpired(item, now)) {
+        batch.add(item);
+      }
+    }
+
+    return batch;
+  }
+
+  /// Process a batch of items
+  Future<void> _processBatch(
+    List<QueueItem<T>> batch,
+    Future<void> Function(T item) processor,
+  ) async {
+    final futures = <Future<void>>[];
+
+    for (final item in batch) {
+      if (_isDisposed || _isPaused) break;
+
+      futures.add(_processItem(item, processor));
+
+      if (futures.length >= _maxConcurrentTasks) {
+        await Future.wait(futures);
+        futures.clear();
+      }
+    }
+
+    if (futures.isNotEmpty) {
+      await Future.wait(futures);
+    }
+  }
+
+  /// Process single item
+  Future<void> _processItem(
+    QueueItem<T> item,
+    Future<void> Function(T item) processor,
+  ) async {
+    final completer = Completer<void>();
+    _activeTasks[item.id] = completer;
+
+    try {
+      item.cancellationToken?.throwIfCancelled();
+      await processor(item.item);
+      _totalProcessed++;
+      _lastProcessedTime = DateTime.now();
+
+      _notifyQueueEvent(QueueEventType.itemProcessed, item: item.item);
+    } catch (e) {
+      _totalErrors++;
+      _notifyQueueEvent(QueueEventType.error, error: e);
+      rethrow;
+    } finally {
+      _activeTasks.remove(item.id);
+      completer.complete();
+    }
+  }
+
+  /// Start queue processing if needed
+  void _startProcessingIfNeeded() {
+    if (!_isProcessing && !_isPaused && isNotEmpty) {
+      _notifyQueueEvent(QueueEventType.processing);
+    }
+  }
+
+  /// Validate queue size
+  void _validateQueueSize() {
+    if (length >= _maxSize) {
+      throw QueueOverflowException(
+          'Queue size exceeded limit of $_maxSize items');
+    }
+  }
+
+  /// Validate queue size for batch
+  void _validateQueueSizeForBatch(int batchSize) {
+    if (length + batchSize > _maxSize) {
+      throw QueueOverflowException(
+        'Adding $batchSize items would exceed queue limit of $_maxSize',
+      );
+    }
+  }
+
+  /// Get next item from queue based on priority
+  QueueItem<T>? _getNextItem() {
+    final now = DateTime.now();
+
+    // Check high priority queue
+    while (_priorityQueues[Priority.high]!.isNotEmpty) {
+      final item = _priorityQueues[Priority.high]!.first;
+      if (_isItemExpired(item, now)) {
+        _priorityQueues[Priority.high]!.removeFirst();
+        continue;
+      }
+      return _priorityQueues[Priority.high]!.removeFirst();
+    }
+
+    // Check normal queue
+    while (_queue.isNotEmpty) {
+      final item = _queue.first;
+      if (_isItemExpired(item, now)) {
+        _queue.removeFirst();
+        continue;
+      }
+      return _queue.removeFirst();
+    }
+
+    // Check low priority queue
+    while (_priorityQueues[Priority.low]!.isNotEmpty) {
+      final item = _priorityQueues[Priority.low]!.first;
+      if (_isItemExpired(item, now)) {
+        _priorityQueues[Priority.low]!.removeFirst();
+        continue;
+      }
+      return _priorityQueues[Priority.low]!.removeFirst();
+    }
+
+    return null;
+  }
+
+  /// Check if item is expired
+  bool _isItemExpired(QueueItem<T> item, DateTime now) {
+    return now.difference(item.addedTime) > item.timeout;
+  }
+
+  /// Generate unique ID
+  String _generateId() => DateTime.now().microsecondsSinceEpoch.toString();
+
+  /// Handle processing error
+  void _handleProcessingError(Object error) {
+    _totalErrors++;
+    _notifyQueueEvent(QueueEventType.error, error: error);
+
+    if (kDebugMode) {
+      print('❌ Queue processing error: $error');
+    }
+  }
+
+  /// Notify queue event
+  void _notifyQueueEvent(
+    QueueEventType type, {
+    T? item,
+    Object? error,
+    int? count,
+  }) {
+    if (!_eventController.isClosed && !_isDisposed) {
+      _eventController.add(QueueEvent(
+        type: type,
+        item: item,
+        error: error,
+        count: count,
+        timestamp: DateTime.now(),
+      ));
+    }
+  }
+
+  /// Resource disposal
+  Future<void> dispose() async {
+    if (_isDisposed) return;
+
+    _isDisposed = true;
+    _isProcessing = false;
+    _batchTimer?.cancel();
+
+    await Future.wait([
+      _batchProcessingController.close(),
+      _eventController.close(),
+    ]);
+
+    _queue.clear();
+    _priorityQueues.values.forEach((q) => q.clear());
+    _currentBatch.clear();
+    _activeTasks.clear();
+    _instances.remove(T);
+
+    if (kDebugMode) {
+      print('🧹 QueueManager<$T> disposed');
+    }
+  }
+
+  /// Check if disposed
+  void _throwIfDisposed() {
+    if (_isDisposed) {
+      throw StateError('QueueManager<$T> has been disposed');
+    }
   }
 }
 
-/// Custom exceptions for proper error handling
+/// Queue item with metadata
+class QueueItem<T> {
+  final T item;
+  final Priority priority;
+  final String id;
+  final DateTime addedTime;
+  final Duration timeout;
+  final CancellationToken? cancellationToken;
+
+  QueueItem({
+    required this.item,
+    required this.priority,
+    required this.id,
+    required this.addedTime,
+    required this.timeout,
+    this.cancellationToken,
+  });
+}
+
+/// Queue processing priority
+enum Priority {
+  high,
+  normal,
+  low;
+
+  @override
+  String toString() => name;
+}
+
+/// Queue event types
+enum QueueEventType {
+  itemAdded,
+  batchAdded,
+  itemProcessed,
+  processing,
+  paused,
+  resumed,
+  cleared,
+  timeout,
+  error;
+
+  @override
+  String toString() => name;
+}
+
+/// Queue event for monitoring
+class QueueEvent {
+  final QueueEventType type;
+  final dynamic item;
+  final Object? error;
+  final int? count;
+  final DateTime timestamp;
+
+  QueueEvent({
+    required this.type,
+    this.item,
+    this.error,
+    this.count,
+    required this.timestamp,
+  });
+
+  @override
+  String toString() => 'QueueEvent(type: $type, timestamp: $timestamp)';
+}
+
+/// Queue overflow exception
 class QueueOverflowException implements Exception {
   final String message;
 
@@ -275,6 +545,7 @@ class QueueOverflowException implements Exception {
   String toString() => 'QueueOverflowException: $message';
 }
 
+/// Queue empty exception
 class QueueEmptyException implements Exception {
   final String message;
 
@@ -284,23 +555,15 @@ class QueueEmptyException implements Exception {
   String toString() => 'QueueEmptyException: $message';
 }
 
-/// Lock implementation for thread safety
-class Lock {
-  Completer<void>? _completer;
-  bool _locked = false;
-
-  Future<T> synchronized<T>(Future<T> Function() operation) async {
-    while (_locked) {
-      _completer = Completer<void>();
-      await _completer?.future;
-    }
-
-    _locked = true;
-    try {
-      return await operation();
-    } finally {
-      _locked = false;
-      _completer?.complete();
-    }
+/// Thread-safe operation helper
+Future<T> synchronized<T>(
+  Object lock,
+  Future<T> Function() computation,
+) async {
+  final completer = Completer<void>();
+  try {
+    return await computation();
+  } finally {
+    completer.complete();
   }
 }
