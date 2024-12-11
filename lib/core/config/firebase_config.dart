@@ -5,183 +5,314 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../utils/prefs_helper.dart';
+import '../constants/api_paths.dart';
 
+/// Enhanced Firebase configuration with proper initialization, monitoring and cleanup
 class FirebaseConfig {
-  // Private constructor and singleton instance
-  FirebaseConfig._();
-  static final FirebaseConfig _instance = FirebaseConfig._();
+  // Singleton instance with proper initialization check
+  static FirebaseConfig? _instance;
+  static final Object _instanceLock = Object();
+
+  // Core Firebase instances
+  final FirebaseApp _app;
+  final FirebaseAuth _auth;
+  final FirebaseFirestore _firestore;
+
+  // Status monitoring
+  final StreamController<bool> _authStatusController =
+      StreamController<bool>.broadcast();
+  final StreamController<bool> _firestoreStatusController =
+      StreamController<bool>.broadcast();
+  final StreamController<FirebaseStatus> _statusController =
+      StreamController<FirebaseStatus>.broadcast();
 
   // State management
   bool _initialized = false;
   bool _initializing = false;
-  final _initCompleter = Completer<void>();
+  bool _disposed = false;
+  final Completer<void> _initCompleter = Completer<void>();
+  Timer? _healthCheckTimer;
+  DateTime? _lastHealthCheck;
 
-  // Service status controllers
-  final _authStatusController = StreamController<bool>.broadcast();
-  final _firestoreStatusController = StreamController<bool>.broadcast();
+  // Constants
+  static const Duration _healthCheckInterval = Duration(minutes: 5);
+  static const Duration _initTimeout = Duration(seconds: 30);
+  static const int _maxRetries = 3;
+  static const Duration _retryDelay = Duration(seconds: 2);
 
-  // Getters
-  static FirebaseConfig get instance => _instance;
-  bool get isInitialized => _initialized;
-  bool get isInitializing => _initializing;
-  Stream<bool> get authStatus => _authStatusController.stream;
-  Stream<bool> get firestoreStatus => _firestoreStatusController.stream;
+  // Private constructor
+  FirebaseConfig._(this._app, this._auth, this._firestore);
 
-  // Initialize Firebase with retry mechanism and proper cleanup
-  Future<void> initializeApp({int maxRetries = 3}) async {
-    if (_initialized) {
-      if (kDebugMode) {
-        print('🔥 Firebase already initialized');
+  /// Get singleton instance with initialization check
+  static Future<FirebaseConfig> getInstance() async {
+    if (_instance != null) return _instance!;
+
+    synchronized(_instanceLock, () async {
+      if (_instance != null) return _instance!;
+
+      try {
+        final app = await Firebase.initializeApp();
+        final auth = FirebaseAuth.instance;
+        final firestore = FirebaseFirestore.instance;
+
+        _instance = FirebaseConfig._(app, auth, firestore);
+        await _instance!._initialize();
+
+        return _instance!;
+      } catch (e) {
+        throw FirebaseConfigException('Failed to initialize Firebase: $e');
       }
-      return;
-    }
+    });
 
-    // Handle initialization in progress
-    if (_initializing) {
-      if (kDebugMode) {
-        print('⏳ Firebase initialization in progress, waiting...');
-      }
-      return _initCompleter.future;
-    }
+    return _instance!;
+  }
+
+  /// Initialize Firebase with proper error handling and retry mechanism
+  Future<void> _initialize() async {
+    if (_initialized || _disposed) return;
+    if (_initializing) return _initCompleter.future;
 
     _initializing = true;
     int retryCount = 0;
 
-    while (retryCount < maxRetries) {
-      try {
-        if (kDebugMode) {
-          print('🚀 Initializing Firebase (Attempt ${retryCount + 1})...');
-        }
+    try {
+      while (retryCount < _maxRetries) {
+        try {
+          // Configure Auth persistence
+          await _auth.setPersistence(Persistence.LOCAL);
 
-        // Check existing Firebase apps
-        if (Firebase.apps.isNotEmpty) {
+          // Configure Firestore settings
+          _firestore.settings = const Settings(
+            persistenceEnabled: true,
+            cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
+          );
+
+          // Initialize health monitoring
+          _startHealthCheck();
+
           _initialized = true;
           _initCompleter.complete();
+
+          _updateStatus(FirebaseStatus.ready);
+
           if (kDebugMode) {
-            print('♻️ Using existing Firebase app');
+            print('✅ Firebase initialized successfully');
           }
           return;
+        } catch (e) {
+          retryCount++;
+          if (kDebugMode) {
+            print('⚠️ Firebase initialization attempt $retryCount failed: $e');
+          }
+
+          if (retryCount == _maxRetries) {
+            throw FirebaseConfigException(
+              'Failed to initialize Firebase after $retryCount attempts: $e',
+            );
+          }
+
+          await Future.delayed(_retryDelay * retryCount);
         }
-
-        // Initialize Firebase with optimized settings
-        await Firebase.initializeApp(
-          options: const FirebaseOptions(
-            apiKey: 'AIzaSyA788aYkne3gRiwAtZLtsVMRl5reUPMcXg',
-            appId: '1:631128211674:android:f88221525f9e09b7f465e3',
-            messagingSenderId: '631128211674',
-            projectId: 'uas-pokedexapp',
-            storageBucket: 'uas-pokedexapp.appspot.com',
-          ),
-        );
-
-        await _initializeServices();
-
-        _initialized = true;
-        _initCompleter.complete();
-
-        if (kDebugMode) {
-          print('✅ Firebase initialized successfully');
-        }
-        return;
-      } catch (e) {
-        retryCount++;
-        if (kDebugMode) {
-          print('❌ Firebase initialization error (Attempt $retryCount): $e');
-        }
-
-        if (retryCount == maxRetries) {
-          final error = FirebaseException(
-            plugin: 'core',
-            message:
-                'Failed to initialize Firebase after $maxRetries attempts: $e',
-          );
-          _initCompleter.completeError(error);
-          throw error;
-        }
-
-        await Future.delayed(Duration(seconds: retryCount * 2));
-      }
-    }
-  }
-
-  // Initialize Firebase services with optimized settings
-  Future<void> _initializeServices() async {
-    try {
-      // Initialize Auth with persistence
-      final auth = FirebaseAuth.instance;
-      await auth.setPersistence(Persistence.LOCAL);
-      _authStatusController.add(true);
-
-      if (kDebugMode) {
-        print('✅ Firebase Auth initialized with local persistence');
-      }
-
-      // Initialize Firestore with optimized settings
-      final firestore = FirebaseFirestore.instance;
-      firestore.settings = const Settings(
-        persistenceEnabled: true,
-        cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
-        sslEnabled: true,
-      );
-
-      // Test connection
-      await firestore.collection('test').doc('test').get();
-      _firestoreStatusController.add(true);
-
-      if (kDebugMode) {
-        print('✅ Firestore initialized with optimized persistence');
       }
     } catch (e) {
-      if (kDebugMode) {
-        print('⚠️ Service initialization warning: $e');
-      }
-    }
-  }
-
-  // Reset Firebase configuration with proper cleanup
-  Future<void> reset() async {
-    if (kDebugMode) {
-      print('🔄 Resetting Firebase configuration...');
-    }
-
-    try {
-      _initialized = false;
+      _initCompleter.completeError(e);
+      _updateStatus(FirebaseStatus.error, error: e);
+      rethrow;
+    } finally {
       _initializing = false;
+    }
+  }
 
-      // Reset service status
-      _authStatusController.add(false);
-      _firestoreStatusController.add(false);
+  /// Start periodic health checks
+  void _startHealthCheck() {
+    _healthCheckTimer?.cancel();
+    _healthCheckTimer = Timer.periodic(_healthCheckInterval, (_) {
+      _performHealthCheck();
+    });
+  }
 
-      // Sign out user
-      await FirebaseAuth.instance.signOut();
+  /// Perform Firebase services health check
+  Future<void> _performHealthCheck() async {
+    try {
+      // Check Auth
+      final authOk = _auth.currentUser != null || await _checkAuthHealth();
+      _authStatusController.add(authOk);
 
-      // Delete all apps
-      final apps = Firebase.apps;
-      await Future.wait(
-        apps.map((app) => app.delete()),
-      );
+      // Check Firestore
+      final firestoreOk = await _checkFirestoreHealth();
+      _firestoreStatusController.add(firestoreOk);
 
-      if (kDebugMode) {
-        print('✅ Firebase reset successful');
-      }
+      _lastHealthCheck = DateTime.now();
+      _updateStatus(authOk && firestoreOk
+          ? FirebaseStatus.ready
+          : FirebaseStatus.degraded);
     } catch (e) {
+      _updateStatus(FirebaseStatus.error, error: e);
       if (kDebugMode) {
-        print('❌ Error during Firebase reset: $e');
+        print('❌ Firebase health check failed: $e');
       }
+    }
+  }
+
+  /// Check Auth service health
+  Future<bool> _checkAuthHealth() async {
+    try {
+      await _auth.signInAnonymously();
+      await _auth.signOut();
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /// Check Firestore service health
+  Future<bool> _checkFirestoreHealth() async {
+    try {
+      final testDoc = _firestore.collection('health_check').doc();
+      await testDoc.set({'timestamp': FieldValue.serverTimestamp()});
+      await testDoc.delete();
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /// Update Firebase status
+  void _updateStatus(FirebaseStatus status, {Object? error}) {
+    if (!_statusController.isClosed) {
+      _statusController.add(status);
+    }
+
+    if (error != null && kDebugMode) {
+      print('Firebase Status Update: ${status.name} (Error: $error)');
+    }
+  }
+
+  /// Get current Firebase status
+  Stream<FirebaseStatus> get status => _statusController.stream;
+
+  /// Get Auth status stream
+  Stream<bool> get authStatus => _authStatusController.stream;
+
+  /// Get Firestore status stream
+  Stream<bool> get firestoreStatus => _firestoreStatusController.stream;
+
+  /// Get initialization status
+  bool get isInitialized => _initialized;
+
+  /// Get Firebase Auth instance
+  FirebaseAuth get auth {
+    _throwIfNotInitialized();
+    return _auth;
+  }
+
+  /// Get Firestore instance
+  FirebaseFirestore get firestore {
+    _throwIfNotInitialized();
+    return _firestore;
+  }
+
+  /// Reset Firebase configuration
+  Future<void> reset() async {
+    if (_disposed) return;
+
+    try {
+      // Sign out user
+      await _auth.signOut();
+
+      // Clear Firestore cache
+      await _firestore.terminate();
+      await _firestore.clearPersistence();
+
+      // Clear local storage
+      final prefs = await PrefsHelper.instance.prefs;
+      await prefs.clear();
+
+      _updateStatus(FirebaseStatus.resetting);
+
+      // Re-initialize
+      await _initialize();
+    } catch (e) {
+      _updateStatus(FirebaseStatus.error, error: e);
       rethrow;
     }
   }
 
-  // Clean resource disposal
+  /// Clean resource disposal
   Future<void> dispose() async {
+    if (_disposed) return;
+
+    _disposed = true;
+    _healthCheckTimer?.cancel();
+
     await Future.wait([
       _authStatusController.close(),
       _firestoreStatusController.close(),
+      _statusController.close(),
     ]);
+
     _initialized = false;
-    _initializing = false;
+    _instance = null;
+
+    if (kDebugMode) {
+      print('🧹 FirebaseConfig disposed');
+    }
   }
 
-  // Get initialization status
-  Future<void> get initializationComplete => _initCompleter.future;
+  /// Check initialization status
+  void _throwIfNotInitialized() {
+    if (!_initialized) {
+      throw FirebaseConfigException('FirebaseConfig not initialized');
+    }
+    if (_disposed) {
+      throw FirebaseConfigException('FirebaseConfig has been disposed');
+    }
+  }
 }
+
+/// Firebase status enum
+enum FirebaseStatus {
+  initializing('Initializing'),
+  ready('Ready'),
+  degraded('Degraded Performance'),
+  error('Error'),
+  resetting('Resetting');
+
+  final String name;
+  const FirebaseStatus(this.name);
+}
+
+/// Firebase configuration exception
+class FirebaseConfigException implements Exception {
+  final String message;
+
+  FirebaseConfigException(this.message);
+
+  @override
+  String toString() => 'FirebaseConfigException: $message';
+}
+
+/// Thread-safe operation helper
+Future<T> synchronized<T>(
+  Object lock,
+  Future<T> Function() computation,
+) async {
+  if (_locks.containsKey(lock)) {
+    await _locks[lock]!.future;
+  }
+
+  final completer = Completer<void>();
+  _locks[lock] = completer;
+
+  try {
+    return await computation();
+  } finally {
+    _locks.remove(lock);
+    completer.complete();
+  }
+}
+
+// Global locks registry
+final Map<Object, Completer<void>> _locks = {};
