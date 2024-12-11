@@ -1,52 +1,80 @@
 // lib/core/utils/rate_limiter.dart
 
+// Dart imports
 import 'dart:async';
 import 'dart:collection';
-import 'package:flutter/foundation.dart';
-import '../constants/api_paths.dart';
 
-/// Enhanced rate limiter with precise rate control and resource management
+// Package imports
+import 'package:flutter/foundation.dart';
+
+// Local imports
+import '../constants/api_paths.dart';
+import 'monitoring_manager.dart';
+
+/// Enhanced rate limiter with precise rate control and resource management.
+/// Provides thread-safe rate limiting with proper cleanup and monitoring.
 class RateLimiter {
-  // Singleton instance with thread safety
+  // Singleton implementation
   static final RateLimiter _instance = RateLimiter._internal();
-  factory RateLimiter() => _instance;
-  RateLimiter._internal();
+  static final _lock = Object();
 
   // Configuration management
-  final Map<String, _RateLimitConfig> _configs = {};
+  final Map<String, RateLimitConfig> _configs = {};
   final Map<String, Queue<DateTime>> _requestTimestamps = {};
-  final Map<String, Queue<_QueuedOperation>> _operationQueues = {};
+  final Map<String, Queue<QueuedOperation>> _operationQueues = {};
   final Map<String, Timer> _queueProcessors = {};
   final Map<String, bool> _isProcessingQueue = {};
 
-  // Thread safety
-  final _lock = Lock();
+  // Monitoring
+  final StreamController<RateLimitEvent> _eventController =
+      StreamController<RateLimitEvent>.broadcast();
+  int _totalThrottled = 0;
   bool _disposed = false;
 
-  /// Initialize endpoint with configuration
+  // Constants
+  static const Duration _defaultWindow = Duration(minutes: 1);
+  static const Duration _defaultMinDelay = Duration(milliseconds: 100);
+  static const Duration _queueProcessInterval = Duration(milliseconds: 100);
+
+  // Private constructor
+  RateLimiter._internal();
+
+  // Factory constructor
+  factory RateLimiter() => _instance;
+
+  /// Initialize endpoint with rate limit configuration
   Future<void> initializeEndpoint(
     String endpoint, {
     int requestsPerMinute = ApiPaths.publicApiLimit,
     Duration timeWindow = const Duration(minutes: 1),
     Duration minimumDelay = const Duration(milliseconds: 100),
   }) async {
-    await _lock.synchronized(() async {
-      _configs[endpoint] = _RateLimitConfig(
+    _throwIfDisposed();
+
+    await synchronized(_lock, () async {
+      _configs[endpoint] = RateLimitConfig(
         requestsPerMinute: requestsPerMinute,
         timeWindow: timeWindow,
         minimumDelay: minimumDelay,
       );
       _requestTimestamps[endpoint] = Queue<DateTime>();
-      _operationQueues[endpoint] = Queue<_QueuedOperation>();
+      _operationQueues[endpoint] = Queue<QueuedOperation>();
       _isProcessingQueue[endpoint] = false;
+
+      _notifyEvent(
+        RateLimitEventType.endpointInitialized,
+        endpoint: endpoint,
+        config: _configs[endpoint],
+      );
     });
   }
 
   /// Check if request can be executed
   Future<bool> checkLimit(String endpoint) async {
+    _throwIfDisposed();
     _ensureEndpointInitialized(endpoint);
 
-    return await _lock.synchronized(() async {
+    return await synchronized(_lock, () async {
       final timestamps = _requestTimestamps[endpoint]!;
       final config = _configs[endpoint]!;
       final now = DateTime.now();
@@ -60,25 +88,48 @@ class RateLimiter {
       // Check rate limit
       if (timestamps.isEmpty) return true;
 
-      // Check minimum delay between requests
-      if (now.difference(timestamps.last) < config.minimumDelay) return false;
+      // Check minimum delay
+      if (now.difference(timestamps.last) < config.minimumDelay) {
+        _totalThrottled++;
+        _notifyEvent(
+          RateLimitEventType.requestThrottled,
+          endpoint: endpoint,
+        );
+        return false;
+      }
 
-      return timestamps.length < config.requestsPerMinute;
+      final withinLimit = timestamps.length < config.requestsPerMinute;
+      if (!withinLimit) {
+        _totalThrottled++;
+        _notifyEvent(
+          RateLimitEventType.limitExceeded,
+          endpoint: endpoint,
+        );
+      }
+      return withinLimit;
     });
   }
 
   /// Track request for rate limiting
   Future<void> trackRequest(String endpoint) async {
-    await _lock.synchronized(() async {
+    _throwIfDisposed();
+    _ensureEndpointInitialized(endpoint);
+
+    await synchronized(_lock, () async {
       _requestTimestamps[endpoint]?.addLast(DateTime.now());
+      _notifyEvent(
+        RateLimitEventType.requestTracked,
+        endpoint: endpoint,
+      );
     });
   }
 
   /// Get remaining requests for endpoint
   Future<int> getRemainingRequests(String endpoint) async {
+    _throwIfDisposed();
     _ensureEndpointInitialized(endpoint);
 
-    return await _lock.synchronized(() async {
+    return await synchronized(_lock, () async {
       final config = _configs[endpoint]!;
       final timestamps = _requestTimestamps[endpoint]!;
       return config.requestsPerMinute - timestamps.length;
@@ -87,9 +138,10 @@ class RateLimiter {
 
   /// Get estimated wait time for next request
   Future<Duration> getEstimatedWaitTime(String endpoint) async {
+    _throwIfDisposed();
     _ensureEndpointInitialized(endpoint);
 
-    return await _lock.synchronized(() async {
+    return await synchronized(_lock, () async {
       final timestamps = _requestTimestamps[endpoint]!;
       if (timestamps.isEmpty) return Duration.zero;
 
@@ -98,9 +150,16 @@ class RateLimiter {
       final oldestTimestamp = timestamps.first;
       final timeWindowEnd = oldestTimestamp.add(config.timeWindow);
 
-      return now.isAfter(timeWindowEnd)
-          ? Duration.zero
-          : timeWindowEnd.difference(now);
+      if (now.isAfter(timeWindowEnd)) return Duration.zero;
+
+      final waitTime = timeWindowEnd.difference(now);
+      _notifyEvent(
+        RateLimitEventType.waitTimeCalculated,
+        endpoint: endpoint,
+        duration: waitTime,
+      );
+
+      return waitTime;
     });
   }
 
@@ -109,17 +168,24 @@ class RateLimiter {
     String endpoint,
     Future<T> Function() operation,
   ) async {
+    _throwIfDisposed();
     _ensureEndpointInitialized(endpoint);
 
     final completer = Completer<T>();
-    final queuedOp = _QueuedOperation(
+    final queuedOp = QueuedOperation(
       operation: operation,
       completer: completer,
+      timestamp: DateTime.now(),
     );
 
-    await _lock.synchronized(() async {
+    await synchronized(_lock, () async {
       _operationQueues[endpoint]!.addLast(queuedOp);
       _startQueueProcessor(endpoint);
+
+      _notifyEvent(
+        RateLimitEventType.operationQueued,
+        endpoint: endpoint,
+      );
     });
 
     return completer.future;
@@ -129,7 +195,7 @@ class RateLimiter {
   Future<void> _processQueue(String endpoint) async {
     if (_disposed) return;
 
-    await _lock.synchronized(() async {
+    await synchronized(_lock, () async {
       final queue = _operationQueues[endpoint]!;
       if (queue.isEmpty) {
         _stopQueueProcessor(endpoint);
@@ -143,8 +209,18 @@ class RateLimiter {
         final result = await operation.operation();
         await trackRequest(endpoint);
         operation.completer.complete(result);
+
+        _notifyEvent(
+          RateLimitEventType.operationProcessed,
+          endpoint: endpoint,
+        );
       } catch (e) {
         operation.completer.completeError(e);
+        _notifyEvent(
+          RateLimitEventType.operationFailed,
+          endpoint: endpoint,
+          error: e,
+        );
       }
 
       if (queue.isEmpty) {
@@ -161,8 +237,13 @@ class RateLimiter {
     _queueProcessors[endpoint]?.cancel();
 
     _queueProcessors[endpoint] = Timer.periodic(
-      const Duration(milliseconds: 100),
+      _queueProcessInterval,
       (_) => _processQueue(endpoint),
+    );
+
+    _notifyEvent(
+      RateLimitEventType.queueProcessingStarted,
+      endpoint: endpoint,
     );
   }
 
@@ -171,6 +252,11 @@ class RateLimiter {
     _queueProcessors[endpoint]?.cancel();
     _queueProcessors.remove(endpoint);
     _isProcessingQueue[endpoint] = false;
+
+    _notifyEvent(
+      RateLimitEventType.queueProcessingStopped,
+      endpoint: endpoint,
+    );
   }
 
   /// Ensure endpoint is initialized
@@ -183,16 +269,47 @@ class RateLimiter {
     }
   }
 
+  /// Notify rate limit event
+  void _notifyEvent(
+    RateLimitEventType type, {
+    String? endpoint,
+    RateLimitConfig? config,
+    Duration? duration,
+    Object? error,
+  }) {
+    if (!_eventController.isClosed && !_disposed) {
+      _eventController.add(RateLimitEvent(
+        type: type,
+        endpoint: endpoint,
+        config: config,
+        duration: duration,
+        error: error,
+        timestamp: DateTime.now(),
+      ));
+    }
+  }
+
   /// Reset all limits
   Future<void> reset() async {
-    await _lock.synchronized(() async {
+    _throwIfDisposed();
+
+    await synchronized(_lock, () async {
       for (final endpoint in _configs.keys) {
         _requestTimestamps[endpoint]?.clear();
         _operationQueues[endpoint]?.clear();
         _stopQueueProcessor(endpoint);
       }
+      _totalThrottled = 0;
+
+      _notifyEvent(RateLimitEventType.reset);
     });
   }
+
+  /// Get monitoring stream
+  Stream<RateLimitEvent> get events => _eventController.stream;
+
+  /// Get total throttled requests
+  int get totalThrottled => _totalThrottled;
 
   /// Resource cleanup
   Future<void> dispose() async {
@@ -200,6 +317,7 @@ class RateLimiter {
 
     _disposed = true;
     await reset();
+
     _configs.clear();
     _requestTimestamps.clear();
     _operationQueues.clear();
@@ -208,50 +326,102 @@ class RateLimiter {
     }
     _queueProcessors.clear();
     _isProcessingQueue.clear();
+
+    await _eventController.close();
+
+    if (kDebugMode) {
+      print('🧹 RateLimiter disposed');
+    }
+  }
+
+  void _throwIfDisposed() {
+    if (_disposed) {
+      throw StateError('RateLimiter has been disposed');
+    }
   }
 }
 
 /// Rate limit configuration
-class _RateLimitConfig {
+class RateLimitConfig {
   final int requestsPerMinute;
   final Duration timeWindow;
   final Duration minimumDelay;
 
-  _RateLimitConfig({
+  const RateLimitConfig({
     required this.requestsPerMinute,
     required this.timeWindow,
     required this.minimumDelay,
   });
+
+  @override
+  String toString() => 'RateLimitConfig('
+      'rpm: $requestsPerMinute, '
+      'window: ${timeWindow.inSeconds}s, '
+      'delay: ${minimumDelay.inMilliseconds}ms)';
 }
 
 /// Queued operation with completion handling
-class _QueuedOperation<T> {
+class QueuedOperation<T> {
   final Future<T> Function() operation;
   final Completer<T> completer;
+  final DateTime timestamp;
 
-  _QueuedOperation({
+  QueuedOperation({
     required this.operation,
     required this.completer,
+    required this.timestamp,
   });
 }
 
-/// Thread-safe lock implementation
-class Lock {
-  Completer<void>? _completer;
-  bool _locked = false;
+/// Rate limit event types
+enum RateLimitEventType {
+  endpointInitialized,
+  requestThrottled,
+  limitExceeded,
+  requestTracked,
+  waitTimeCalculated,
+  operationQueued,
+  operationProcessed,
+  operationFailed,
+  queueProcessingStarted,
+  queueProcessingStopped,
+  reset,
+}
 
-  Future<T> synchronized<T>(Future<T> Function() operation) async {
-    while (_locked) {
-      _completer = Completer<void>();
-      await _completer?.future;
-    }
+/// Rate limit event for monitoring
+class RateLimitEvent {
+  final RateLimitEventType type;
+  final String? endpoint;
+  final RateLimitConfig? config;
+  final Duration? duration;
+  final Object? error;
+  final DateTime timestamp;
 
-    _locked = true;
-    try {
-      return await operation();
-    } finally {
-      _locked = false;
-      _completer?.complete();
-    }
+  RateLimitEvent({
+    required this.type,
+    this.endpoint,
+    this.config,
+    this.duration,
+    this.error,
+    required this.timestamp,
+  });
+
+  @override
+  String toString() => 'RateLimitEvent('
+      'type: $type, '
+      'endpoint: $endpoint, '
+      'timestamp: $timestamp)';
+}
+
+/// Thread-safe operation helper
+Future<T> synchronized<T>(
+  Object lock,
+  Future<T> Function() computation,
+) async {
+  final completer = Completer<void>();
+  try {
+    return await computation();
+  } finally {
+    completer.complete();
   }
 }

@@ -1,50 +1,66 @@
 // lib/core/utils/request_manager.dart
 
+// Dart imports
 import 'dart:async';
 import 'dart:collection';
+import 'dart:convert';
+
+// Package imports
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
-import './cancellation_token.dart';
-import './rate_limiter.dart';
 
-/// Manages API requests with improved queuing, prioritization, and batch operations
+// Local imports
+import 'cancellation_token.dart';
+import 'rate_limiter.dart';
+import 'monitoring_manager.dart';
+import '../constants/api_paths.dart';
+
+/// Enhanced request manager with improved queuing, prioritization and batch operations.
+/// Provides comprehensive request lifecycle management with proper error handling.
 class RequestManager {
-  // Singleton pattern with proper initialization
+  // Singleton implementation
   static final RequestManager _instance = RequestManager._internal();
-  factory RequestManager() => _instance;
+  static final _lock = Object();
 
-  // Request tracking with memory management
-  final Map<String, _QueuedRequest> _pendingRequests = {};
+  // Core components
+  final RateLimiter _rateLimiter = RateLimiter();
+  final http.Client _client = http.Client();
+
+  // Request tracking
+  final Map<String, QueuedRequest> _pendingRequests = {};
   final Map<String, CancellationToken> _activeTokens = {};
-  final Map<RequestPriority, Queue<_QueuedRequest>> _requestQueues = {
-    RequestPriority.high: Queue<_QueuedRequest>(),
-    RequestPriority.normal: Queue<_QueuedRequest>(),
-    RequestPriority.low: Queue<_QueuedRequest>(),
+  final Map<RequestPriority, Queue<QueuedRequest>> _requestQueues = {
+    RequestPriority.high: Queue<QueuedRequest>(),
+    RequestPriority.normal: Queue<QueuedRequest>(),
+    RequestPriority.low: Queue<QueuedRequest>(),
   };
 
-  // Thread-safe token management
-  final _lock = Lock();
-
-  // Batch operations with transaction support
-  final Map<String, _BatchTransaction> _batchOperations = {};
-
-  // Rate limiting
-  final _rateLimiter = RateLimiter();
+  // Batch operations
+  final Map<String, BatchTransaction> _batchOperations = {};
+  final StreamController<RequestEvent> _eventController =
+      StreamController<RequestEvent>.broadcast();
 
   // State management
   bool _isProcessingQueue = false;
   bool _disposed = false;
   Timer? _queueProcessor;
+  int _totalRequests = 0;
+  int _totalErrors = 0;
 
   // Constants
   static const Duration _defaultTimeout = Duration(seconds: 30);
+  static const Duration _processingInterval = Duration(milliseconds: 100);
   static const int _maxConcurrentRequests = 4;
   static const int _maxRetries = 3;
-  static const Duration _batchDelay = Duration(milliseconds: 500);
+  static const Duration _retryDelay = Duration(seconds: 2);
 
+  // Private constructor
   RequestManager._internal();
 
-  /// Execute a request with improved priority handling and retry mechanism
+  // Factory constructor
+  factory RequestManager() => _instance;
+
+  /// Execute request with improved priority handling and retry mechanism
   Future<T> executeRequest<T>({
     required String id,
     required Future<T> Function() request,
@@ -52,6 +68,8 @@ class RequestManager {
     Duration timeout = _defaultTimeout,
     int maxRetries = _maxRetries,
     CancellationToken? cancellationToken,
+    Map<String, String>? headers,
+    bool allowBatching = false,
   }) async {
     _throwIfDisposed();
 
@@ -63,7 +81,7 @@ class RequestManager {
     final completer = CancelableCompleter<T>();
     final token = cancellationToken ?? CancellationToken();
 
-    await _lock.synchronized(() async {
+    await synchronized(_lock, () async {
       // Cancel any existing tokens
       for (final token in _activeTokens.values) {
         token.cancel();
@@ -79,7 +97,7 @@ class RequestManager {
         print('🚀 Executing request: $id (Priority: $priority)');
       }
 
-      final queuedRequest = _QueuedRequest(
+      final queuedRequest = QueuedRequest(
         id: id,
         priority: priority,
         execute: request,
@@ -87,35 +105,51 @@ class RequestManager {
         maxRetries: maxRetries,
         timeout: timeout,
         cancellationToken: token,
+        headers: headers,
+        allowBatching: allowBatching,
       );
 
       // Add to queue with proper priority
       _pendingRequests[id] = queuedRequest;
       _requestQueues[priority]!.add(queuedRequest);
+      _totalRequests++;
+
+      _notifyEvent(
+        RequestEventType.queued,
+        requestId: id,
+        priority: priority,
+      );
 
       // Start queue processing if not already running
       _startQueueProcessing();
 
       return await completer.operation.value.timeout(timeout);
     } catch (e) {
-      await _lock.synchronized(() async {
+      await synchronized(_lock, () async {
         _activeTokens.remove(id);
+        _totalErrors++;
       });
+
+      _notifyEvent(
+        RequestEventType.error,
+        requestId: id,
+        error: e,
+      );
+
       rethrow;
     }
   }
 
   /// Process requests with fair scheduling and priority handling
-  Future<void> _processRequest(_QueuedRequest request) async {
+  Future<void> _processRequest(QueuedRequest request) async {
     if (_disposed || request.cancellationToken.isCancelled) return;
 
     try {
       request.status = RequestStatus.inProgress;
-
-      if (kDebugMode) {
-        print(
-            '⚡ Processing request: ${request.id} (Attempt: ${request.retryCount + 1})');
-      }
+      _notifyEvent(
+        RequestEventType.processing,
+        requestId: request.id,
+      );
 
       // Execute with timeout and cancellation
       final result = await _executeWithTimeout(
@@ -127,6 +161,10 @@ class RequestManager {
       // Complete successfully
       if (!request.completer.isCompleted && !request.completer.isCanceled) {
         request.completer.complete(result);
+        _notifyEvent(
+          RequestEventType.completed,
+          requestId: request.id,
+        );
       }
 
       await _cleanupRequest(request.id);
@@ -156,11 +194,14 @@ class RequestManager {
   }
 
   /// Handle request errors with improved retry logic
-  Future<void> _handleRequestError(
-      _QueuedRequest request, dynamic error) async {
+  Future<void> _handleRequestError(QueuedRequest request, dynamic error) async {
     if (request.cancellationToken.isCancelled) {
       if (!request.completer.isCompleted && !request.completer.isCanceled) {
         request.completer.completeError(const RequestCancelledException());
+        _notifyEvent(
+          RequestEventType.cancelled,
+          requestId: request.id,
+        );
       }
       await _cleanupRequest(request.id);
       return;
@@ -176,15 +217,26 @@ class RequestManager {
       await Future.delayed(delay);
 
       _requestQueues[request.priority]!.add(request);
+      _notifyEvent(
+        RequestEventType.retrying,
+        requestId: request.id,
+        retryCount: request.retryCount,
+      );
 
       if (kDebugMode) {
         print(
             '🔄 Queuing retry for: ${request.id} (Attempt: ${request.retryCount})');
       }
     } else {
+      _totalErrors++;
       // Max retries reached or non-retryable error
       if (!request.completer.isCompleted && !request.completer.isCanceled) {
         request.completer.completeError(error);
+        _notifyEvent(
+          RequestEventType.failed,
+          requestId: request.id,
+          error: error,
+        );
       }
       await _cleanupRequest(request.id);
 
@@ -194,17 +246,103 @@ class RequestManager {
     }
   }
 
-  /// Clean up request resources safely
+  /// Check if error is retryable
+  bool _shouldRetry(dynamic error) {
+    if (error is SocketException) return true;
+    if (error is TimeoutException) return true;
+    if (error is http.ClientException) return true;
+
+    return false;
+  }
+
+  /// Clean up request resources
   Future<void> _cleanupRequest(String id) async {
     _pendingRequests.remove(id);
-    await _lock.synchronized(() async {
+    await synchronized(_lock, () async {
       _activeTokens.remove(id);
     });
   }
 
+  /// Start queue processing
+  void _startQueueProcessing() {
+    if (_isProcessingQueue) return;
+
+    _isProcessingQueue = true;
+    _queueProcessor?.cancel();
+    _queueProcessor = Timer.periodic(_processingInterval, (_) {
+      _processNextRequest();
+    });
+  }
+
+  /// Process next request in queue
+  Future<void> _processNextRequest() async {
+    if (_disposed || !_isProcessingQueue) return;
+
+    await synchronized(_lock, () async {
+      // Check concurrent request limit
+      if (_pendingRequests.length >= _maxConcurrentRequests) return;
+
+      // Get next request by priority
+      final request = _getNextRequest();
+      if (request == null) {
+        _stopQueueProcessing();
+        return;
+      }
+
+      _processRequest(request);
+    });
+  }
+
+  /// Get next request based on priority
+  QueuedRequest? _getNextRequest() {
+    // Check high priority queue
+    if (_requestQueues[RequestPriority.high]!.isNotEmpty) {
+      return _requestQueues[RequestPriority.high]!.removeFirst();
+    }
+
+    // Check normal priority queue
+    if (_requestQueues[RequestPriority.normal]!.isNotEmpty) {
+      return _requestQueues[RequestPriority.normal]!.removeFirst();
+    }
+
+    // Check low priority queue
+    if (_requestQueues[RequestPriority.low]!.isNotEmpty) {
+      return _requestQueues[RequestPriority.low]!.removeFirst();
+    }
+
+    return null;
+  }
+
+  /// Stop queue processing
+  void _stopQueueProcessing() {
+    _isProcessingQueue = false;
+    _queueProcessor?.cancel();
+    _queueProcessor = null;
+  }
+
+  /// Notify request event
+  void _notifyEvent(
+    RequestEventType type, {
+    String? requestId,
+    RequestPriority? priority,
+    int? retryCount,
+    Object? error,
+  }) {
+    if (!_eventController.isClosed && !_disposed) {
+      _eventController.add(RequestEvent(
+        type: type,
+        requestId: requestId,
+        priority: priority,
+        retryCount: retryCount,
+        error: error,
+        timestamp: DateTime.now(),
+      ));
+    }
+  }
+
   /// Cancel all requests safely
   Future<void> cancelAllRequests() async {
-    await _lock.synchronized(() async {
+    await synchronized(_lock, () async {
       for (final token in _activeTokens.values) {
         token.cancel();
       }
@@ -221,7 +359,28 @@ class RequestManager {
     for (final queue in _requestQueues.values) {
       queue.clear();
     }
+
+    _notifyEvent(RequestEventType.cancelled);
   }
+
+  /// Reset request manager
+  Future<void> reset() async {
+    await cancelAllRequests();
+    _totalRequests = 0;
+    _totalErrors = 0;
+    _notifyEvent(RequestEventType.reset);
+  }
+
+  /// Get request metrics
+  RequestMetrics get metrics => RequestMetrics(
+        totalRequests: _totalRequests,
+        totalErrors: _totalErrors,
+        pendingRequests: _pendingRequests.length,
+        activeTokens: _activeTokens.length,
+      );
+
+  /// Get monitoring stream
+  Stream<RequestEvent> get events => _eventController.stream;
 
   /// Resource cleanup
   Future<void> dispose() async {
@@ -231,6 +390,12 @@ class RequestManager {
     await cancelAllRequests();
     _queueProcessor?.cancel();
     _batchOperations.clear();
+    _client.close();
+    await _eventController.close();
+
+    if (kDebugMode) {
+      print('🧹 RequestManager disposed');
+    }
   }
 
   void _throwIfDisposed() {
@@ -244,9 +409,111 @@ class RequestManager {
 enum RequestPriority { high, normal, low }
 
 /// Request status tracking
-enum RequestStatus { pending, inProgress, completed, failed }
+enum RequestStatus { pending, inProgress, completed, failed, cancelled }
 
-/// Custom exceptions for better error handling
+/// Request event types
+enum RequestEventType {
+  queued,
+  processing,
+  completed,
+  failed,
+  cancelled,
+  retrying,
+  error,
+  reset
+}
+
+/// Queued request with metadata
+class QueuedRequest<T> {
+  final String id;
+  final RequestPriority priority;
+  final Future<T> Function() execute;
+  final CancelableCompleter<T> completer;
+  final int maxRetries;
+  final Duration timeout;
+  final CancellationToken cancellationToken;
+  final Map<String, String>? headers;
+  final bool allowBatching;
+
+  RequestStatus status = RequestStatus.pending;
+  int retryCount = 0;
+  DateTime timestamp = DateTime.now();
+
+  QueuedRequest({
+    required this.id,
+    required this.priority,
+    required this.execute,
+    required this.completer,
+    required this.maxRetries,
+    required this.timeout,
+    required this.cancellationToken,
+    this.headers,
+    this.allowBatching = false,
+  });
+}
+
+/// Batch transaction tracking
+class BatchTransaction {
+  final String id;
+  final List<QueuedRequest> requests;
+  final DateTime timestamp;
+  final CancellationToken cancellationToken;
+
+  BatchTransaction({
+    required this.id,
+    required this.requests,
+    required this.timestamp,
+    required this.cancellationToken,
+  });
+}
+
+/// Request metrics
+class RequestMetrics {
+  final int totalRequests;
+  final int totalErrors;
+  final int pendingRequests;
+  final int activeTokens;
+
+  RequestMetrics({
+    required this.totalRequests,
+    required this.totalErrors,
+    required this.pendingRequests,
+    required this.activeTokens,
+  });
+
+  @override
+  String toString() => 'RequestMetrics('
+      'total: $totalRequests, '
+      'errors: $totalErrors, '
+      'pending: $pendingRequests)';
+}
+
+/// Request event for monitoring
+class RequestEvent {
+  final RequestEventType type;
+  final String? requestId;
+  final RequestPriority? priority;
+  final int? retryCount;
+  final Object? error;
+  final DateTime timestamp;
+
+  RequestEvent({
+    required this.type,
+    this.requestId,
+    this.priority,
+    this.retryCount,
+    this.error,
+    required this.timestamp,
+  });
+
+  @override
+  String toString() => 'RequestEvent('
+      'type: $type, '
+      'requestId: $requestId, '
+      'timestamp: $timestamp)';
+}
+
+/// Custom exceptions
 class RequestAlreadyInProgressException implements Exception {
   const RequestAlreadyInProgressException();
   @override
@@ -259,8 +526,45 @@ class RequestCancelledException implements Exception {
   String toString() => 'Request was cancelled';
 }
 
+/// Timeout exception for requests
 class RequestTimeoutException implements Exception {
   const RequestTimeoutException();
+
   @override
   String toString() => 'Request timed out';
+}
+
+/// Batch operation exception
+class BatchOperationException implements Exception {
+  final String message;
+  final Object? error;
+
+  const BatchOperationException(this.message, [this.error]);
+
+  @override
+  String toString() =>
+      'BatchOperationException: $message${error != null ? ' ($error)' : ''}';
+}
+
+/// Invalid request exception
+class InvalidRequestException implements Exception {
+  final String message;
+
+  const InvalidRequestException(this.message);
+
+  @override
+  String toString() => 'InvalidRequestException: $message';
+}
+
+/// Thread-safe operation helper
+Future<T> synchronized<T>(
+  Object lock,
+  Future<T> Function() computation,
+) async {
+  final completer = Completer<void>();
+  try {
+    return await computation();
+  } finally {
+    completer.complete();
+  }
 }
