@@ -1,146 +1,187 @@
 // lib/core/constants/api_paths.dart
 
-/// API path constants with validation, versioning and proper organization
+import 'dart:core';
+import 'package:flutter/foundation.dart';
+
+/// Complete API path management with validation, versioning and organization
 class ApiPaths {
-  // Base URLs with version control
-  static const String apiVersion = 'v2';
-  static const String pokeApiBase = 'https://pokeapi.co/api/$apiVersion';
-  static const String pokeApiSprites =
+  // API Configuration
+  static const String kApiVersion = 'v2';
+  static const String kBaseUrl = 'https://pokeapi.co/api/$kApiVersion';
+  static const String kSpritesBaseUrl =
       'https://raw.githubusercontent.com/PokeAPI/sprites/master';
+  static const String kSoundBaseUrl =
+      'https://play.pokemonshowdown.com/audio/cries';
 
-  // Core API endpoints with validation
-  static const String pokemonList = '/pokemon';
-  static const String pokemonDetail = '/pokemon/{id}';
-  static const String pokemonSpecies = '/pokemon-species/{id}';
-  static const String evolutionChain = '/evolution-chain/{id}';
-  static const String pokemonMove = '/move/{id}';
-  static const String pokemonType = '/type/{id}';
-  static const String pokemonAbility = '/ability/{id}';
+  // Core Endpoints
+  static const String kPokemon = '/pokemon';
+  static const String kPokemonSpecies = '/pokemon-species';
+  static const String kEvolutionChain = '/evolution-chain';
+  static const String kMove = '/move';
+  static const String kAbility = '/ability';
+  static const String kType = '/type';
+  static const String kItem = '/item';
+  static const String kLocation = '/location';
+  static const String kNature = '/nature';
+  static const String kEggGroup = '/egg-group';
 
-  // Media URLs with validation
+  // Firebase Collections
+  static const String kUsersCollection = 'users';
+  static const String kFavoritesCollection = 'favorites';
+  static const String kSettingsCollection = 'settings';
+  static const String kCacheCollection = 'cache';
+
+  // Cache Keys
+  static const String kPokemonListKey = 'pokemon_list';
+  static const String kTypeChartKey = 'type_chart';
+  static const String kAbilityListKey = 'ability_list';
+  static const String kMoveListKey = 'move_list';
+  static const String kItemListKey = 'item_list';
+  static const String kLocationListKey = 'location_list';
+  static const String kNatureListKey = 'nature_list';
+
+  // API Limits & Timeouts
+  static const Duration kRequestTimeout = Duration(seconds: 30);
+  static const Duration kCacheExpiration = Duration(hours: 24);
+  static const int kMaxRequestRetries = 3;
+  static const int kMaxConcurrentRequests = 5;
+  static const int kItemsPerPage = 20;
+  static const int kMaxCacheSize = 5 * 1024 * 1024; // 5MB
+
+  /// Get Pokemon detail endpoint
+  static String getPokemonEndpoint(String idOrName) {
+    assert(idOrName.isNotEmpty, 'Pokemon ID or name cannot be empty');
+    return '$kBaseUrl$kPokemon/$idOrName';
+  }
+
+  /// Get Pokemon species endpoint
+  static String getPokemonSpeciesEndpoint(String idOrName) {
+    assert(idOrName.isNotEmpty, 'Pokemon ID or name cannot be empty');
+    return '$kBaseUrl$kPokemonSpecies/$idOrName';
+  }
+
+  /// Get evolution chain endpoint
+  static String getEvolutionChainEndpoint(int id) {
+    assert(id > 0, 'Evolution chain ID must be positive');
+    return '$kBaseUrl$kEvolutionChain/$id';
+  }
+
+  /// Get move endpoint
+  static String getMoveEndpoint(String idOrName) {
+    assert(idOrName.isNotEmpty, 'Move ID or name cannot be empty');
+    return '$kBaseUrl$kMove/$idOrName';
+  }
+
+  /// Get ability endpoint
+  static String getAbilityEndpoint(String idOrName) {
+    assert(idOrName.isNotEmpty, 'Ability ID or name cannot be empty');
+    return '$kBaseUrl$kAbility/$idOrName';
+  }
+
+  /// Get type endpoint
+  static String getTypeEndpoint(String type) {
+    assert(type.isNotEmpty, 'Type cannot be empty');
+    return '$kBaseUrl$kType/$type';
+  }
+
+  /// Get item endpoint
+  static String getItemEndpoint(String idOrName) {
+    assert(idOrName.isNotEmpty, 'Item ID or name cannot be empty');
+    return '$kBaseUrl$kItem/$idOrName';
+  }
+
+  /// Get location endpoint
+  static String getLocationEndpoint(String idOrName) {
+    assert(idOrName.isNotEmpty, 'Location ID or name cannot be empty');
+    return '$kBaseUrl$kLocation/$idOrName';
+  }
+
+  /// Get nature endpoint
+  static String getNatureEndpoint(String nature) {
+    assert(nature.isNotEmpty, 'Nature cannot be empty');
+    return '$kBaseUrl$kNature/$nature';
+  }
+
+  /// Get egg group endpoint
+  static String getEggGroupEndpoint(String group) {
+    assert(group.isNotEmpty, 'Egg group cannot be empty');
+    return '$kBaseUrl$kEggGroup/$group';
+  }
+
+  /// Get official artwork URL
   static String getOfficialArtwork(int pokemonId) {
     assert(pokemonId > 0, 'Pokemon ID must be positive');
-    return '$pokeApiSprites/sprites/pokemon/other/official-artwork/$pokemonId.png';
+    return '$kSpritesBaseUrl/sprites/pokemon/other/official-artwork/$pokemonId.png';
   }
 
-  static String getPokemonSprite(int pokemonId) {
+  /// Get shiny official artwork URL
+  static String getShinyOfficialArtwork(int pokemonId) {
     assert(pokemonId > 0, 'Pokemon ID must be positive');
-    return '$pokeApiSprites/sprites/pokemon/$pokemonId.png';
+    return '$kSpritesBaseUrl/sprites/pokemon/other/official-artwork/shiny/$pokemonId.png';
   }
 
-  static String getShinySprite(int pokemonId) {
+  /// Get Pokemon cry sound URL
+  static String getPokemonCry(int pokemonId) {
     assert(pokemonId > 0, 'Pokemon ID must be positive');
-    return '$pokeApiSprites/sprites/pokemon/shiny/$pokemonId.png';
+    return '$kSoundBaseUrl/$pokemonId.mp3';
   }
 
-  // Firebase Collections with security rules
-  static const String usersCollection = 'users';
-  static const String favoritesCollection = 'favorites';
-  static const String settingsCollection = 'settings';
-
-  // Firebase Document Paths with validation
-  static String userDocument(String uid) {
-    assert(uid.isNotEmpty, 'UID cannot be empty');
-    return 'users/$uid';
+  /// Get user document path
+  static String getUserDocument(String uid) {
+    assert(uid.isNotEmpty, 'User ID cannot be empty');
+    return '$kUsersCollection/$uid';
   }
 
-  static String userFavorites(String uid) {
-    assert(uid.isNotEmpty, 'UID cannot be empty');
-    return 'users/$uid/favorites';
+  /// Get user favorites path
+  static String getUserFavorites(String uid) {
+    assert(uid.isNotEmpty, 'User ID cannot be empty');
+    return '$kUsersCollection/$uid/$kFavoritesCollection';
   }
 
-  static String userSettings(String uid) {
-    assert(uid.isNotEmpty, 'UID cannot be empty');
-    return 'users/$uid/settings';
+  /// Get user settings path
+  static String getUserSettings(String uid) {
+    assert(uid.isNotEmpty, 'User ID cannot be empty');
+    return '$kUsersCollection/$uid/$kSettingsCollection';
   }
 
-  // API Request Helper Methods with validation
-  static String pokemonDetailPath(String idOrName) {
-    assert(idOrName.isNotEmpty, 'ID or name cannot be empty');
-    return pokemonDetail.replaceAll('{id}', idOrName);
-  }
-
-  static String pokemonSpeciesPath(String idOrName) {
-    assert(idOrName.isNotEmpty, 'ID or name cannot be empty');
-    return pokemonSpecies.replaceAll('{id}', idOrName);
-  }
-
-  static String evolutionChainPath(String id) {
-    assert(id.isNotEmpty, 'ID cannot be empty');
-    return evolutionChain.replaceAll('{id}', id);
-  }
-
-  static String pokemonMovePath(String id) {
-    assert(id.isNotEmpty, 'ID cannot be empty');
-    return pokemonMove.replaceAll('{id}', id);
-  }
-
-  static String pokemonTypePath(String id) {
-    assert(id.isNotEmpty, 'ID cannot be empty');
-    return pokemonType.replaceAll('{id}', id);
-  }
-
-  static String pokemonAbilityPath(String id) {
-    assert(id.isNotEmpty, 'ID cannot be empty');
-    return pokemonAbility.replaceAll('{id}', id);
-  }
-
-  // Pagination Parameters with constraints
-  static const int defaultLimit = 20;
-  static const int maxLimit = 100;
-
-  // Cache Keys with validation
-  static String pokemonListCacheKey(int offset, int limit) {
+  /// Get cache key for Pokemon list
+  static String getPokemonListCacheKey(int offset, int limit) {
     assert(offset >= 0, 'Offset must be non-negative');
-    assert(limit > 0 && limit <= maxLimit, 'Invalid limit value');
-    return 'pokemon_list_${offset}_$limit';
+    assert(limit > 0 && limit <= kItemsPerPage, 'Invalid limit value');
+    return '${kPokemonListKey}_${offset}_$limit';
   }
 
-  static String pokemonDetailCacheKey(String idOrName) {
-    assert(idOrName.isNotEmpty, 'ID or name cannot be empty');
+  /// Get cache key for Pokemon detail
+  static String getPokemonDetailCacheKey(String idOrName) {
+    assert(idOrName.isNotEmpty, 'Pokemon ID or name cannot be empty');
     return 'pokemon_detail_$idOrName';
   }
 
-  static String evolutionChainCacheKey(String id) {
-    assert(id.isNotEmpty, 'ID cannot be empty');
+  /// Get cache key for evolution chain
+  static String getEvolutionChainCacheKey(int id) {
+    assert(id > 0, 'Evolution chain ID must be positive');
     return 'evolution_chain_$id';
   }
 
-  // Error Paths with fallbacks
-  static const String defaultErrorImage = 'assets/images/error_pokemon.png';
-  static const String placeholderImage =
+  // Error & Fallback Paths
+  static const String kErrorImage = 'assets/images/error_pokemon.png';
+  static const String kPlaceholderImage =
       'assets/images/placeholder_pokemon.png';
-
-  // Deep Link Paths with validation
-  static const String deepLinkPrefix = 'pokedex://';
-
-  static String pokemonDeepLink(int id) {
-    assert(id > 0, 'Pokemon ID must be positive');
-    return '${deepLinkPrefix}pokemon/$id';
-  }
-
-  static String favoriteDeepLink(String uid) {
-    assert(uid.isNotEmpty, 'UID cannot be empty');
-    return '${deepLinkPrefix}favorites/$uid';
-  }
-
-  // API Rate Limits
-  static const int publicApiLimit = 100;
-  static const int authenticatedApiLimit = 1000;
-
-  // Connection Timeouts (milliseconds)
-  static const int connectionTimeout = 10000;
-  static const int receiveTimeout = 15000;
-  static const int sendTimeout = 10000;
-
-  // Cache Duration (hours)
-  static const int cacheDuration = 24;
-
-  // Offline Data Keys
-  static const String offlinePokemonList = 'offline_pokemon_list';
-  static const String offlineFavorites = 'offline_favorites';
-  static const String offlineUserData = 'offline_user_data';
+  static const String kLoadingImage = 'assets/images/loading_pokemon.gif';
 
   // Private constructor to prevent instantiation
   const ApiPaths._();
+
+  /// Validate URL string
+  static bool isValidUrl(String url) {
+    try {
+      final uri = Uri.parse(url);
+      return uri.isAbsolute;
+    } catch (e) {
+      if (kDebugMode) {
+        print('Invalid URL: $url');
+      }
+      return false;
+    }
+  }
 }
