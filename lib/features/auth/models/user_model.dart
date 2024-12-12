@@ -3,7 +3,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart' hide UserInfo;
 import 'package:flutter/foundation.dart';
-import 'package:json_annotation/json_annotation.dart';
 
 /// Enhanced user model with proper validation, immutability and type safety
 @immutable

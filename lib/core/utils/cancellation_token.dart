@@ -7,8 +7,6 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 // Local imports
-import 'request_manager.dart';
-import 'monitoring_manager.dart';
 
 /// Enhanced cancellation token with timeout and chaining capabilities.
 /// Provides proper resource management and error handling.

@@ -149,8 +149,8 @@ class FirebaseConfig {
         _checkFirestoreHealth(),
       ], eagerError: true);
 
-      final authOk = results[0] as bool;
-      final firestoreOk = results[1] as bool;
+      final authOk = results[0];
+      final firestoreOk = results[1];
 
       _authStatusController.add(authOk);
       _firestoreStatusController.add(firestoreOk);
@@ -316,10 +316,6 @@ Future<T> synchronized<T>(
   Object lock,
   Future<T> Function() computation,
 ) async {
-  if (computation == null) {
-    throw ArgumentError.notNull('computation');
-  }
-
   final completer = Completer<void>();
   try {
     final result = await computation();

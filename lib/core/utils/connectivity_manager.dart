@@ -147,8 +147,9 @@ class ConnectivityManager {
 
   /// Check current connectivity with quality testing
   Future<bool> checkConnectivity() async {
-    if (!_isInitialized)
+    if (!_isInitialized) {
       throw StateError('ConnectivityManager not initialized');
+    }
     if (_isDisposed) throw StateError('ConnectivityManager has been disposed');
 
     try {

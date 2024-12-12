@@ -251,7 +251,9 @@ class QueueManager<T> {
   Future<void> clear() async {
     await synchronized(_processLock, () async {
       _queue.clear();
-      _priorityQueues.values.forEach((q) => q.clear());
+      for (var q in _priorityQueues.values) {
+        q.clear();
+      }
       _currentBatch.clear();
       _batchTimer?.cancel();
 
@@ -452,7 +454,9 @@ class QueueManager<T> {
     ]);
 
     _queue.clear();
-    _priorityQueues.values.forEach((q) => q.clear());
+    for (var q in _priorityQueues.values) {
+      q.clear();
+    }
     _currentBatch.clear();
     _activeTasks.clear();
     _instances.remove(T);

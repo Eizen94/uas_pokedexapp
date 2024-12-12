@@ -6,16 +6,13 @@ import 'dart:convert';
 
 // Package imports
 import 'package:flutter/foundation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 
 // Local imports
-import '../constants/api_paths.dart';
 import 'connectivity_manager.dart';
 import 'request_manager.dart';
 import 'prefs_helper.dart';
 import 'cancellation_token.dart';
-import 'monitoring_manager.dart';
 
 /// Enhanced sync manager for data synchronization and offline operations.
 /// Provides comprehensive sync lifecycle management with proper error handling.

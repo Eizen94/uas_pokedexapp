@@ -8,11 +8,8 @@ import 'dart:convert';
 // Package imports
 import 'package:flutter/foundation.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 // Local imports
-import 'connectivity_manager.dart';
-import 'request_manager.dart';
 import 'prefs_helper.dart';
 import '../constants/api_paths.dart';
 

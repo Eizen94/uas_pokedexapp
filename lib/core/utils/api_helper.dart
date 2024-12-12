@@ -325,10 +325,10 @@ class ApiHelper {
     if (memoryData != null) return memoryData;
 
     try {
-      final cachedData = await _prefsHelper.get<String>(key);
-      final timestamp = await _prefsHelper.get<int>('${key}_timestamp');
+      final cachedData = _prefsHelper.get<String>(key);
+      final timestamp = _prefsHelper.get<int>('${key}_timestamp');
       final isCompressed =
-          await _prefsHelper.get<bool>('${key}_compressed') ?? false;
+          _prefsHelper.get<bool>('${key}_compressed') ?? false;
 
       if (cachedData != null && timestamp != null) {
         final age = DateTime.now().difference(
@@ -389,7 +389,7 @@ class ApiHelper {
       for (final key in keys) {
         if (!key.endsWith('_timestamp')) continue;
 
-        final timestamp = await _prefsHelper.get<int>(key);
+        final timestamp = _prefsHelper.get<int>(key);
         if (timestamp == null) continue;
 
         final age = now.difference(

@@ -9,7 +9,6 @@ import 'package:flutter/foundation.dart';
 
 // Local imports
 import '../constants/api_paths.dart';
-import 'monitoring_manager.dart';
 
 /// Enhanced rate limiter with precise rate control and resource management.
 /// Provides thread-safe rate limiting with proper cleanup and monitoring.

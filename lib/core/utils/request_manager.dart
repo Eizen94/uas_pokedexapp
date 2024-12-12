@@ -3,7 +3,6 @@
 // Dart imports
 import 'dart:async';
 import 'dart:collection';
-import 'dart:convert';
 
 // Package imports
 import 'package:flutter/foundation.dart';
@@ -12,8 +11,6 @@ import 'package:http/http.dart' as http;
 // Local imports
 import 'cancellation_token.dart';
 import 'rate_limiter.dart';
-import 'monitoring_manager.dart';
-import '../constants/api_paths.dart';
 
 /// Enhanced request manager with improved queuing, prioritization and batch operations.
 /// Provides comprehensive request lifecycle management with proper error handling.
