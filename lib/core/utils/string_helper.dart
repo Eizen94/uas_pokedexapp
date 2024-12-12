@@ -2,6 +2,7 @@
 
 // Dart imports
 import 'dart:convert';
+import 'dart:math' as math;
 
 // Package imports
 import 'package:flutter/foundation.dart';

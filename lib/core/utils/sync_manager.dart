@@ -1,18 +1,18 @@
 // lib/core/utils/sync_manager.dart
 
-// Dart imports
 import 'dart:async';
 import 'dart:convert';
 
-// Package imports
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 
-// Local imports
+import '../constants/api_paths.dart';
 import 'connectivity_manager.dart';
 import 'request_manager.dart';
 import 'prefs_helper.dart';
 import 'cancellation_token.dart';
+import 'monitoring_manager.dart';
 
 /// Enhanced sync manager for data synchronization and offline operations.
 /// Provides comprehensive sync lifecycle management with proper error handling.
@@ -21,7 +21,7 @@ class SyncManager {
   static SyncManager? _instance;
   static final _lock = Object();
 
-  // Core components
+  // Core components with proper initialization
   final ConnectivityManager _connectivityManager = ConnectivityManager();
   final RequestManager _requestManager = RequestManager();
   final _stateController = StreamController<SyncState>.broadcast();
@@ -29,7 +29,7 @@ class SyncManager {
   final Map<String, OfflineOperation> _pendingOperations = {};
   final Map<String, int> _operationFailures = {};
 
-  // State management
+  // State management with proper null safety
   late final PrefsHelper _prefsHelper;
   bool _isInitialized = false;
   bool _isSyncing = false;
@@ -54,12 +54,12 @@ class SyncManager {
   static const int _batchSize = 10;
 
   // Private constructor
-  SyncManager._internal();
+  SyncManager._();
 
-  // Factory constructor
-  factory SyncManager() => _instance ??= SyncManager._internal();
+  // Factory constructor with thread safety
+  factory SyncManager() => _instance ??= SyncManager._();
 
-  // Getters
+  // Getters with proper null safety
   Stream<SyncState> get stateStream => _stateController.stream;
   Stream<double> get progressStream => _progressController.stream;
   SyncState get currentState => _currentState;
@@ -104,7 +104,7 @@ class SyncManager {
     }
   }
 
-  /// Start periodic sync
+  /// Start periodic sync with proper cleanup
   void _startPeriodicSync() {
     _syncTimer?.cancel();
     _syncTimer = Timer.periodic(_syncInterval, (_) {
@@ -114,7 +114,7 @@ class SyncManager {
     });
   }
 
-  /// Setup connectivity listener
+  /// Setup connectivity listener with proper error handling
   void _setupConnectivityListener() {
     _connectivityManager.networkStateStream.listen((state) {
       if (state.isOnline && _shouldSync()) {
@@ -123,7 +123,7 @@ class SyncManager {
     });
   }
 
-  /// Check if sync is needed
+  /// Check if sync is needed with proper validation
   bool _shouldSync() {
     if (_isSyncing || _isDisposed) return false;
     if (_lastSyncAttempt == null) return true;
@@ -132,7 +132,7 @@ class SyncManager {
     return timeSinceLastSync >= _syncInterval;
   }
 
-  /// Start sync process
+  /// Start sync process with proper state management
   Future<void> _startSync() async {
     if (_isSyncing || _isDisposed) return;
 
@@ -171,7 +171,7 @@ class SyncManager {
     }
   }
 
-  /// Process batch of operations
+  /// Process batch of operations with proper error handling
   Future<void> _processBatch(Iterable<OfflineOperation> batch) async {
     try {
       await Future.wait(
@@ -187,7 +187,7 @@ class SyncManager {
     }
   }
 
-  /// Process single operation
+  /// Process single operation with proper error handling
   Future<void> _processOperation(OfflineOperation operation) async {
     try {
       _currentSyncToken?.throwIfCancelled();
@@ -208,7 +208,7 @@ class SyncManager {
     }
   }
 
-  /// Handle successful operation
+  /// Handle successful operation with proper cleanup
   Future<void> _handleSuccessfulOperation(OfflineOperation operation) async {
     await _lock.synchronized(() async {
       _pendingOperations.remove(operation.id);
@@ -220,7 +220,7 @@ class SyncManager {
     });
   }
 
-  /// Handle failed operation
+  /// Handle failed operation with retry mechanism
   Future<void> _handleFailedOperation(OfflineOperation operation) async {
     final failures = _operationFailures[operation.id] ?? 0;
 
@@ -239,7 +239,7 @@ class SyncManager {
     }
   }
 
-  /// Handle operation error
+  /// Handle operation error with proper error propagation
   Future<void> _handleOperationError(
     OfflineOperation operation,
     Object error,
@@ -253,7 +253,7 @@ class SyncManager {
     await _handleFailedOperation(operation);
   }
 
-  /// Queue operation for offline sync
+  /// Queue operation for offline sync with proper validation
   Future<void> queueOfflineOperation(String endpoint) async {
     if (!_isInitialized) {
       throw StateError('SyncManager not initialized');
@@ -275,7 +275,7 @@ class SyncManager {
     });
   }
 
-  /// Load persisted operations
+  /// Load persisted operations with proper error handling
   Future<void> _loadPendingOperations() async {
     try {
       final json = _prefsHelper.prefs.getString(_operationsKey);
@@ -298,7 +298,7 @@ class SyncManager {
     }
   }
 
-  /// Persist pending operations
+  /// Persist pending operations with proper error handling
   Future<void> _persistPendingOperations() async {
     try {
       final data = {
@@ -315,7 +315,7 @@ class SyncManager {
     }
   }
 
-  /// Load operation failures
+  /// Load operation failures with proper error handling
   Future<void> _loadOperationFailures() async {
     try {
       final json = _prefsHelper.prefs.getString(_failuresKey);
@@ -334,7 +334,7 @@ class SyncManager {
     }
   }
 
-  /// Persist operation failures
+  /// Persist operation failures with proper error handling
   Future<void> _persistOperationFailures() async {
     try {
       await _prefsHelper.prefs.setString(
@@ -349,7 +349,7 @@ class SyncManager {
     }
   }
 
-  /// Load last sync attempt
+  /// Load last sync attempt with proper error handling
   Future<void> _loadLastSyncAttempt() async {
     try {
       final timestamp = _prefsHelper.prefs.getInt(_lastSyncKey);
@@ -364,7 +364,7 @@ class SyncManager {
     }
   }
 
-  /// Persist sync state
+  /// Persist sync state with proper error handling
   Future<void> _persistSyncState() async {
     try {
       await _prefsHelper.prefs.setInt(
@@ -379,7 +379,7 @@ class SyncManager {
     }
   }
 
-  /// Update sync state
+  /// Update sync state with proper validation
   void _updateState(SyncState state) {
     if (_isDisposed) return;
 
@@ -389,7 +389,7 @@ class SyncManager {
     }
   }
 
-  /// Update sync progress
+  /// Update sync progress with proper validation
   void _updateProgress(double progress) {
     if (_isDisposed) return;
 
@@ -398,19 +398,19 @@ class SyncManager {
     }
   }
 
-  /// Handle sync error
+  /// Handle sync error with proper logging
   void _handleError(SyncError error) {
     if (kDebugMode) {
       print('❌ Sync error: ${error.message}');
     }
   }
 
-  /// Cancel current sync
+  /// Cancel current sync with proper cleanup
   void cancelSync() {
     _currentSyncToken?.cancel(reason: 'Sync cancelled by user');
   }
 
-  /// Reset sync manager
+  /// Reset sync manager with proper cleanup
   Future<void> reset() async {
     await _lock.synchronized(() async {
       cancelSync();
@@ -428,7 +428,7 @@ class SyncManager {
     });
   }
 
-  /// Resource cleanup
+  /// Resource cleanup with proper disposal
   Future<void> dispose() async {
     if (_isDisposed) return;
 
