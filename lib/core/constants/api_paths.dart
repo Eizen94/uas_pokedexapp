@@ -3,11 +3,10 @@
 import 'dart:core';
 import 'package:flutter/foundation.dart';
 
-/// ApiPaths provides centralized API endpoint management with proper validation,
-/// versioning, and organization. Implements complete path generation with
-/// proper error handling and resource validation.
+/// Complete API path management system with validation and organization.
+/// Handles all endpoint paths, rate limits, and resource locations.
 class ApiPaths {
-  // API Configuration - Immutable constants
+  // API Configuration
   static const String kApiVersion = 'v2';
   static const String kBaseUrl = 'https://pokeapi.co/api/$kApiVersion';
   static const String kSpritesBaseUrl =
@@ -15,7 +14,12 @@ class ApiPaths {
   static const String kSoundBaseUrl =
       'https://play.pokemonshowdown.com/audio/cries';
 
-  // Core Endpoints - Properly typed and immutable
+  // Rate Limits
+  static const int publicApiLimit = 100; // Requests per minute
+  static const Duration rateLimitWindow = Duration(minutes: 1);
+  static const Duration minRequestDelay = Duration(milliseconds: 100);
+
+  // Core Pokemon Endpoints
   static const String kPokemon = '/pokemon';
   static const String kPokemonSpecies = '/pokemon-species';
   static const String kEvolutionChain = '/evolution-chain';
@@ -25,176 +29,105 @@ class ApiPaths {
   static const String kItem = '/item';
   static const String kLocation = '/location';
   static const String kNature = '/nature';
-  static const String kEggGroup = '/egg-group';
 
-  // Firebase Collections - Properly scoped
-  static const String kUsersCollection = 'users';
-  static const String kFavoritesCollection = 'favorites';
-  static const String kSettingsCollection = 'settings';
-  static const String kCacheCollection = 'cache';
+  // Cache Settings
+  static const Duration defaultCacheExpiry = Duration(hours: 24);
+  static const int maxCacheSize = 5 * 1024 * 1024; // 5MB
+  static const int cacheItemLimit = 1000;
 
-  // Cache Keys - Type safe and properly scoped
-  static const String kPokemonListKey = 'pokemon_list';
-  static const String kTypeChartKey = 'type_chart';
-  static const String kAbilityListKey = 'ability_list';
-  static const String kMoveListKey = 'move_list';
-  static const String kItemListKey = 'item_list';
-  static const String kLocationListKey = 'location_list';
-  static const String kNatureListKey = 'nature_list';
+  // Request Settings
+  static const Duration defaultTimeout = Duration(seconds: 30);
+  static const int maxRetries = 3;
+  static const int maxConcurrentRequests = 5;
+  static const int batchSize = 20;
 
-  // API Limits & Timeouts - Properly typed durations
-  static const Duration kRequestTimeout = Duration(seconds: 30);
-  static const Duration kCacheExpiration = Duration(hours: 24);
-  static const int kMaxRequestRetries = 3;
-  static const int kMaxConcurrentRequests = 5;
-  static const int kItemsPerPage = 20;
-  static const int kMaxCacheSize = 5 * 1024 * 1024; // 5MB
+  // Media Paths
+  static const String defaultSpritePath = '/sprites/pokemon';
+  static const String officialArtworkPath =
+      '/sprites/pokemon/other/official-artwork';
+  static const String shinySpritePath = '/sprites/pokemon/shiny';
 
-  /// Get Pokemon detail endpoint with validation
-  /// Throws [ArgumentError] if idOrName is empty
+  /// Generate Pokemon detail endpoint
+  /// Returns full URL for Pokemon data
   static String getPokemonEndpoint(String idOrName) {
-    _validateInput(idOrName, 'Pokemon ID or name');
+    assert(idOrName.isNotEmpty, 'Pokemon ID or name cannot be empty');
     return '$kBaseUrl$kPokemon/$idOrName';
   }
 
-  /// Get Pokemon species endpoint with validation
-  /// Throws [ArgumentError] if idOrName is empty
+  /// Generate species endpoint
+  /// Returns full URL for Pokemon species data
   static String getPokemonSpeciesEndpoint(String idOrName) {
-    _validateInput(idOrName, 'Pokemon ID or name');
+    assert(idOrName.isNotEmpty, 'Pokemon ID or name cannot be empty');
     return '$kBaseUrl$kPokemonSpecies/$idOrName';
   }
 
-  /// Get evolution chain endpoint with validation
-  /// Throws [ArgumentError] if id is not positive
+  /// Generate evolution chain endpoint
+  /// Returns full URL for evolution chain data
   static String getEvolutionChainEndpoint(int id) {
-    _validateId(id, 'Evolution chain ID');
+    assert(id > 0, 'Evolution chain ID must be positive');
     return '$kBaseUrl$kEvolutionChain/$id';
   }
 
-  /// Get move endpoint with validation
-  /// Throws [ArgumentError] if idOrName is empty
+  /// Generate move endpoint
+  /// Returns full URL for move data
   static String getMoveEndpoint(String idOrName) {
-    _validateInput(idOrName, 'Move ID or name');
+    assert(idOrName.isNotEmpty, 'Move ID or name cannot be empty');
     return '$kBaseUrl$kMove/$idOrName';
   }
 
-  /// Get ability endpoint with validation
-  /// Throws [ArgumentError] if idOrName is empty
+  /// Generate ability endpoint
+  /// Returns full URL for ability data
   static String getAbilityEndpoint(String idOrName) {
-    _validateInput(idOrName, 'Ability ID or name');
+    assert(idOrName.isNotEmpty, 'Ability ID or name cannot be empty');
     return '$kBaseUrl$kAbility/$idOrName';
   }
 
-  /// Get type endpoint with validation
-  /// Throws [ArgumentError] if type is empty
+  /// Generate type endpoint
+  /// Returns full URL for type data
   static String getTypeEndpoint(String type) {
-    _validateInput(type, 'Type');
+    assert(type.isNotEmpty, 'Type cannot be empty');
     return '$kBaseUrl$kType/$type';
   }
 
-  /// Get item endpoint with validation
-  /// Throws [ArgumentError] if idOrName is empty
-  static String getItemEndpoint(String idOrName) {
-    _validateInput(idOrName, 'Item ID or name');
-    return '$kBaseUrl$kItem/$idOrName';
+  /// Generate sprite URL
+  /// Returns full URL for Pokemon sprite
+  static String getSpriteUrl(int pokemonId, {bool shiny = false}) {
+    assert(pokemonId > 0, 'Pokemon ID must be positive');
+    final path = shiny ? shinySpritePath : defaultSpritePath;
+    return '$kSpritesBaseUrl$path/$pokemonId.png';
   }
 
-  /// Get location endpoint with validation
-  /// Throws [ArgumentError] if idOrName is empty
-  static String getLocationEndpoint(String idOrName) {
-    _validateInput(idOrName, 'Location ID or name');
-    return '$kBaseUrl$kLocation/$idOrName';
-  }
-
-  /// Get nature endpoint with validation
-  /// Throws [ArgumentError] if nature is empty
-  static String getNatureEndpoint(String nature) {
-    _validateInput(nature, 'Nature');
-    return '$kBaseUrl$kNature/$nature';
-  }
-
-  /// Get egg group endpoint with validation
-  /// Throws [ArgumentError] if group is empty
-  static String getEggGroupEndpoint(String group) {
-    _validateInput(group, 'Egg group');
-    return '$kBaseUrl$kEggGroup/$group';
-  }
-
-  /// Get official artwork URL with validation
-  /// Throws [ArgumentError] if pokemonId is not positive
+  /// Generate official artwork URL
+  /// Returns full URL for Pokemon official artwork
   static String getOfficialArtwork(int pokemonId) {
-    _validateId(pokemonId, 'Pokemon ID');
-    return '$kSpritesBaseUrl/sprites/pokemon/other/official-artwork/$pokemonId.png';
+    assert(pokemonId > 0, 'Pokemon ID must be positive');
+    return '$kSpritesBaseUrl$officialArtworkPath/$pokemonId.png';
   }
 
-  /// Get shiny official artwork URL with validation
-  /// Throws [ArgumentError] if pokemonId is not positive
-  static String getShinyOfficialArtwork(int pokemonId) {
-    _validateId(pokemonId, 'Pokemon ID');
-    return '$kSpritesBaseUrl/sprites/pokemon/other/official-artwork/shiny/$pokemonId.png';
-  }
-
-  /// Get Pokemon cry sound URL with validation
-  /// Throws [ArgumentError] if pokemonId is not positive
+  /// Generate cry sound URL
+  /// Returns full URL for Pokemon cry sound
   static String getPokemonCry(int pokemonId) {
-    _validateId(pokemonId, 'Pokemon ID');
+    assert(pokemonId > 0, 'Pokemon ID must be positive');
     return '$kSoundBaseUrl/$pokemonId.mp3';
   }
 
-  /// Get user document path with validation
-  /// Throws [ArgumentError] if uid is empty
-  static String getUserDocument(String uid) {
-    _validateInput(uid, 'User ID');
-    return '$kUsersCollection/$uid';
+  /// Generate list endpoint with pagination
+  /// Returns full URL for paginated Pokemon list
+  static String getListEndpoint({int offset = 0, int limit = batchSize}) {
+    assert(offset >= 0, 'Offset cannot be negative');
+    assert(limit > 0 && limit <= 100, 'Limit must be between 1 and 100');
+    return '$kBaseUrl$kPokemon?offset=$offset&limit=$limit';
   }
 
-  /// Get user favorites path with validation
-  /// Throws [ArgumentError] if uid is empty
-  static String getUserFavorites(String uid) {
-    _validateInput(uid, 'User ID');
-    return '$kUsersCollection/$uid/$kFavoritesCollection';
+  /// Generate search endpoint
+  /// Returns full URL for Pokemon search
+  static String getSearchEndpoint(String query) {
+    assert(query.isNotEmpty, 'Search query cannot be empty');
+    return '$kBaseUrl$kPokemon/$query';
   }
-
-  /// Get user settings path with validation
-  /// Throws [ArgumentError] if uid is empty
-  static String getUserSettings(String uid) {
-    _validateInput(uid, 'User ID');
-    return '$kUsersCollection/$uid/$kSettingsCollection';
-  }
-
-  /// Get cache key for Pokemon list with validation
-  /// Throws [ArgumentError] if offset is negative or limit is invalid
-  static String getPokemonListCacheKey(int offset, int limit) {
-    if (offset < 0) throw ArgumentError('Offset must be non-negative');
-    if (limit <= 0 || limit > kItemsPerPage) {
-      throw ArgumentError(
-          'Invalid limit value: must be between 1 and $kItemsPerPage');
-    }
-    return '${kPokemonListKey}_${offset}_$limit';
-  }
-
-  /// Get cache key for Pokemon detail with validation
-  /// Throws [ArgumentError] if idOrName is empty
-  static String getPokemonDetailCacheKey(String idOrName) {
-    _validateInput(idOrName, 'Pokemon ID or name');
-    return 'pokemon_detail_$idOrName';
-  }
-
-  /// Get cache key for evolution chain with validation
-  /// Throws [ArgumentError] if id is not positive
-  static String getEvolutionChainCacheKey(int id) {
-    _validateId(id, 'Evolution chain ID');
-    return 'evolution_chain_$id';
-  }
-
-  // Error & Fallback Paths - Properly typed
-  static const String kErrorImage = 'assets/images/error_pokemon.png';
-  static const String kPlaceholderImage =
-      'assets/images/placeholder_pokemon.png';
-  static const String kLoadingImage = 'assets/images/loading_pokemon.gif';
 
   /// Validate URL string
-  /// Returns true if URL is valid, false otherwise
+  /// Returns true if URL is valid
   static bool isValidUrl(String url) {
     try {
       final uri = Uri.parse(url);
@@ -207,22 +140,19 @@ class ApiPaths {
     }
   }
 
-  /// Validate input string
-  /// Throws [ArgumentError] if input is empty
-  static void _validateInput(String input, String fieldName) {
-    if (input.isEmpty) {
-      throw ArgumentError('$fieldName cannot be empty');
-    }
+  /// Generate cache key for endpoint
+  /// Returns unique cache key for given endpoint
+  static String generateCacheKey(String endpoint) {
+    assert(endpoint.isNotEmpty, 'Endpoint cannot be empty');
+    return 'cache_${endpoint.hashCode}';
   }
 
-  /// Validate ID
-  /// Throws [ArgumentError] if id is not positive
-  static void _validateId(int id, String fieldName) {
-    if (id <= 0) {
-      throw ArgumentError('$fieldName must be positive');
-    }
-  }
+  /// Error & Fallback Assets
+  static const String kErrorImage = 'assets/images/error_pokemon.png';
+  static const String kPlaceholderImage =
+      'assets/images/placeholder_pokemon.png';
+  static const String kLoadingImage = 'assets/images/loading_pokemon.gif';
 
-  // Private constructor to prevent instantiation
+  /// Private constructor to prevent instantiation
   const ApiPaths._();
 }
