@@ -9,6 +9,7 @@ import 'package:flutter/foundation.dart';
 
 // Local imports
 import '../constants/api_paths.dart';
+import 'monitoring_manager.dart';
 
 /// Enhanced rate limiter with precise rate control and resource management.
 /// Provides thread-safe rate limiting with proper cleanup and monitoring.
@@ -44,7 +45,7 @@ class RateLimiter {
   /// Initialize endpoint with rate limit configuration
   Future<void> initializeEndpoint(
     String endpoint, {
-    int requestsPerMinute = ApiPaths.publicApiLimit,
+    int requestsPerMinute = ApiPaths.kMaxRequestsPerMinute,
     Duration timeWindow = const Duration(minutes: 1),
     Duration minimumDelay = const Duration(milliseconds: 100),
   }) async {
