@@ -5,60 +5,55 @@ import 'package:flutter/services.dart';
 import '../constants/colors.dart';
 import '../constants/text_styles.dart';
 
-/// Enhanced theme configuration untuk Pokedex application dengan proper dark/light mode support
-/// dan UI consistency.
-///
-/// Dependencies:
-/// [AppColors] - Untuk color system dan type-based colors
-/// [AppTextStyles] - Untuk typography system dan text styling
+/// Enhanced theme configuration optimized for Pokemon UI with proper resource management.
+/// Provides consistent theming across light/dark modes while maintaining Pokemon essence.
 class ThemeConfig {
-  // Private constructor untuk prevent instantiation
-  const ThemeConfig._();
-
-  /// Light theme configuration
+  // Light Theme Configuration
   static ThemeData get lightTheme {
     return ThemeData(
       useMaterial3: true,
       brightness: Brightness.light,
+
+      // Color Scheme
       colorScheme: ColorScheme.fromSeed(
         seedColor: AppColors.primary,
         brightness: Brightness.light,
         primary: AppColors.primary,
         secondary: AppColors.secondary,
-        surface: AppColors.surfaceLight,
+        surface: AppColors.backgroundLight,
         error: AppColors.error,
-        onSurface: AppColors.textPrimaryLight,
-        surfaceTint: AppColors.surfaceLight,
       ),
+
+      // Background & Scaffold
       scaffoldBackgroundColor: AppColors.backgroundLight,
-      pageTransitionsTheme: const PageTransitionsTheme(
-        builders: {
-          TargetPlatform.android: ZoomPageTransitionsBuilder(),
-          TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
-        },
-      ),
-      appBarTheme: AppBarTheme(
-        surfaceTintColor: Colors.transparent,
-        backgroundColor: AppColors.backgroundLight,
-        foregroundColor: AppColors.textPrimaryLight,
-        elevation: 0,
-        centerTitle: true,
-        systemOverlayStyle: SystemUiOverlayStyle.dark,
-        titleTextStyle: AppTextStyles.h2,
-        iconTheme: IconThemeData(color: AppColors.textPrimaryLight),
-        shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(bottom: Radius.circular(16)),
-        ),
-      ),
+
+      // Card Theme - Matching reference design
       cardTheme: CardTheme(
         color: AppColors.cardLight,
-        elevation: 2,
-        surfaceTintColor: Colors.transparent,
-        shadowColor: AppColors.cardShadowLight,
+        elevation: 0,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),
         ),
+        margin: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 8,
+        ),
       ),
+
+      // AppBar Theme
+      appBarTheme: AppBarTheme(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        centerTitle: false,
+        iconTheme: const IconThemeData(color: AppColors.textPrimaryLight),
+        titleTextStyle: AppTextStyles.h2.copyWith(
+          color: AppColors.textPrimaryLight,
+          fontSize: 28,
+        ),
+        systemOverlayStyle: SystemUiOverlayStyle.dark,
+      ),
+
+      // Text Theme
       textTheme: TextTheme(
         displayLarge: AppTextStyles.h1,
         displayMedium: AppTextStyles.h2,
@@ -67,140 +62,227 @@ class ThemeConfig {
         bodyMedium: AppTextStyles.bodyMedium,
         bodySmall: AppTextStyles.bodySmall,
         labelLarge: AppTextStyles.button,
-        labelMedium: AppTextStyles.caption,
       ),
-      inputDecorationTheme: InputDecorationTheme(
-        filled: true,
-        fillColor: AppColors.surfaceLight,
-        prefixIconColor: AppColors.textSecondaryLight,
-        suffixIconColor: AppColors.textSecondaryLight,
-        hintStyle: AppTextStyles.bodyMedium.copyWith(
-          color: AppColors.textSecondaryLight,
+
+      // Search Bar Theme
+      searchBarTheme: SearchBarThemeData(
+        backgroundColor: WidgetStatePropertyAll(AppColors.surfaceLight),
+        elevation: const WidgetStatePropertyAll(0),
+        shape: WidgetStatePropertyAll(
+          RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: const BorderSide(color: Colors.transparent),
+          ),
         ),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide.none,
+        padding: const WidgetStatePropertyAll(
+          EdgeInsets.symmetric(horizontal: 16),
         ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide.none,
+        textStyle: WidgetStatePropertyAll(AppTextStyles.searchInput),
+        hintStyle: WidgetStatePropertyAll(
+          AppTextStyles.searchInput.copyWith(
+            color: AppColors.textSecondaryLight,
+          ),
         ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: AppColors.primary, width: 2),
-        ),
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       ),
+
+      // Chip Theme - For Pokemon types
+      chipTheme: ChipThemeData(
+        backgroundColor: AppColors.surfaceLight,
+        labelStyle: AppTextStyles.pokemonType,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
+      ),
+
+      // List Tile Theme
+      listTileTheme: ListTileThemeData(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 8,
+        ),
+      ),
+
+      // Tab Bar Theme
+      tabBarTheme: TabBarTheme(
+        labelStyle: AppTextStyles.tabLabel,
+        unselectedLabelStyle: AppTextStyles.tabLabel,
+        indicatorSize: TabBarIndicatorSize.label,
+        dividerColor: Colors.transparent,
+      ),
+
+      // Button Themes
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
           elevation: 0,
           backgroundColor: AppColors.primary,
           foregroundColor: Colors.white,
           textStyle: AppTextStyles.button,
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+          padding: const EdgeInsets.symmetric(
+            horizontal: 24,
+            vertical: 12,
+          ),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
           ),
         ),
       ),
-      textButtonTheme: TextButtonThemeData(
-        style: TextButton.styleFrom(
-          foregroundColor: AppColors.primary,
-          textStyle: AppTextStyles.button,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-        ),
+
+      // Icon Theme
+      iconTheme: const IconThemeData(
+        color: AppColors.textPrimaryLight,
+        size: 24,
       ),
-      listTileTheme: ListTileThemeData(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      ),
+
+      // Progress Indicator Theme
       progressIndicatorTheme: const ProgressIndicatorThemeData(
         color: AppColors.primary,
         linearTrackColor: Colors.transparent,
-        circularTrackColor: Colors.transparent,
-      ),
-      chipTheme: ChipThemeData(
-        backgroundColor: AppColors.surfaceLight,
-        labelStyle: AppTextStyles.caption,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8),
-        ),
-      ),
-      dialogTheme: DialogTheme(
-        backgroundColor: AppColors.surfaceLight,
-        surfaceTintColor: Colors.transparent,
-        elevation: 3,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-        ),
-      ),
-      bottomSheetTheme: BottomSheetThemeData(
-        backgroundColor: AppColors.surfaceLight,
-        surfaceTintColor: Colors.transparent,
-        elevation: 3,
-        shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-        ),
-      ),
-      snackBarTheme: SnackBarThemeData(
-        backgroundColor: AppColors.surfaceDark,
-        contentTextStyle: AppTextStyles.bodyMedium.copyWith(
-          color: AppColors.textPrimaryDark,
-        ),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
-        behavior: SnackBarBehavior.floating,
+        refreshBackgroundColor: Colors.transparent,
       ),
     );
   }
 
-  /// Dark theme configuration - derived from light theme with color adjustments
+  // Dark Theme Configuration
   static ThemeData get darkTheme {
-    return lightTheme.copyWith(
+    return ThemeData(
+      useMaterial3: true,
       brightness: Brightness.dark,
+
+      // Color Scheme
       colorScheme: ColorScheme.fromSeed(
         seedColor: AppColors.primary,
         brightness: Brightness.dark,
         primary: AppColors.primary,
         secondary: AppColors.secondary,
-        surface: AppColors.surfaceDark,
+        surface: AppColors.backgroundDark,
         error: AppColors.error,
-        onSurface: AppColors.textPrimaryDark,
-        surfaceTint: AppColors.surfaceDark,
       ),
+
+      // Background & Scaffold
       scaffoldBackgroundColor: AppColors.backgroundDark,
-      appBarTheme: lightTheme.appBarTheme.copyWith(
-        backgroundColor: AppColors.backgroundDark,
-        surfaceTintColor: Colors.transparent,
-        foregroundColor: AppColors.textPrimaryDark,
-        systemOverlayStyle: SystemUiOverlayStyle.light,
-        iconTheme: IconThemeData(color: AppColors.textPrimaryDark),
-      ),
-      cardTheme: lightTheme.cardTheme.copyWith(
+
+      // Card Theme
+      cardTheme: CardTheme(
         color: AppColors.cardDark,
-        surfaceTintColor: Colors.transparent,
-        shadowColor: AppColors.cardShadowDark,
+        elevation: 0,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
+        margin: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 8,
+        ),
       ),
-      inputDecorationTheme: lightTheme.inputDecorationTheme.copyWith(
-        fillColor: AppColors.surfaceDark,
-        prefixIconColor: AppColors.textSecondaryDark,
-        suffixIconColor: AppColors.textSecondaryDark,
+
+      // AppBar Theme
+      appBarTheme: AppBarTheme(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        centerTitle: false,
+        iconTheme: const IconThemeData(color: AppColors.textPrimaryDark),
+        titleTextStyle: AppTextStyles.h2Dark.copyWith(
+          fontSize: 28,
+        ),
+        systemOverlayStyle: SystemUiOverlayStyle.light,
       ),
-      bottomSheetTheme: lightTheme.bottomSheetTheme.copyWith(
+
+      // Text Theme
+      textTheme: TextTheme(
+        displayLarge: AppTextStyles.h1Dark,
+        displayMedium: AppTextStyles.h2Dark,
+        displaySmall: AppTextStyles.h3Dark,
+        bodyLarge: AppTextStyles.bodyLargeDark,
+        bodyMedium: AppTextStyles.bodyMediumDark,
+        bodySmall: AppTextStyles.bodySmallDark,
+        labelLarge: AppTextStyles.button,
+      ),
+
+      // Search Bar Theme
+      searchBarTheme: SearchBarThemeData(
+        backgroundColor: WidgetStatePropertyAll(AppColors.surfaceDark),
+        elevation: const WidgetStatePropertyAll(0),
+        shape: WidgetStatePropertyAll(
+          RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: const BorderSide(color: Colors.transparent),
+          ),
+        ),
+        padding: const WidgetStatePropertyAll(
+          EdgeInsets.symmetric(horizontal: 16),
+        ),
+        textStyle: WidgetStatePropertyAll(AppTextStyles.searchInputDark),
+        hintStyle: WidgetStatePropertyAll(
+          AppTextStyles.searchInputDark.copyWith(
+            color: AppColors.textSecondaryDark,
+          ),
+        ),
+      ),
+
+      // Chip Theme
+      chipTheme: ChipThemeData(
         backgroundColor: AppColors.surfaceDark,
-        surfaceTintColor: Colors.transparent,
+        labelStyle: AppTextStyles.pokemonType,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
       ),
-      dialogTheme: lightTheme.dialogTheme.copyWith(
-        backgroundColor: AppColors.surfaceDark,
-        surfaceTintColor: Colors.transparent,
+
+      // List Tile Theme
+      listTileTheme: ListTileThemeData(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 8,
+        ),
+      ),
+
+      // Tab Bar Theme
+      tabBarTheme: TabBarTheme(
+        labelStyle: AppTextStyles.tabLabel,
+        unselectedLabelStyle: AppTextStyles.tabLabel,
+        indicatorSize: TabBarIndicatorSize.label,
+        dividerColor: Colors.transparent,
+      ),
+
+      // Button Themes
+      elevatedButtonTheme: ElevatedButtonThemeData(
+        style: ElevatedButton.styleFrom(
+          elevation: 0,
+          backgroundColor: AppColors.primary,
+          foregroundColor: Colors.white,
+          textStyle: AppTextStyles.button,
+          padding: const EdgeInsets.symmetric(
+            horizontal: 24,
+            vertical: 12,
+          ),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+      ),
+
+      // Icon Theme
+      iconTheme: const IconThemeData(
+        color: AppColors.textPrimaryDark,
+        size: 24,
+      ),
+
+      // Progress Indicator Theme
+      progressIndicatorTheme: const ProgressIndicatorThemeData(
+        color: AppColors.primary,
+        linearTrackColor: Colors.transparent,
+        refreshBackgroundColor: Colors.transparent,
       ),
     );
   }
+
+  // Private constructor to prevent instantiation
+  const ThemeConfig._();
 }
