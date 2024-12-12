@@ -2,48 +2,27 @@
 
 import 'package:flutter/material.dart';
 
-/// Complete color system with proper organization and accessibility support
+/// Complete color system for Pokemon app with proper organization.
+/// All colors are strictly typed and immutable.
 class AppColors {
-  // Brand Colors
-  static const Color primary = Color(0xFFDC0A2D);
-  static const Color primaryLight = Color(0xFFFF4C4C);
-  static const Color primaryDark = Color(0xFFAE0927);
-  static const Color secondary = Color(0xFF2B73B9);
-  static const Color accent = Color(0xFFFFCB05);
+  /// Brand Colors - Primary theme colors
+  static const Color primary = Color(0xFFDC0A2D); // Pokemon Red
+  static const Color secondary = Color(0xFF2B73B9); // Pokemon Blue
+  static const Color accent = Color(0xFFFFCB05); // Pokemon Yellow
 
-  // Background Colors
+  /// Background Colors
   static const Color backgroundLight = Color(0xFFF8F9FA);
   static const Color backgroundDark = Color(0xFF121212);
   static const Color surfaceLight = Color(0xFFFFFFFF);
   static const Color surfaceDark = Color(0xFF1E1E1E);
 
-  // Card Colors
-  static const Color cardLight = Colors.white;
-  static const Color cardDark = Color(0xFF1E1E1E);
-  static const Color cardShadowLight = Color(0x1A000000);
-  static const Color cardShadowDark = Color(0x1AFFFFFF);
-
-  // Text Colors
+  /// Text Colors
   static const Color textPrimaryLight = Color(0xFF2D2D2D);
   static const Color textSecondaryLight = Color(0xFF666666);
   static const Color textPrimaryDark = Color(0xFFF5F5F5);
   static const Color textSecondaryDark = Color(0xFFB3B3B3);
 
-  // Status Colors
-  static const Color success = Color(0xFF4CAF50);
-  static const Color error = Color(0xFFDC3545);
-  static const Color warning = Color(0xFFFFC107);
-  static const Color info = Color(0xFF2196F3);
-
-  // Pokemon Stats Colors
-  static const Color statHp = Color(0xFFFF5959);
-  static const Color statAttack = Color(0xFFF5AC78);
-  static const Color statDefense = Color(0xFFFAE078);
-  static const Color statSpAtk = Color(0xFF9DB7F5);
-  static const Color statSpDef = Color(0xFFA7DB8D);
-  static const Color statSpeed = Color(0xFFFA92B2);
-
-  // Pokemon Type Colors
+  /// Pokemon Type Colors - Official colors for each type
   static const Map<String, Color> typeColors = {
     'normal': Color(0xFFA8A878),
     'fire': Color(0xFFF08030),
@@ -65,7 +44,7 @@ class AppColors {
     'fairy': Color(0xFFEE99AC),
   };
 
-  // Pokemon Type Background Colors (Lighter variants for cards)
+  /// Pokemon Type Background Colors - Lighter variants for cards and backgrounds
   static const Map<String, Color> typeBackgroundColors = {
     'normal': Color(0xFFBCBCAC),
     'fire': Color(0xFFF5AC78),
@@ -87,20 +66,37 @@ class AppColors {
     'fairy': Color(0xFFF4BDC9),
   };
 
-  // Helper Methods
+  /// Pokemon Stats Colors - Colors for stat visualization
+  static const Color statHp = Color(0xFFFF5959);
+  static const Color statAttack = Color(0xFFF5AC78);
+  static const Color statDefense = Color(0xFFFAE078);
+  static const Color statSpAtk = Color(0xFF9DB7F5);
+  static const Color statSpDef = Color(0xFFA7DB8D);
+  static const Color statSpeed = Color(0xFFFA92B2);
+
+  /// Status Colors - For UI feedback
+  static const Color success = Color(0xFF4CAF50);
+  static const Color error = Color(0xFFDC3545);
+  static const Color warning = Color(0xFFFFC107);
+  static const Color info = Color(0xFF2196F3);
+
+  /// Helper Methods
 
   /// Get color for Pokemon type
+  /// Returns normal type color as fallback
   static Color getTypeColor(String type) {
     return typeColors[type.toLowerCase()] ?? typeColors['normal']!;
   }
 
   /// Get background color for Pokemon type
+  /// Returns normal type background as fallback
   static Color getTypeBackgroundColor(String type) {
     return typeBackgroundColors[type.toLowerCase()] ??
         typeBackgroundColors['normal']!;
   }
 
   /// Get gradient colors for Pokemon type
+  /// Returns array of colors from light to dark
   static List<Color> getTypeGradient(String type) {
     final baseColor = getTypeColor(type);
     return [
@@ -111,6 +107,7 @@ class AppColors {
   }
 
   /// Get color for stat value
+  /// Returns color based on stat value range
   static Color getStatColor(int value) {
     if (value >= 150) return success;
     if (value >= 90) return info;
@@ -118,7 +115,7 @@ class AppColors {
     return error;
   }
 
-  /// Get progress indicator color
+  /// Get progress indicator color based on percentage
   static Color getProgressColor(double percentage) {
     if (percentage >= 0.8) return success;
     if (percentage >= 0.6) return info;
@@ -126,16 +123,20 @@ class AppColors {
     return error;
   }
 
-  /// Lighten a color
+  /// Lighten a color by specified amount
+  /// Amount should be between 0 and 1
   static Color _lighten(Color color, double amount) {
+    assert(amount >= 0 && amount <= 1);
     final hsl = HSLColor.fromColor(color);
     return hsl
         .withLightness((hsl.lightness + amount).clamp(0.0, 1.0))
         .toColor();
   }
 
-  /// Darken a color
+  /// Darken a color by specified amount
+  /// Amount should be between 0 and 1
   static Color _darken(Color color, double amount) {
+    assert(amount >= 0 && amount <= 1);
     final hsl = HSLColor.fromColor(color);
     return hsl
         .withLightness((hsl.lightness - amount).clamp(0.0, 1.0))
@@ -143,6 +144,7 @@ class AppColors {
   }
 
   /// Get appropriate text color for background
+  /// Returns light or dark text color based on background brightness
   static Color getTextColorForBackground(Color backgroundColor) {
     return ThemeData.estimateBrightnessForColor(backgroundColor) ==
             Brightness.light
@@ -150,6 +152,6 @@ class AppColors {
         : textPrimaryDark;
   }
 
-  // Private constructor to prevent instantiation
+  /// Private constructor to prevent instantiation
   const AppColors._();
 }
