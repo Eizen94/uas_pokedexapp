@@ -1,16 +1,13 @@
 // lib/core/utils/connectivity_manager.dart
 
-// Dart imports
 import 'dart:async';
 import 'dart:io';
 
-// Package imports
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
-// Local imports
 import '../constants/api_paths.dart';
 import 'request_manager.dart';
 import 'monitoring_manager.dart';
@@ -23,13 +20,13 @@ class ConnectivityManager {
   static ConnectivityManager? _instance;
   static final _instanceLock = Object();
 
-  // Core components
+  // Core components with proper initialization
   final Connectivity _connectivity = Connectivity();
   late final PrefsHelper _prefsHelper;
   final _networkStateController = StreamController<NetworkState>.broadcast();
   final _qualityTestResults = <DateTime, Duration>{};
 
-  // State tracking
+  // State tracking with proper null safety
   Timer? _monitorTimer;
   StreamSubscription<ConnectivityResult>? _connectivitySubscription;
   NetworkState _currentState = NetworkState.unknown;
@@ -53,7 +50,7 @@ class ConnectivityManager {
   // Private constructor
   ConnectivityManager._();
 
-  /// Get singleton instance
+  /// Get singleton instance with proper initialization
   static Future<ConnectivityManager> getInstance() async {
     if (_instance != null) return _instance!;
 
@@ -105,7 +102,7 @@ class ConnectivityManager {
     }
   }
 
-  /// Start network monitoring
+  /// Start network monitoring with proper error handling
   void _startMonitoring() {
     if (_isMonitoring || _isDisposed) return;
 
@@ -116,12 +113,12 @@ class ConnectivityManager {
     });
   }
 
-  /// Load persisted network state
+  /// Load persisted network state with proper error handling
   Future<void> _loadPersistedState() async {
     try {
       final prefs = _prefsHelper.prefs;
 
-      // Load timestamps
+      // Load timestamps with proper null safety
       final lastOnlineTimestamp = prefs.getInt(_lastOnlineKey);
       if (lastOnlineTimestamp != null) {
         _lastOnlineTime =
@@ -133,10 +130,22 @@ class ConnectivityManager {
         _lastSyncTime = DateTime.fromMillisecondsSinceEpoch(lastSyncTimestamp);
       }
 
-      // Load quality history
+      // Load quality history with error handling
       final qualityJson = prefs.getString(_networkQualityKey);
       if (qualityJson != null) {
-        // Parse quality history
+        try {
+          final qualityData = json.decode(qualityJson) as Map<String, dynamic>;
+          _qualityTestResults.clear();
+          qualityData.forEach((key, value) {
+            final timestamp = DateTime.parse(key);
+            final duration = Duration(milliseconds: value as int);
+            _qualityTestResults[timestamp] = duration;
+          });
+        } catch (e) {
+          if (kDebugMode) {
+            print('⚠️ Error parsing quality history: $e');
+          }
+        }
       }
     } catch (e) {
       if (kDebugMode) {
@@ -147,10 +156,7 @@ class ConnectivityManager {
 
   /// Check current connectivity with quality testing
   Future<bool> checkConnectivity() async {
-    if (!_isInitialized) {
-      throw StateError('ConnectivityManager not initialized');
-    }
-    if (_isDisposed) throw StateError('ConnectivityManager has been disposed');
+    _throwIfNotInitialized();
 
     try {
       final result = await _connectivity.checkConnectivity();
@@ -175,7 +181,7 @@ class ConnectivityManager {
     }
   }
 
-  /// Test actual connection with timeout
+  /// Test connection with proper timeout and error handling
   Future<bool> _testConnection() async {
     try {
       final startTime = DateTime.now();
@@ -217,7 +223,7 @@ class ConnectivityManager {
     );
   }
 
-  /// Handle connectivity changes
+  /// Handle connectivity changes with proper state management
   void _handleConnectivityChange(ConnectivityResult result) async {
     if (!_isInitialized || _isDisposed) return;
 
@@ -246,7 +252,7 @@ class ConnectivityManager {
     return DateTime.now().difference(latestTest) > _monitorInterval;
   }
 
-  /// Update network state with notifications
+  /// Update network state with proper notification handling
   void _updateNetworkState(
     ConnectivityResult result, {
     bool forceNotify = false,
@@ -273,36 +279,19 @@ class ConnectivityManager {
     _persistNetworkState();
   }
 
-  /// Persist current network state
-  Future<void> _persistNetworkState() async {
-    try {
-      // Persist quality history
-      // Implement persistence logic
-    } catch (e) {
-      if (kDebugMode) {
-        print('⚠️ Error persisting network state: $e');
-      }
-    }
-  }
-
   /// Convert connectivity result to network state
   NetworkState _getNetworkState(ConnectivityResult result) {
     if (_consecutiveFailures >= _maxConsecutiveFailures) {
       return NetworkState.unstable;
     }
 
-    switch (result) {
-      case ConnectivityResult.wifi:
-        return _getQualityBasedState(NetworkState.wifi);
-      case ConnectivityResult.mobile:
-        return _getQualityBasedState(NetworkState.mobile);
-      case ConnectivityResult.ethernet:
-        return NetworkState.ethernet;
-      case ConnectivityResult.none:
-        return NetworkState.offline;
-      default:
-        return NetworkState.unknown;
-    }
+    return switch (result) {
+      ConnectivityResult.wifi => _getQualityBasedState(NetworkState.wifi),
+      ConnectivityResult.mobile => _getQualityBasedState(NetworkState.mobile),
+      ConnectivityResult.ethernet => NetworkState.ethernet,
+      ConnectivityResult.none => NetworkState.offline,
+      _ => NetworkState.unknown,
+    };
   }
 
   /// Get network state based on quality metrics
@@ -320,6 +309,16 @@ class ConnectivityManager {
     return NetworkState.unstable;
   }
 
+  /// Validate initialization state
+  void _throwIfNotInitialized() {
+    if (_disposed) {
+      throw StateError('ConnectivityManager has been disposed');
+    }
+    if (!_isInitialized) {
+      throw StateError('ConnectivityManager not initialized');
+    }
+  }
+
   // Public getters
   Stream<NetworkState> get networkStateStream => _networkStateController.stream;
   NetworkState get currentState => _currentState;
@@ -328,7 +327,7 @@ class ConnectivityManager {
   bool get needsOptimization => _currentState.needsOptimization;
   bool get isInitialized => _isInitialized;
 
-  /// Resource cleanup
+  /// Proper resource disposal
   Future<void> dispose() async {
     if (_isDisposed) return;
 
@@ -339,6 +338,7 @@ class ConnectivityManager {
     await _networkStateController.close();
     _qualityTestResults.clear();
     _isInitialized = false;
+    _instance = null;
 
     if (kDebugMode) {
       print('🧹 ConnectivityManager disposed');
@@ -364,16 +364,12 @@ enum NetworkState {
   const NetworkState(this.name, this.isOnline);
 
   ConnectivityResult get type {
-    switch (this) {
-      case NetworkState.wifi:
-        return ConnectivityResult.wifi;
-      case NetworkState.mobile:
-        return ConnectivityResult.mobile;
-      case NetworkState.ethernet:
-        return ConnectivityResult.ethernet;
-      default:
-        return ConnectivityResult.none;
-    }
+    return switch (this) {
+      NetworkState.wifi => ConnectivityResult.wifi,
+      NetworkState.mobile => ConnectivityResult.mobile,
+      NetworkState.ethernet => ConnectivityResult.ethernet,
+      _ => ConnectivityResult.none,
+    };
   }
 
   bool get isHighSpeed =>
@@ -396,7 +392,7 @@ enum NetworkState {
   String toString() => name;
 }
 
-/// Thread-safe synchronization helper
+/// Thread-safe operation helper
 Future<T> synchronized<T>(
   Object lock,
   Future<T> Function() computation,
