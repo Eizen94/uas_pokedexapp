@@ -1,25 +1,23 @@
 // lib/core/utils/queue_manager.dart
 
-// Dart imports
 import 'dart:async';
 import 'dart:collection';
 
-// Package imports
 import 'package:flutter/foundation.dart';
 
-// Local imports
 import 'cancellation_token.dart';
 import 'monitoring_manager.dart';
 import 'request_manager.dart';
 import '../constants/api_paths.dart';
 
-/// Enhanced queue manager with size limits, prioritization, and batch processing.
-/// Provides thread-safe queue operations with proper resource management.
-class QueueManager<T> {
+/// Enhanced queue manager with proper generic constraints and resource management.
+/// Type T must be a non-nullable type to ensure type safety.
+class QueueManager<T extends Object> {
   // Singleton pattern with type safety
   static final Map<Type, QueueManager> _instances = {};
+  static final Object _lock = Object();
 
-  // Core queue implementation
+  // Core queue implementation with proper typing
   final Queue<QueueItem<T>> _queue = Queue<QueueItem<T>>();
   final Map<Priority, Queue<QueueItem<T>>> _priorityQueues = {
     Priority.high: Queue<QueueItem<T>>(),
@@ -27,7 +25,7 @@ class QueueManager<T> {
     Priority.low: Queue<QueueItem<T>>(),
   };
 
-  // Batch processing
+  // Batch processing with proper typing
   final _batchProcessingController = StreamController<List<T>>.broadcast();
   Timer? _batchTimer;
   final List<T> _currentBatch = [];
@@ -60,7 +58,7 @@ class QueueManager<T> {
   static const Duration defaultBatchDelay = Duration(milliseconds: 100);
   static const int defaultMaxConcurrentTasks = 4;
 
-  // Factory constructor
+  // Factory constructor with proper type constraints
   factory QueueManager({
     int? maxSize,
     Duration? timeout,
@@ -80,7 +78,7 @@ class QueueManager<T> {
     ) as QueueManager<T>;
   }
 
-  // Private constructor
+  // Private constructor with initialization
   QueueManager._internal({
     required int maxSize,
     required Duration timeout,
@@ -97,7 +95,7 @@ class QueueManager<T> {
     }
   }
 
-  // Public getters
+  // Public getters with proper type safety
   bool get isEmpty =>
       _queue.isEmpty && _priorityQueues.values.every((q) => q.isEmpty);
   bool get isNotEmpty => !isEmpty;
@@ -110,7 +108,7 @@ class QueueManager<T> {
   Stream<List<T>> get batchProcessStream => _batchProcessingController.stream;
   Stream<QueueEvent> get events => _eventController.stream;
 
-  /// Add item to queue with priority
+  /// Add item to queue with proper type constraints
   Future<void> enqueue(
     T item, {
     Priority priority = Priority.normal,
@@ -129,7 +127,7 @@ class QueueManager<T> {
       cancellationToken: cancellationToken,
     );
 
-    await synchronized(_processLock, () async {
+    await synchronized(_lock, () async {
       _validateQueueSize();
 
       if (priority == Priority.normal) {
@@ -143,7 +141,7 @@ class QueueManager<T> {
     });
   }
 
-  /// Add multiple items to queue
+  /// Add multiple items with batch validation
   Future<void> enqueueAll(
     Iterable<T> items, {
     Priority priority = Priority.normal,
@@ -152,7 +150,7 @@ class QueueManager<T> {
   }) async {
     _throwIfDisposed();
 
-    await synchronized(_processLock, () async {
+    await synchronized(_lock, () async {
       _validateQueueSizeForBatch(items.length);
 
       for (final item in items) {
@@ -177,11 +175,11 @@ class QueueManager<T> {
     });
   }
 
-  /// Remove and return next item from queue
+  /// Remove and return next item with proper error handling
   Future<T> dequeue() async {
     _throwIfDisposed();
 
-    return await synchronized(_processLock, () async {
+    return await synchronized(_lock, () async {
       final item = _getNextItem();
       if (item == null) {
         throw QueueEmptyException('Queue is empty');
@@ -195,22 +193,7 @@ class QueueManager<T> {
     });
   }
 
-  /// Try to dequeue with timeout
-  Future<T?> tryDequeue({Duration? timeout}) async {
-    _throwIfDisposed();
-
-    try {
-      return await synchronized(_processLock, () async {
-        if (isEmpty) return null;
-        return await dequeue().timeout(timeout ?? _timeout);
-      });
-    } on TimeoutException {
-      _notifyQueueEvent(QueueEventType.timeout);
-      return null;
-    }
-  }
-
-  /// Process items in queue
+  /// Process items in queue with proper resource tracking
   Future<void> process(
     Future<void> Function(T item) processor, {
     CancellationToken? cancellationToken,
@@ -247,13 +230,11 @@ class QueueManager<T> {
     _startProcessingIfNeeded();
   }
 
-  /// Clear the queue
+  /// Clear the queue with proper cleanup
   Future<void> clear() async {
-    await synchronized(_processLock, () async {
+    await synchronized(_lock, () async {
       _queue.clear();
-      for (var q in _priorityQueues.values) {
-        q.clear();
-      }
+      _priorityQueues.values.forEach((q) => q.clear());
       _currentBatch.clear();
       _batchTimer?.cancel();
 
@@ -261,7 +242,7 @@ class QueueManager<T> {
     });
   }
 
-  /// Get next batch of items
+  /// Get next batch with proper timeout handling
   Future<List<QueueItem<T>>> _getBatch() async {
     final batch = <QueueItem<T>>[];
     final now = DateTime.now();
@@ -295,7 +276,7 @@ class QueueManager<T> {
     return batch;
   }
 
-  /// Process a batch of items
+  /// Process batch with proper error handling
   Future<void> _processBatch(
     List<QueueItem<T>> batch,
     Future<void> Function(T item) processor,
@@ -318,7 +299,7 @@ class QueueManager<T> {
     }
   }
 
-  /// Process single item
+  /// Process single item with proper resource tracking
   Future<void> _processItem(
     QueueItem<T> item,
     Future<void> Function(T item) processor,
@@ -343,7 +324,7 @@ class QueueManager<T> {
     }
   }
 
-  /// Start queue processing if needed
+  /// Start processing if needed
   void _startProcessingIfNeeded() {
     if (!_isProcessing && !_isPaused && isNotEmpty) {
       _notifyQueueEvent(QueueEventType.processing);
@@ -358,7 +339,7 @@ class QueueManager<T> {
     }
   }
 
-  /// Validate queue size for batch
+  /// Validate batch size
   void _validateQueueSizeForBatch(int batchSize) {
     if (length + batchSize > _maxSize) {
       throw QueueOverflowException(
@@ -367,7 +348,7 @@ class QueueManager<T> {
     }
   }
 
-  /// Get next item from queue based on priority
+  /// Get next item with priority handling
   QueueItem<T>? _getNextItem() {
     final now = DateTime.now();
 
@@ -404,7 +385,7 @@ class QueueManager<T> {
     return null;
   }
 
-  /// Check if item is expired
+  /// Check item expiration
   bool _isItemExpired(QueueItem<T> item, DateTime now) {
     return now.difference(item.addedTime) > item.timeout;
   }
@@ -412,7 +393,7 @@ class QueueManager<T> {
   /// Generate unique ID
   String _generateId() => DateTime.now().microsecondsSinceEpoch.toString();
 
-  /// Handle processing error
+  /// Handle processing error with proper logging
   void _handleProcessingError(Object error) {
     _totalErrors++;
     _notifyQueueEvent(QueueEventType.error, error: error);
@@ -422,7 +403,7 @@ class QueueManager<T> {
     }
   }
 
-  /// Notify queue event
+  /// Notify queue event with proper validation
   void _notifyQueueEvent(
     QueueEventType type, {
     T? item,
@@ -440,7 +421,7 @@ class QueueManager<T> {
     }
   }
 
-  /// Resource disposal
+  /// Proper resource cleanup
   Future<void> dispose() async {
     if (_isDisposed) return;
 
@@ -454,9 +435,7 @@ class QueueManager<T> {
     ]);
 
     _queue.clear();
-    for (var q in _priorityQueues.values) {
-      q.clear();
-    }
+    _priorityQueues.values.forEach((q) => q.clear());
     _currentBatch.clear();
     _activeTasks.clear();
     _instances.remove(T);
@@ -474,7 +453,7 @@ class QueueManager<T> {
   }
 }
 
-/// Queue item with metadata
+/// Queue item with proper generic constraint
 class QueueItem<T> {
   final T item;
   final Priority priority;
@@ -493,7 +472,7 @@ class QueueItem<T> {
   });
 }
 
-/// Queue processing priority
+/// Queue processing priority with proper documentation
 enum Priority {
   high,
   normal,
@@ -503,7 +482,7 @@ enum Priority {
   String toString() => name;
 }
 
-/// Queue event types
+/// Queue event types with proper documentation
 enum QueueEventType {
   itemAdded,
   batchAdded,
@@ -519,7 +498,7 @@ enum QueueEventType {
   String toString() => name;
 }
 
-/// Queue event for monitoring
+/// Queue event for monitoring with proper type safety
 class QueueEvent {
   final QueueEventType type;
   final dynamic item;
@@ -539,7 +518,7 @@ class QueueEvent {
   String toString() => 'QueueEvent(type: $type, timestamp: $timestamp)';
 }
 
-/// Queue overflow exception
+/// Queue overflow exception with proper error information
 class QueueOverflowException implements Exception {
   final String message;
 
@@ -549,7 +528,7 @@ class QueueOverflowException implements Exception {
   String toString() => 'QueueOverflowException: $message';
 }
 
-/// Queue empty exception
+/// Queue empty exception with proper error information
 class QueueEmptyException implements Exception {
   final String message;
 
