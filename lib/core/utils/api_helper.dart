@@ -20,7 +20,7 @@ class ApiHelper {
   // Singleton implementation with proper locking
   static final ApiHelper _instance = ApiHelper._internal();
   static final _lock = Object();
-  
+
   // Core components with proper initialization
   final _client = http.Client();
   late final RequestManager _requestManager;
@@ -48,7 +48,7 @@ class ApiHelper {
   static const int _maxBatchSize = 20;
 
   ApiHelper._internal();
-  
+
   factory ApiHelper() => _instance;
 
   /// Initialize API helper with proper error handling
@@ -140,7 +140,7 @@ class ApiHelper {
 
           if (response.statusCode == 200) {
             final jsonData = json.decode(response.body) as Map<String, dynamic>;
-            
+
             if (useCache) {
               await _cacheData(cacheKey, jsonData);
             }
@@ -174,7 +174,7 @@ class ApiHelper {
     CancellationToken? cancellationToken,
   }) async {
     final completer = Completer<http.Response>();
-    
+
     if (_pendingRequests.length >= _maxConcurrentRequests) {
       await _waitForSlot();
     }
@@ -188,7 +188,7 @@ class ApiHelper {
           final response = await _client
               .get(Uri.parse(endpoint), headers: headers)
               .timeout(timeout);
-          
+
           cancellationToken?.throwIfCancelled();
           return response;
         },
@@ -288,15 +288,9 @@ class ApiResponse<T> {
 }
 
 /// Strongly typed enums
-enum DataSource {
-  network,
-  cache
-}
+enum DataSource { network, cache }
 
-enum ApiStatus {
-  success,
-  error
-}
+enum ApiStatus { success, error }
 
 /// Custom exception with proper error information
 class ApiException implements Exception {

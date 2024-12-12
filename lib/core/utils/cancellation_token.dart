@@ -1,30 +1,27 @@
 // lib/core/utils/cancellation_token.dart
 
-// Dart imports
 import 'dart:async';
-
-// Package imports
 import 'package:flutter/foundation.dart';
 
-// Local imports
+import 'monitoring_manager.dart';
+import 'request_manager.dart';
 
-/// Enhanced cancellation token with timeout and chaining capabilities.
-/// Provides proper resource management and error handling.
+/// Enhanced cancellation token with proper resource management and error handling
 class CancellationToken {
-  // Internal state
+  // Internal state with proper type safety
   bool _isCancelled = false;
   bool _isDisposed = false;
   String? _cancelReason;
   DateTime? _cancelTime;
 
-  // Resource management
+  // Resource management with proper cleanup
   final List<VoidCallback> _listeners = [];
-  final List<Future> _pendingOperations = [];
+  final List<Future<void>> _pendingOperations = [];
   final StreamController<CancellationEvent> _eventController =
       StreamController<CancellationEvent>.broadcast();
   Timer? _timeout;
 
-  // Getters
+  // Strongly typed getters
   bool get isCancelled => _isCancelled;
   bool get isDisposed => _isDisposed;
   String? get cancelReason => _cancelReason;
@@ -32,19 +29,18 @@ class CancellationToken {
   Stream<CancellationEvent> get events => _eventController.stream;
   bool get hasListeners => _listeners.isNotEmpty;
 
-  /// Create a token with timeout
+  /// Create token with timeout
   static CancellationToken withTimeout(Duration timeout) {
     final token = CancellationToken();
     token._setTimeout(timeout);
     return token;
   }
 
-  /// Create a linked token from multiple tokens
+  /// Create linked token from multiple tokens
   static CancellationToken fromMultiple(List<CancellationToken> tokens) {
     assert(tokens.isNotEmpty, 'Token list cannot be empty');
 
     final combinedToken = CancellationToken();
-
     for (final token in tokens) {
       token.addListener(() {
         if (token.isCancelled) {
@@ -54,11 +50,10 @@ class CancellationToken {
         }
       });
     }
-
     return combinedToken;
   }
 
-  /// Set timeout for cancellation
+  /// Set timeout with proper cleanup
   void _setTimeout(Duration timeout) {
     _timeout?.cancel();
     _timeout = Timer(timeout, () {
@@ -69,7 +64,7 @@ class CancellationToken {
     });
   }
 
-  /// Add cancellation listener with error handling
+  /// Add listener with proper error handling
   void addListener(VoidCallback listener) {
     _throwIfDisposed();
 
@@ -84,7 +79,7 @@ class CancellationToken {
     }
   }
 
-  /// Remove cancellation listener
+  /// Remove listener safely
   void removeListener(VoidCallback listener) {
     _throwIfDisposed();
     _listeners.remove(listener);
@@ -96,7 +91,7 @@ class CancellationToken {
     onCancel(cleanup);
   }
 
-  /// Cancel the operation with proper cleanup
+  /// Cancel operation with proper cleanup
   void cancel({String? reason}) {
     if (_isCancelled || _isDisposed) return;
 
@@ -132,7 +127,7 @@ class CancellationToken {
     }
   }
 
-  /// Handle listener errors
+  /// Handle listener errors properly
   void _handleListenerError(Object error, StackTrace stackTrace) {
     if (kDebugMode) {
       print('Error in cancellation listener: $error');
@@ -140,14 +135,15 @@ class CancellationToken {
     }
   }
 
-  /// Clean up resources
+  /// Clean up resources properly
   void _cleanup() {
     _timeout?.cancel();
     _timeout = null;
     _listeners.clear();
+    _pendingOperations.clear();
   }
 
-  /// Register callback for cancellation
+  /// Register cancellation callback
   void onCancel(VoidCallback callback) {
     _throwIfDisposed();
 
@@ -162,14 +158,14 @@ class CancellationToken {
     }
   }
 
-  /// Throw if cancelled
+  /// Throw if cancelled with reason
   void throwIfCancelled() {
     if (_isCancelled) {
       throw CancelledException(_cancelReason);
     }
   }
 
-  /// Make a Future cancellable
+  /// Make Future cancellable with proper resource tracking
   Future<T> wrapFuture<T>(Future<T> future) async {
     _throwIfDisposed();
 
@@ -178,7 +174,7 @@ class CancellationToken {
     }
 
     final completer = Completer<T>();
-    _pendingOperations.add(future);
+    _pendingOperations.add(future as Future<void>);
 
     void onCancel() {
       if (!completer.isCompleted) {
@@ -205,12 +201,12 @@ class CancellationToken {
     return completer.future;
   }
 
-  /// Create a linked token with another token
+  /// Create linked token
   CancellationToken chainWith(CancellationToken other) {
     return fromMultiple([this, other]);
   }
 
-  /// Resource disposal
+  /// Proper resource disposal
   Future<void> dispose() async {
     if (_isDisposed) return;
 
@@ -219,8 +215,6 @@ class CancellationToken {
 
     _timeout?.cancel();
     _listeners.clear();
-    _pendingOperations.clear();
-
     await _eventController.close();
 
     if (kDebugMode) {
@@ -242,7 +236,7 @@ class CancellationToken {
       'reason: $_cancelReason)';
 }
 
-/// Cancellation event for monitoring
+/// Strongly typed cancellation event
 class CancellationEvent {
   final String? reason;
   final DateTime timestamp;
