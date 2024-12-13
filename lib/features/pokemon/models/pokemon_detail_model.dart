@@ -1,87 +1,91 @@
 // lib/features/pokemon/models/pokemon_detail_model.dart
 
-import 'dart:convert';
-import 'package:flutter/material.dart';
 import 'pokemon_model.dart';
 
+/// Detailed Pokemon model that extends basic Pokemon information
+/// with comprehensive data about evolution chain, moves, and characteristics
 class PokemonDetailModel extends PokemonModel {
-  final List<Ability> abilities;
-  final List<Stat> statsList;
-  final List<String> moves;
-  final String species;
-  final Evolution? evolution;
+  // Evolution chain information
+  final List<EvolutionStage> evolutionChain;
 
-  PokemonDetailModel({
+  // Detailed characteristics
+  final String genus;
+  final List<String> eggGroups;
+  final int baseExperience;
+  final int captureRate;
+  final GrowthRate growthRate;
+  final Gender gender;
+  final List<String> habitats;
+
+  // Battle information
+  final List<PokemonMove> moves;
+  final List<String> hiddenAbilities;
+  final Map<String, double> typeEffectiveness;
+
+  const PokemonDetailModel({
     required super.id,
     required super.name,
-    required super.imageUrl,
     required super.types,
+    required super.imageUrl,
+    required super.stats,
+    required super.description,
     required super.height,
     required super.weight,
-    required this.abilities,
-    required this.statsList,
+    required super.abilities,
+    required super.category,
+    required super.weaknesses,
+    required super.generation,
+    required this.evolutionChain,
+    required this.genus,
+    required this.eggGroups,
+    required this.baseExperience,
+    required this.captureRate,
+    required this.growthRate,
+    required this.gender,
+    required this.habitats,
     required this.moves,
-    required this.species,
-    this.evolution,
-  }) : super(stats: _convertStatsToMap(statsList));
+    required this.hiddenAbilities,
+    required this.typeEffectiveness,
+    super.isFavorite,
+  });
 
-  // Helper method to convert statsList to map for parent class
-  static Map<String, dynamic> _convertStatsToMap(List<Stat> statsList) {
-    final Map<String, dynamic> statsMap = {};
-    for (var stat in statsList) {
-      statsMap[stat.name] = stat.baseStat;
-    }
-    return statsMap;
-  }
-
+  /// Create detailed Pokemon from JSON with proper validation
   factory PokemonDetailModel.fromJson(Map<String, dynamic> json) {
     try {
-      // Parse abilities
-      final abilitiesList = (json['abilities'] as List?)?.map((ability) {
-            if (ability is Map<String, dynamic>) {
-              return Ability.fromJson(ability);
-            }
-            throw FormatException('Invalid ability format');
-          }).toList() ??
-          [];
-
-      // Parse stats
-      final statsList = (json['stats'] as List?)?.map((stat) {
-            if (stat is Map<String, dynamic>) {
-              return Stat.fromJson(stat);
-            }
-            throw FormatException('Invalid stat format');
-          }).toList() ??
-          [];
-
-      // Parse moves
-      final movesList = (json['moves'] as List?)?.map((move) {
-            if (move is Map<String, dynamic> &&
-                move['move'] is Map<String, dynamic> &&
-                move['move']['name'] is String) {
-              return move['move']['name'] as String;
-            }
-            return 'unknown';
-          }).toList() ??
-          [];
+      final baseModel = PokemonModel.fromJson(json);
 
       return PokemonDetailModel(
-        id: json['id'] as int,
-        name: json['name'] as String,
-        imageUrl:
-            'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/${json['id']}.png',
-        types: (json['types'] as List)
-            .map((type) => type['type']['name'] as String)
+        id: baseModel.id,
+        name: baseModel.name,
+        types: baseModel.types,
+        imageUrl: baseModel.imageUrl,
+        stats: baseModel.stats,
+        description: baseModel.description,
+        height: baseModel.height,
+        weight: baseModel.weight,
+        abilities: baseModel.abilities,
+        category: baseModel.category,
+        weaknesses: baseModel.weaknesses,
+        generation: baseModel.generation,
+        isFavorite: baseModel.isFavorite,
+        evolutionChain: (json['evolution_chain'] as List)
+            .map((e) => EvolutionStage.fromJson(e as Map<String, dynamic>))
             .toList(),
-        height: json['height'] as int,
-        weight: json['weight'] as int,
-        abilities: abilitiesList,
-        statsList: statsList,
-        moves: movesList,
-        species: json['species']['name'] as String,
-        evolution: json['evolution'] != null
-            ? Evolution.fromJson(json['evolution'] as Map<String, dynamic>)
-            : null,
+        genus: json['genus'] as String? ?? '',
+        eggGroups: List<String>.from(json['egg_groups'] as List? ?? []),
+        baseExperience: json['base_experience'] as int? ?? 0,
+        captureRate: json['capture_rate'] as int? ?? 0,
+        growthRate: GrowthRate.fromString(json['growth_rate'] as String? ?? ''),
+        gender: Gender.fromJson(json['gender'] as Map<String, dynamic>? ?? {}),
+        habitats: List<String>.from(json['habitats'] as List? ?? []),
+        moves: (json['moves'] as List? ?? [])
+            .map((e) => PokemonMove.fromJson(e as Map<String, dynamic>))
+            .toList(),
+        hiddenAbilities:
+            List<String>.from(json['hidden_abilities'] as List? ?? []),
+        typeEffectiveness: Map<String, double>.from(
+          json['type_effectiveness'] as Map? ?? {},
+        ),
       );
     } catch (e) {
       throw FormatException('Error parsing Pokemon detail data: $e');
@@ -91,220 +95,221 @@ class PokemonDetailModel extends PokemonModel {
   @override
   Map<String, dynamic> toJson() => {
         ...super.toJson(),
-        'abilities': abilities.map((ability) => ability.toJson()).toList(),
-        'statsList': statsList.map((stat) => stat.toJson()).toList(),
-        'moves': moves,
-        'species': species,
-        'evolution': evolution?.toJson(),
+        'evolution_chain': evolutionChain.map((e) => e.toJson()).toList(),
+        'genus': genus,
+        'egg_groups': eggGroups,
+        'base_experience': baseExperience,
+        'capture_rate': captureRate,
+        'growth_rate': growthRate.value,
+        'gender': gender.toJson(),
+        'habitats': habitats,
+        'moves': moves.map((e) => e.toJson()).toList(),
+        'hidden_abilities': hiddenAbilities,
+        'type_effectiveness': typeEffectiveness,
       };
 
-  // Helper Methods
-  double getStatPercentage(String statName) {
-    final stat = statsList.firstWhere(
-      (stat) => stat.name == statName,
-      orElse: () => Stat(name: statName, baseStat: 0, effort: 0),
+  @override
+  PokemonDetailModel copyWith({
+    int? id,
+    String? name,
+    List<String>? types,
+    String? imageUrl,
+    PokemonStats? stats,
+    String? description,
+    double? height,
+    double? weight,
+    List<String>? abilities,
+    String? category,
+    List<String>? weaknesses,
+    String? generation,
+    bool? isFavorite,
+    List<EvolutionStage>? evolutionChain,
+    String? genus,
+    List<String>? eggGroups,
+    int? baseExperience,
+    int? captureRate,
+    GrowthRate? growthRate,
+    Gender? gender,
+    List<String>? habitats,
+    List<PokemonMove>? moves,
+    List<String>? hiddenAbilities,
+    Map<String, double>? typeEffectiveness,
+  }) {
+    return PokemonDetailModel(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      types: types ?? this.types,
+      imageUrl: imageUrl ?? this.imageUrl,
+      stats: stats ?? this.stats,
+      description: description ?? this.description,
+      height: height ?? this.height,
+      weight: weight ?? this.weight,
+      abilities: abilities ?? this.abilities,
+      category: category ?? this.category,
+      weaknesses: weaknesses ?? this.weaknesses,
+      generation: generation ?? this.generation,
+      isFavorite: isFavorite ?? this.isFavorite,
+      evolutionChain: evolutionChain ?? this.evolutionChain,
+      genus: genus ?? this.genus,
+      eggGroups: eggGroups ?? this.eggGroups,
+      baseExperience: baseExperience ?? this.baseExperience,
+      captureRate: captureRate ?? this.captureRate,
+      growthRate: growthRate ?? this.growthRate,
+      gender: gender ?? this.gender,
+      habitats: habitats ?? this.habitats,
+      moves: moves ?? this.moves,
+      hiddenAbilities: hiddenAbilities ?? this.hiddenAbilities,
+      typeEffectiveness: typeEffectiveness ?? this.typeEffectiveness,
     );
-    return stat.baseStat / 255; // 255 is max possible stat
-  }
-
-  List<String> getAbilityNames() {
-    return abilities.map((ability) => ability.name).toList();
-  }
-
-  List<String> getHiddenAbilities() {
-    return abilities
-        .where((ability) => ability.isHidden)
-        .map((ability) => ability.name)
-        .toList();
-  }
-
-  bool hasEvolution() => evolution != null && evolution!.stages.length > 1;
-
-  List<int> getEvolutionIds() {
-    if (evolution == null) return [];
-    return evolution!.stages.map((stage) => stage.pokemonId).toList();
   }
 }
 
-class Ability {
-  final String name;
-  final bool isHidden;
-
-  Ability({
-    required this.name,
-    required this.isHidden,
-  });
-
-  factory Ability.fromJson(Map<String, dynamic> json) {
-    try {
-      if (json['ability'] is! Map<String, dynamic>) {
-        throw FormatException('Invalid ability data structure');
-      }
-
-      return Ability(
-        name: json['ability']['name'] as String,
-        isHidden: json['is_hidden'] as bool? ?? false,
-      );
-    } catch (e) {
-      throw FormatException('Error parsing ability data: $e');
-    }
-  }
-
-  Map<String, dynamic> toJson() => {
-        'name': name,
-        'is_hidden': isHidden,
-      };
-
-  @override
-  String toString() => json.encode(toJson());
-
-  String getFormattedName() {
-    return name
-        .split('-')
-        .map((word) => word.substring(0, 1).toUpperCase() + word.substring(1))
-        .join(' ');
-  }
-}
-
-class Stat {
-  final String name;
-  final int baseStat;
-  final int effort;
-
-  Stat({
-    required this.name,
-    required this.baseStat,
-    required this.effort,
-  });
-
-  factory Stat.fromJson(Map<String, dynamic> json) {
-    try {
-      if (json['stat'] is! Map<String, dynamic>) {
-        throw FormatException('Invalid stat data structure');
-      }
-
-      return Stat(
-        name: json['stat']['name'] as String,
-        baseStat: json['base_stat'] as int? ?? 0,
-        effort: json['effort'] as int? ?? 0,
-      );
-    } catch (e) {
-      throw FormatException('Error parsing stat data: $e');
-    }
-  }
-
-  Map<String, dynamic> toJson() => {
-        'name': name,
-        'base_stat': baseStat,
-        'effort': effort,
-      };
-
-  @override
-  String toString() => json.encode(toJson());
-
-  String getFormattedName() {
-    return name
-        .split('-')
-        .map((word) => word.substring(0, 1).toUpperCase() + word.substring(1))
-        .join(' ');
-  }
-
-  Color getStatColor() {
-    if (baseStat < 50) return Colors.red;
-    if (baseStat < 100) return Colors.orange;
-    return Colors.green;
-  }
-}
-
-class Evolution {
-  final int chainId;
-  final List<EvolutionStage> stages;
-
-  Evolution({
-    required this.chainId,
-    required this.stages,
-  });
-
-  factory Evolution.fromJson(Map<String, dynamic> json) {
-    try {
-      if (!json.containsKey('stages') || json['stages'] is! List) {
-        throw FormatException('Invalid evolution chain structure');
-      }
-
-      return Evolution(
-        chainId: json['chain_id'] as int? ?? 0,
-        stages: (json['stages'] as List)
-            .map((stage) =>
-                EvolutionStage.fromJson(stage as Map<String, dynamic>))
-            .toList(),
-      );
-    } catch (e) {
-      throw FormatException('Error parsing evolution chain: $e');
-    }
-  }
-
-  Map<String, dynamic> toJson() => {
-        'chain_id': chainId,
-        'stages': stages.map((stage) => stage.toJson()).toList(),
-      };
-
-  @override
-  String toString() => json.encode(toJson());
-
-  bool hasMultipleStages() => stages.length > 1;
-
-  EvolutionStage? getNextEvolution(int currentId) {
-    final currentIndex =
-        stages.indexWhere((stage) => stage.pokemonId == currentId);
-    if (currentIndex != -1 && currentIndex < stages.length - 1) {
-      return stages[currentIndex + 1];
-    }
-    return null;
-  }
-
-  EvolutionStage? getPreviousEvolution(int currentId) {
-    final currentIndex =
-        stages.indexWhere((stage) => stage.pokemonId == currentId);
-    if (currentIndex > 0) {
-      return stages[currentIndex - 1];
-    }
-    return null;
-  }
-}
-
+/// Evolution chain stage information
 class EvolutionStage {
-  final int pokemonId;
-  final String name;
-  final int minLevel;
+  final int stage;
+  final String pokemonName;
+  final String imageUrl;
+  final List<EvolutionTrigger> triggers;
 
-  EvolutionStage({
-    required this.pokemonId,
-    required this.name,
-    required this.minLevel,
+  const EvolutionStage({
+    required this.stage,
+    required this.pokemonName,
+    required this.imageUrl,
+    required this.triggers,
   });
 
   factory EvolutionStage.fromJson(Map<String, dynamic> json) {
-    try {
-      return EvolutionStage(
-        pokemonId: json['pokemon_id'] as int? ?? 0,
-        name: json['name'] as String? ?? 'unknown',
-        minLevel: json['min_level'] as int? ?? 1,
-      );
-    } catch (e) {
-      throw FormatException('Error parsing evolution stage: $e');
-    }
+    return EvolutionStage(
+      stage: json['stage'] as int,
+      pokemonName: json['pokemon_name'] as String,
+      imageUrl: json['image_url'] as String,
+      triggers: (json['triggers'] as List)
+          .map((e) => EvolutionTrigger.fromJson(e as Map<String, dynamic>))
+          .toList(),
+    );
   }
 
   Map<String, dynamic> toJson() => {
-        'pokemon_id': pokemonId,
-        'name': name,
-        'min_level': minLevel,
+        'stage': stage,
+        'pokemon_name': pokemonName,
+        'image_url': imageUrl,
+        'triggers': triggers.map((e) => e.toJson()).toList(),
       };
+}
 
-  @override
-  String toString() => json.encode(toJson());
+/// Evolution trigger information
+class EvolutionTrigger {
+  final String type;
+  final String condition;
+  final String? item;
 
-  String getFormattedName() {
-    return name.substring(0, 1).toUpperCase() + name.substring(1);
+  const EvolutionTrigger({
+    required this.type,
+    required this.condition,
+    this.item,
+  });
+
+  factory EvolutionTrigger.fromJson(Map<String, dynamic> json) {
+    return EvolutionTrigger(
+      type: json['type'] as String,
+      condition: json['condition'] as String,
+      item: json['item'] as String?,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'type': type,
+        'condition': condition,
+        if (item != null) 'item': item,
+      };
+}
+
+/// Pokemon move information
+class PokemonMove {
+  final String name;
+  final String type;
+  final int power;
+  final int accuracy;
+  final int pp;
+  final String description;
+  final String category;
+
+  const PokemonMove({
+    required this.name,
+    required this.type,
+    required this.power,
+    required this.accuracy,
+    required this.pp,
+    required this.description,
+    required this.category,
+  });
+
+  factory PokemonMove.fromJson(Map<String, dynamic> json) {
+    return PokemonMove(
+      name: json['name'] as String,
+      type: json['type'] as String,
+      power: json['power'] as int? ?? 0,
+      accuracy: json['accuracy'] as int? ?? 0,
+      pp: json['pp'] as int? ?? 0,
+      description: json['description'] as String? ?? '',
+      category: json['category'] as String? ?? 'Unknown',
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'name': name,
+        'type': type,
+        'power': power,
+        'accuracy': accuracy,
+        'pp': pp,
+        'description': description,
+        'category': category,
+      };
+}
+
+/// Pokemon gender information
+class Gender {
+  final double maleRate;
+  final double femaleRate;
+  final bool genderless;
+
+  const Gender({
+    required this.maleRate,
+    required this.femaleRate,
+    required this.genderless,
+  });
+
+  factory Gender.fromJson(Map<String, dynamic> json) {
+    return Gender(
+      maleRate: (json['male_rate'] as num?)?.toDouble() ?? 0,
+      femaleRate: (json['female_rate'] as num?)?.toDouble() ?? 0,
+      genderless: json['genderless'] as bool? ?? false,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'male_rate': maleRate,
+        'female_rate': femaleRate,
+        'genderless': genderless,
+      };
+}
+
+/// Pokemon growth rate enum
+enum GrowthRate {
+  slow('Slow'),
+  mediumSlow('Medium Slow'),
+  mediumFast('Medium Fast'),
+  fast('Fast'),
+  erratic('Erratic'),
+  fluctuating('Fluctuating');
+
+  final String value;
+  const GrowthRate(this.value);
+
+  static GrowthRate fromString(String value) {
+    return GrowthRate.values.firstWhere(
+      (e) => e.value.toLowerCase() == value.toLowerCase(),
+      orElse: () => GrowthRate.mediumFast,
+    );
   }
 }
