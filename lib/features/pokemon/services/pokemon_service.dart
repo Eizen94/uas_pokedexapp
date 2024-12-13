@@ -16,6 +16,14 @@ import '../models/pokemon_model.dart';
 import '../models/pokemon_detail_model.dart';
 import '../models/pokemon_move_model.dart';
 
+/// Pokemon service error messages
+class PokemonServiceError {
+  static const String notFound = 'Pokemon not found';
+  static const String fetchError = 'Failed to fetch Pokemon data';
+  static const String networkError = 'Network error occurred';
+  static const String cacheError = 'Cache error occurred';
+}
+
 /// Service class for Pokemon operations
 class PokemonService {
   final ApiHelper _apiHelper;
@@ -23,7 +31,6 @@ class PokemonService {
   final MonitoringManager _monitoringManager;
   late final CacheManager _cacheManager;
 
-  /// Constructor
   PokemonService._({
     required ApiHelper apiHelper,
     required ConnectivityManager connectivityManager,
@@ -32,14 +39,12 @@ class PokemonService {
         _connectivityManager = connectivityManager,
         _monitoringManager = monitoringManager;
 
-  /// Initialize service instance
   static Future<PokemonService> initialize() async {
     final service = PokemonService._(
       apiHelper: ApiHelper(),
       connectivityManager: ConnectivityManager(),
       monitoringManager: MonitoringManager(),
     );
-
     service._cacheManager = await CacheManager.initialize();
     return service;
   }
@@ -50,34 +55,33 @@ class PokemonService {
     int offset = 0,
   }) async {
     try {
-      if (!await _connectivityManager.hasConnection) {
+      if (!_connectivityManager.hasConnection) {
         final cachedData = await _getCachedPokemonList(limit, offset);
         if (cachedData != null) return cachedData;
         throw PokemonServiceError.networkError;
       }
 
       final response = await _apiHelper.get<Map<String, dynamic>>(
-        url: ApiPaths.pokemonList(limit, offset),
+        endpoint: ApiPaths.pokemonList(limit, offset),
+        parser: (json) => json,
       );
 
-      if (response != null) {
-        final List<PokemonModel> pokemonList = [];
-        final List<dynamic> results = response['results'] as List<dynamic>;
+      final pokemonList = <PokemonModel>[];
+      final results = response.data['results'] as List<dynamic>;
 
-        for (final item in results) {
-          final pokemonData = await _apiHelper.get<Map<String, dynamic>>(
-            url: item['url'] as String,
-          );
-          if (pokemonData != null) {
-            pokemonList.add(PokemonModel.fromJson(pokemonData));
-          }
+      for (final item in results) {
+        final pokemonResponse = await _apiHelper.get<Map<String, dynamic>>(
+          endpoint: item['url'] as String,
+          parser: (json) => json,
+        );
+
+        if (pokemonResponse.data != null) {
+          pokemonList.add(PokemonModel.fromJson(pokemonResponse.data));
         }
-
-        await _cachePokemonList(limit, offset, pokemonList);
-        return pokemonList;
       }
 
-      throw PokemonServiceError.fetchError;
+      await _cachePokemonList(limit, offset, pokemonList);
+      return pokemonList;
     } catch (e) {
       _monitoringManager.logError(
         'Failed to fetch Pokemon list',
@@ -88,83 +92,44 @@ class PokemonService {
     }
   }
 
-  /// Cache Pokemon list data
-  Future<void> _cachePokemonList(
-    int limit,
-    int offset,
-    List<PokemonModel> pokemonList,
-  ) async {
-    final key = 'pokemon_list_${limit}_$offset';
-    await _cacheManager.put(
-      key,
-      pokemonList.map((p) => p.toJson()).toList(),
-    );
-  }
-
-  /// Get cached Pokemon list
-  Future<List<PokemonModel>?> _getCachedPokemonList(
-    int limit,
-    int offset,
-  ) async {
-    final key = 'pokemon_list_${limit}_$offset';
-    final data = await _cacheManager.get<List<dynamic>>(key);
-
-    if (data != null) {
-      return data
-          .map((item) => PokemonModel.fromJson(item as Map<String, dynamic>))
-          .toList();
-    }
-    return null;
-  }
-}
-
-/// Pokemon service error messages
-class PokemonServiceError {
-  static const String notFound = 'Pokemon not found';
-  static const String fetchError = 'Failed to fetch Pokemon data';
-  static const String networkError = 'Network error occurred';
-  static const String cacheError = 'Cache error occurred';
-}
-
-// ... (bagian sebelumnya tetap sama)
-
-class PokemonService {
-  // ... (bagian sebelumnya tetap sama)
-
   /// Fetch Pokemon detail by ID
   Future<PokemonDetailModel> getPokemonDetail(int id) async {
     try {
-      if (!await _connectivityManager.hasConnection) {
+      if (!_connectivityManager.hasConnection) {
         final cachedDetail = await _getCachedPokemonDetail(id);
         if (cachedDetail != null) return cachedDetail;
         throw PokemonServiceError.networkError;
       }
 
       // Fetch basic Pokemon data
-      final pokemonData = await _apiHelper.get<Map<String, dynamic>>(
-        url: ApiPaths.pokemonDetails(id),
+      final pokemonResponse = await _apiHelper.get<Map<String, dynamic>>(
+        endpoint: ApiPaths.pokemonDetails(id),
+        parser: (json) => json,
       );
-      if (pokemonData == null) throw PokemonServiceError.notFound;
+      if (pokemonResponse.data == null) throw PokemonServiceError.notFound;
 
       // Fetch species data
-      final speciesUrl = pokemonData['species']['url'] as String;
-      final speciesData = await _apiHelper.get<Map<String, dynamic>>(
-        url: speciesUrl,
+      final speciesUrl = pokemonResponse.data['species']['url'] as String;
+      final speciesResponse = await _apiHelper.get<Map<String, dynamic>>(
+        endpoint: speciesUrl,
+        parser: (json) => json,
       );
-      if (speciesData == null) throw PokemonServiceError.fetchError;
+      if (speciesResponse.data == null) throw PokemonServiceError.fetchError;
 
       // Fetch evolution chain
-      final evolutionUrl = speciesData['evolution_chain']['url'] as String;
-      final evolutionData = await _apiHelper.get<Map<String, dynamic>>(
-        url: evolutionUrl,
+      final evolutionUrl =
+          speciesResponse.data['evolution_chain']['url'] as String;
+      final evolutionResponse = await _apiHelper.get<Map<String, dynamic>>(
+        endpoint: evolutionUrl,
+        parser: (json) => json,
       );
-      if (evolutionData == null) throw PokemonServiceError.fetchError;
+      if (evolutionResponse.data == null) throw PokemonServiceError.fetchError;
 
       // Build detail model
       final detailModel = await _buildPokemonDetail(
-        pokemonData: pokemonData,
-        speciesData: speciesData,
-        evolutionData: evolutionData,
+        pokemonData: pokemonResponse.data,
+        speciesData: speciesResponse.data,
+        evolutionData: evolutionResponse.data,
       );
 
       // Cache the result
@@ -251,12 +216,13 @@ class PokemonService {
     final abilities = <PokemonAbility>[];
 
     for (final ability in abilityData) {
-      final abilityUrl = ability['ability']['url'] as String;
-      final details =
-          await _apiHelper.get<Map<String, dynamic>>(url: abilityUrl);
+      final response = await _apiHelper.get<Map<String, dynamic>>(
+        endpoint: ability['ability']['url'] as String,
+        parser: (json) => json,
+      );
 
-      if (details != null) {
-        final description = details['effect_entries'].firstWhere(
+      if (response.data != null) {
+        final description = response.data['effect_entries'].firstWhere(
           (entry) => entry['language']['name'] == 'en',
           orElse: () => {'effect': 'No description available'},
         )['effect'] as String;
@@ -277,21 +243,23 @@ class PokemonService {
     final moves = <PokemonMove>[];
 
     for (final move in moveData) {
-      final moveUrl = move['move']['url'] as String;
-      final details = await _apiHelper.get<Map<String, dynamic>>(url: moveUrl);
+      final response = await _apiHelper.get<Map<String, dynamic>>(
+        endpoint: move['move']['url'] as String,
+        parser: (json) => json,
+      );
 
-      if (details != null) {
-        final description = details['effect_entries'].firstWhere(
+      if (response.data != null) {
+        final description = response.data['effect_entries'].firstWhere(
           (entry) => entry['language']['name'] == 'en',
           orElse: () => {'effect': 'No description available'},
         )['effect'] as String;
 
         moves.add(PokemonMove(
           name: move['move']['name'] as String,
-          type: details['type']['name'] as String,
-          power: details['power'] as int?,
-          accuracy: details['accuracy'] as int?,
-          pp: details['pp'] as int,
+          type: response.data['type']['name'] as String,
+          power: response.data['power'] as int?,
+          accuracy: response.data['accuracy'] as int?,
+          pp: response.data['pp'] as int,
           description: description,
         ));
       }
@@ -316,13 +284,14 @@ class PokemonService {
       );
 
       // Fetch sprite URL
-      final pokemonData = await _apiHelper.get<Map<String, dynamic>>(
-        url: ApiPaths.pokemonDetails(pokemonId),
+      final response = await _apiHelper.get<Map<String, dynamic>>(
+        endpoint: ApiPaths.pokemonDetails(pokemonId),
+        parser: (json) => json,
       );
 
-      final spriteUrl = pokemonData?['sprites']['other']['official-artwork']
+      final spriteUrl = response.data?['sprites']['other']['official-artwork']
               ['front_default'] as String? ??
-          pokemonData?['sprites']['front_default'] as String? ??
+          response.data?['sprites']['front_default'] as String? ??
           '';
 
       stages.add(EvolutionStage(
@@ -378,6 +347,35 @@ class PokemonService {
 
     if (data != null) {
       return PokemonDetailModel.fromJson(data);
+    }
+    return null;
+  }
+
+  /// Cache Pokemon list
+  Future<void> _cachePokemonList(
+    int limit,
+    int offset,
+    List<PokemonModel> pokemonList,
+  ) async {
+    final key = 'pokemon_list_${limit}_$offset';
+    await _cacheManager.put(
+      key,
+      pokemonList.map((p) => p.toJson()).toList(),
+    );
+  }
+
+  /// Get cached Pokemon list
+  Future<List<PokemonModel>?> _getCachedPokemonList(
+    int limit,
+    int offset,
+  ) async {
+    final key = 'pokemon_list_${limit}_$offset';
+    final data = await _cacheManager.get<List<dynamic>>(key);
+
+    if (data != null) {
+      return data
+          .map((item) => PokemonModel.fromJson(item as Map<String, dynamic>))
+          .toList();
     }
     return null;
   }
