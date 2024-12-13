@@ -1,272 +1,277 @@
 // lib/core/utils/offline_operation.dart
 
-import 'dart:async';
-import 'dart:convert';
-import 'package:flutter/foundation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+/// Offline operation handler for managing operations when device is offline.
+/// Ensures data consistency and operation queuing during offline periods.
+library core.utils.offline_operation;
 
-/// Base class for offline operations with retry and persistence capabilities
-abstract class OfflineOperation {
+import 'dart:async';
+import 'package:flutter/foundation.dart';
+import 'package:rxdart/subjects.dart';
+
+import 'cache_manager.dart';
+import 'connectivity_manager.dart';
+import 'monitoring_manager.dart';
+import 'sync_manager.dart';
+
+/// Operation types that can be performed offline
+enum OfflineOperationType {
+  /// Add to favorites
+  addFavorite,
+  
+  /// Remove from favorites
+  removeFavorite,
+  
+  /// Add note
+  addNote,
+  
+  /// Update note
+  updateNote,
+  
+  /// Delete note
+  deleteNote,
+  
+  /// Update settings
+  updateSettings
+}
+
+/// Status of offline operation
+enum OfflineOperationStatus {
+  /// Operation is pending
+  pending,
+  
+  /// Operation is being processed
+  processing,
+  
+  /// Operation completed successfully
+  completed,
+  
+  /// Operation failed
+  failed
+}
+
+/// Offline operation entry
+class OfflineOperation {
+  /// Unique operation ID
   final String id;
-  final OperationPriority priority;
-  final Duration timeout;
-  DateTime timestamp;
-  int retryCount;
-  OperationStatus status;
+  
+  /// Operation type
+  final OfflineOperationType type;
+  
+  /// Operation data
+  final Map<String, dynamic> data;
+  
+  /// Creation timestamp
+  final DateTime timestamp;
+  
+  /// Current status
+  OfflineOperationStatus status;
+  
+  /// Error message if failed
+  String? error;
 
   OfflineOperation({
     required this.id,
-    this.priority = OperationPriority.normal,
-    this.timeout = const Duration(minutes: 1),
-  })  : timestamp = DateTime.now(),
-        retryCount = 0,
-        status = OperationStatus.pending;
+    required this.type,
+    required this.data,
+    required this.timestamp,
+    this.status = OfflineOperationStatus.pending,
+    this.error,
+  });
 
-  /// Execute the operation
-  Future<void> execute();
+  /// Convert to JSON
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'type': type.name,
+    'data': data,
+    'timestamp': timestamp.toIso8601String(),
+    'status': status.name,
+    if (error != null) 'error': error,
+  };
 
-  /// Check if operation can be retried
-  bool canRetry() => retryCount < maxRetries && !isExpired();
-
-  /// Check if operation is expired
-  bool isExpired() {
-    return DateTime.now().difference(timestamp) > maxLifetime;
-  }
-
-  /// Convert operation to storable format
-  Map<String, dynamic> toJson();
-
-  /// Create operation from stored format
-  static OfflineOperation? fromJson(Map<String, dynamic> json) {
-    // This needs to be implemented by child classes
-    return null;
-  }
-
-  /// Maximum number of retry attempts
-  static const int maxRetries = 3;
-
-  /// Maximum lifetime of an operation
-  static const Duration maxLifetime = Duration(hours: 24);
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is OfflineOperation &&
-          runtimeType == other.runtimeType &&
-          id == other.id;
-
-  @override
-  int get hashCode => id.hashCode;
+  /// Create from JSON
+  factory OfflineOperation.fromJson(Map<String, dynamic> json) => OfflineOperation(
+    id: json['id'] as String,
+    type: OfflineOperationType.values.firstWhere(
+      (e) => e.name == json['type'],
+    ),
+    data: json['data'] as Map<String, dynamic>,
+    timestamp: DateTime.parse(json['timestamp'] as String),
+    status: OfflineOperationStatus.values.firstWhere(
+      (e) => e.name == json['status'],
+    ),
+    error: json['error'] as String?,
+  );
 }
 
-/// Handles persistence of offline operations
-class OfflineOperationStorage {
-  static const String _storageKey = 'offline_operations';
-  late final SharedPreferences _prefs;
-  bool _initialized = false;
+/// Manager class for offline operations
+class OfflineOperationManager {
+  static final OfflineOperationManager _instance = OfflineOperationManager._internal();
+  
+  /// Singleton instance
+  factory OfflineOperationManager() => _instance;
 
-  /// Initialize storage
-  Future<void> initialize() async {
-    if (_initialized) return;
-    _prefs = await SharedPreferences.getInstance();
-    _initialized = true;
+  OfflineOperationManager._internal();
+
+  final ConnectivityManager _connectivityManager = ConnectivityManager();
+  final SyncManager _syncManager = SyncManager();
+  final CacheManager _cacheManager;
+  final MonitoringManager _monitoringManager = MonitoringManager();
+  
+  final BehaviorSubject<List<OfflineOperation>> _operationsController = 
+      BehaviorSubject<List<OfflineOperation>>.seeded([]);
+  
+  final List<OfflineOperation> _operations = [];
+  static const String _operationsKey = 'offline_operations';
+
+  /// Initialize manager
+  static Future<OfflineOperationManager> initialize() async {
+    final instance = OfflineOperationManager();
+    instance._cacheManager = await CacheManager.initialize();
+    await instance._loadOperations();
+    instance._setupConnectivityListener();
+    return instance;
   }
 
-  /// Save operation to persistent storage
-  Future<void> saveOperation(OfflineOperation operation) async {
-    if (!_initialized) await initialize();
+  /// Stream of offline operations
+  Stream<List<OfflineOperation>> get operationsStream => 
+      _operationsController.stream;
 
-    try {
-      final operations = await _loadOperations();
-      operations[operation.id] = operation.toJson();
-      await _saveOperations(operations);
+  /// Add new offline operation
+  Future<void> addOperation({
+    required OfflineOperationType type,
+    required Map<String, dynamic> data,
+  }) async {
+    final operation = OfflineOperation(
+      id: _generateOperationId(),
+      type: type,
+      data: data,
+      timestamp: DateTime.now(),
+    );
 
-      if (kDebugMode) {
-        print('✅ Saved offline operation: ${operation.id}');
-      }
-    } catch (e) {
-      if (kDebugMode) {
-        print('❌ Error saving offline operation: $e');
-      }
-      rethrow;
+    _operations.add(operation);
+    await _saveOperations();
+    _updateOperations();
+
+    if (_connectivityManager.hasConnection) {
+      processOperations();
     }
   }
 
-  /// Remove operation from storage
-  Future<void> removeOperation(String id) async {
-    if (!_initialized) await initialize();
+  /// Process pending operations
+  Future<void> processOperations() async {
+    final pendingOperations = _operations
+        .where((op) => op.status == OfflineOperationStatus.pending)
+        .toList();
 
-    try {
-      final operations = await _loadOperations();
-      operations.remove(id);
-      await _saveOperations(operations);
+    for (final operation in pendingOperations) {
+      try {
+        operation.status = OfflineOperationStatus.processing;
+        _updateOperations();
 
-      if (kDebugMode) {
-        print('✅ Removed offline operation: $id');
+        await _processOperation(operation);
+        
+        operation.status = OfflineOperationStatus.completed;
+      } catch (e) {
+        operation.status = OfflineOperationStatus.failed;
+        operation.error = e.toString();
+        
+        _monitoringManager.logError(
+          'Failed to process offline operation',
+          error: e,
+          additionalData: {
+            'operationId': operation.id,
+            'type': operation.type.name,
+          },
+        );
       }
-    } catch (e) {
-      if (kDebugMode) {
-        print('❌ Error removing offline operation: $e');
-      }
-      rethrow;
+      
+      _updateOperations();
+      await _saveOperations();
     }
   }
 
-  /// Load all stored operations
-  Future<List<OfflineOperation>> loadAllOperations() async {
-    if (!_initialized) await initialize();
-
-    try {
-      final operations = await _loadOperations();
-      return operations.values
-          .map((json) => OfflineOperation.fromJson(json))
-          .where((op) => op != null)
-          .cast<OfflineOperation>()
-          .toList();
-    } catch (e) {
-      if (kDebugMode) {
-        print('❌ Error loading offline operations: $e');
-      }
-      return [];
+  /// Process single operation
+  Future<void> _processOperation(OfflineOperation operation) async {
+    switch (operation.type) {
+      case OfflineOperationType.addFavorite:
+      case OfflineOperationType.removeFavorite:
+        await _syncManager.addToSyncQueue(
+          operation: operation.type.name,
+          data: operation.data,
+        );
+        break;
+        
+      case OfflineOperationType.addNote:
+      case OfflineOperationType.updateNote:
+      case OfflineOperationType.deleteNote:
+        await _syncManager.addToSyncQueue(
+          operation: operation.type.name,
+          data: operation.data,
+        );
+        break;
+        
+      case OfflineOperationType.updateSettings:
+        await _syncManager.addToSyncQueue(
+          operation: operation.type.name,
+          data: operation.data,
+        );
+        break;
     }
   }
 
-  /// Clear all stored operations
-  Future<void> clearAllOperations() async {
-    if (!_initialized) await initialize();
-
-    try {
-      await _prefs.remove(_storageKey);
-      if (kDebugMode) {
-        print('✅ Cleared all offline operations');
-      }
-    } catch (e) {
-      if (kDebugMode) {
-        print('❌ Error clearing offline operations: $e');
-      }
-      rethrow;
-    }
-  }
-
-  /// Load operations from storage
-  Future<Map<String, dynamic>> _loadOperations() async {
-    final String? data = _prefs.getString(_storageKey);
-    if (data == null) return {};
-
-    try {
-      final decodedData = jsonDecode(data);
-      if (decodedData is Map<String, dynamic>) {
-        return decodedData;
-      }
-      return {};
-    } catch (e) {
-      if (kDebugMode) {
-        print('⚠️ Error parsing stored operations: $e');
-      }
-      return {};
+  /// Load saved operations
+  Future<void> _loadOperations() async {
+    final data = await _cacheManager.get<List<dynamic>>(_operationsKey);
+    if (data != null) {
+      _operations.clear();
+      _operations.addAll(
+        data.map((item) => OfflineOperation.fromJson(item as Map<String, dynamic>))
+      );
+      _updateOperations();
     }
   }
 
   /// Save operations to storage
-  Future<void> _saveOperations(Map<String, dynamic> operations) async {
-    final data = jsonEncode(operations);
-    await _prefs.setString(_storageKey, data);
+  Future<void> _saveOperations() async {
+    await _cacheManager.put(
+      _operationsKey,
+      _operations.map((e) => e.toJson()).toList(),
+    );
   }
-}
 
-/// Operation executor with retry mechanism
-class OfflineOperationExecutor {
-  final Duration _retryDelay;
-  final int _maxConcurrent;
-
-  OfflineOperationExecutor({
-    Duration? retryDelay,
-    int? maxConcurrent,
-  })  : _retryDelay = retryDelay ?? const Duration(seconds: 5),
-        _maxConcurrent = maxConcurrent ?? 3;
-
-  int _activeOperations = 0;
-
-  /// Execute operation with retry
-  Future<void> execute(OfflineOperation operation) async {
-    if (_activeOperations >= _maxConcurrent) {
-      throw const ConcurrencyLimitException();
-    }
-
-    try {
-      _activeOperations++;
-      operation.status = OperationStatus.inProgress;
-
-      if (kDebugMode) {
-        print(
-            '🚀 Executing operation: ${operation.id} (Attempt: ${operation.retryCount + 1})');
+  /// Setup connectivity listener
+  void _setupConnectivityListener() {
+    _connectivityManager.connectionStream.listen((state) {
+      if (state == NetworkState.online) {
+        processOperations();
       }
+    });
+  }
 
-      await operation.execute().timeout(operation.timeout);
-      operation.status = OperationStatus.completed;
+  /// Generate unique operation ID
+  String _generateOperationId() => 
+      '${DateTime.now().millisecondsSinceEpoch}_${_operations.length}';
 
-      if (kDebugMode) {
-        print('✅ Operation completed: ${operation.id}');
-      }
-    } catch (e) {
-      operation.status = OperationStatus.failed;
-      operation.retryCount++;
-
-      if (kDebugMode) {
-        print('❌ Operation failed: ${operation.id} - $e');
-      }
-
-      if (operation.canRetry()) {
-        await Future.delayed(_getRetryDelay(operation.retryCount));
-        await execute(operation);
-      } else {
-        rethrow;
-      }
-    } finally {
-      _activeOperations--;
+  /// Update operations stream
+  void _updateOperations() {
+    if (!_operationsController.isClosed) {
+      _operationsController.add(List.unmodifiable(_operations));
     }
   }
 
-  /// Calculate retry delay with exponential backoff
-  Duration _getRetryDelay(int retryCount) {
-    return _retryDelay * (1 << retryCount);
+  /// Clear completed operations
+  Future<void> clearCompletedOperations() async {
+    _operations.removeWhere((op) => op.status == OfflineOperationStatus.completed);
+    await _saveOperations();
+    _updateOperations();
   }
-}
 
-/// Operation priority levels
-enum OperationPriority {
-  high,
-  normal,
-  low;
+  /// Get operations by status
+  List<OfflineOperation> getOperationsByStatus(OfflineOperationStatus status) =>
+      _operations.where((op) => op.status == status).toList();
 
-  bool get isHigh => this == OperationPriority.high;
-  bool get isNormal => this == OperationPriority.normal;
-  bool get isLow => this == OperationPriority.low;
-}
-
-/// Operation status
-enum OperationStatus {
-  pending('Pending'),
-  inProgress('In Progress'),
-  completed('Completed'),
-  failed('Failed');
-
-  final String value;
-  const OperationStatus(this.value);
-
-  bool get isPending => this == OperationStatus.pending;
-  bool get isInProgress => this == OperationStatus.inProgress;
-  bool get isCompleted => this == OperationStatus.completed;
-  bool get isFailed => this == OperationStatus.failed;
-
-  @override
-  String toString() => value;
-}
-
-/// Custom exceptions
-class ConcurrencyLimitException implements Exception {
-  const ConcurrencyLimitException();
-
-  @override
-  String toString() => 'Maximum concurrent operations limit reached';
+  /// Dispose resources
+  void dispose() {
+    _operationsController.close();
+  }
 }
