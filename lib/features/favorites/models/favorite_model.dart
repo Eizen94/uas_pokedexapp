@@ -5,6 +5,7 @@
 library features.favorites.models.favorite_model;
 
 import 'package:json_annotation/json_annotation.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../pokemon/models/pokemon_model.dart';
 
 part 'favorite_model.g.dart';
