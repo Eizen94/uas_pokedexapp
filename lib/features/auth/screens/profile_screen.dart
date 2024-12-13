@@ -30,20 +30,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
   String? _errorMessage;
 
   late final AuthService _authService;
-  late final FavoriteService _favoriteService;
-  late final UserModel? _currentUser;
+  late final UserModel _currentUser; // Remove ? since we check in initState
 
   @override
   void initState() {
     super.initState();
     _authService = Provider.of<AuthService>(context, listen: false);
-    _currentUser = Provider.of<UserModel?>(context, listen: false);
-    _displayNameController.text = _currentUser?.displayName ?? '';
-    _initializeFavoriteService();
-  }
-
-  Future<void> _initializeFavoriteService() async {
-    _favoriteService = await FavoriteService.initialize();
+    final user = Provider.of<UserModel?>(context, listen: false);
+    if (user == null) {
+      throw StateError('User must be logged in to view profile');
+    }
+    _currentUser = user;
+    _displayNameController.text = _currentUser.displayName ?? '';
   }
 
   @override
