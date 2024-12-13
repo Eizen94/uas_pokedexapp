@@ -1,11 +1,21 @@
 // lib/features/auth/screens/profile_screen.dart
 
-import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import '../services/auth_service.dart';
+/// Profile screen to display and manage user profile information.
+/// Handles user profile updates and sign out functionality.
+library features.auth.screens.profile_screen;
 
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+
+import '../../../core/constants/colors.dart';
+import '../../../core/constants/text_styles.dart';
+import '../models/user_model.dart';
+import '../services/auth_service.dart';
+import '../../favorites/services/favorite_service.dart';
+
+/// Profile screen widget
 class ProfileScreen extends StatefulWidget {
+  /// Constructor
   const ProfileScreen({super.key});
 
   @override
@@ -13,339 +23,302 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
-  final AuthService _authService = AuthService();
-  User? _currentUser;
-  bool _isLoading = true;
-  bool _isSyncing = false;
+  final _formKey = GlobalKey<FormState>();
+  final _displayNameController = TextEditingController();
+
+  bool _isLoading = false;
+  String? _errorMessage;
+
+  late final AuthService _authService;
+  late final FavoriteService _favoriteService;
+  late final UserModel? _currentUser;
 
   @override
   void initState() {
     super.initState();
-    _loadUserData();
+    _authService = Provider.of<AuthService>(context, listen: false);
+    _currentUser = Provider.of<UserModel?>(context, listen: false);
+    _displayNameController.text = _currentUser?.displayName ?? '';
+    _initializeFavoriteService();
   }
 
-  Future<void> _loadUserData() async {
-    setState(() => _isLoading = true);
+  Future<void> _initializeFavoriteService() async {
+    _favoriteService = await FavoriteService.initialize();
+  }
+
+  @override
+  void dispose() {
+    _displayNameController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _handleUpdateProfile() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
 
     try {
-      if (kDebugMode) {
-        print('🔄 Loading user data...');
-      }
+      await _authService.updateProfile(
+        displayName: _displayNameController.text.trim(),
+      );
 
-      _currentUser = _authService.currentUser;
-
-      if (kDebugMode && _currentUser != null) {
-        print('✅ User data loaded: ${_currentUser!.email}');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Profile updated successfully')),
+        );
       }
     } catch (e) {
-      if (kDebugMode) {
-        print('❌ Error loading user data: $e');
-      }
-      _showError('Failed to load user data');
+      setState(() {
+        _errorMessage = e.toString();
+      });
     } finally {
       if (mounted) {
-        setState(() => _isLoading = false);
+        setState(() {
+          _isLoading = false;
+        });
       }
     }
   }
 
-  Future<void> _signOut() async {
+  Future<void> _handleSignOut() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
     try {
-      setState(() => _isSyncing = true);
-
-      if (kDebugMode) {
-        print('🚪 Attempting to sign out...');
-      }
-
       await _authService.signOut();
-
-      if (mounted) {
-        if (kDebugMode) {
-          print('✅ Sign out successful');
-        }
-        Navigator.pushReplacementNamed(context, '/login');
-      }
+      // Navigation will be handled by auth state changes
     } catch (e) {
-      if (kDebugMode) {
-        print('❌ Sign out error: $e');
-      }
-      _showError('Failed to sign out');
+      setState(() {
+        _errorMessage = e.toString();
+      });
     } finally {
       if (mounted) {
-        setState(() => _isSyncing = false);
+        setState(() {
+          _isLoading = false;
+        });
       }
     }
   }
 
-  void _showError(String message) {
-    if (!mounted) return;
+  Future<void> _handleVerifyEmail() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: Colors.red,
-        behavior: SnackBarBehavior.floating,
-        action: SnackBarAction(
-          label: 'Retry',
-          textColor: Colors.white,
-          onPressed: _loadUserData,
-        ),
-      ),
-    );
+    try {
+      await _authService.verifyEmail();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Verification email sent. Please check your inbox.'),
+          ),
+        );
+      }
+    } catch (e) {
+      setState(() {
+        _errorMessage = e.toString();
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_currentUser == null) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
     return Scaffold(
+      backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text(
-          'Profile',
-          style: TextStyle(fontWeight: FontWeight.bold),
-        ),
-        centerTitle: true,
+        title: const Text('Profile'),
         actions: [
           IconButton(
             icon: const Icon(Icons.logout),
-            onPressed: _isSyncing ? null : _signOut,
+            onPressed: _isLoading ? null : _handleSignOut,
           ),
         ],
-        elevation: 0,
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : RefreshIndicator(
-              onRefresh: _loadUserData,
-              child: SingleChildScrollView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    Hero(
-                      tag: 'profile_avatar',
-                      child: CircleAvatar(
-                        radius: 50,
-                        backgroundColor: Theme.of(context).primaryColor,
-                        child: const Icon(
-                          Icons.person,
-                          size: 50,
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Profile header
+              CircleAvatar(
+                radius: 50,
+                backgroundColor: AppColors.primaryButton,
+                child: Text(
+                  (_currentUser?.displayName?.isNotEmpty == true)
+                      ? _currentUser!.displayName![0].toUpperCase()
+                      : _currentUser!.email[0].toUpperCase(),
+                  style: AppTextStyles.heading1.copyWith(color: Colors.white),
+                ),
+              ),
+              const SizedBox(height: 24),
+
+              // Error Message
+              if (_errorMessage != null) ...[
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: AppColors.error.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    _errorMessage!,
+                    style: TextStyle(color: AppColors.error),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+                const SizedBox(height: 16),
+              ],
+
+              // Email display
+              Card(
+                child: ListTile(
+                  leading: const Icon(Icons.email_outlined),
+                  title: Text(_currentUser!.email),
+                  subtitle: Text(
+                    _currentUser!.isEmailVerified ? 'Verified' : 'Not verified',
+                    style: TextStyle(
+                      color: _currentUser!.isEmailVerified
+                          ? AppColors.success
+                          : AppColors.error,
+                    ),
+                  ),
+                  trailing: !_currentUser!.isEmailVerified
+                      ? TextButton(
+                          onPressed: _isLoading ? null : _handleVerifyEmail,
+                          child: const Text('Verify'),
+                        )
+                      : null,
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // Display name field
+              TextFormField(
+                controller: _displayNameController,
+                decoration: const InputDecoration(
+                  labelText: 'Display Name',
+                  hintText: 'Enter your display name',
+                  prefixIcon: Icon(Icons.person_outlined),
+                ),
+                validator: (value) {
+                  if (value == null || value.isEmpty) {
+                    return 'Please enter your display name';
+                  }
+                  return null;
+                },
+                enabled: !_isLoading,
+              ),
+              const SizedBox(height: 24),
+
+              // Update button
+              ElevatedButton(
+                onPressed: _isLoading ? null : _handleUpdateProfile,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primaryButton,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                child: _isLoading
+                    ? const SizedBox(
+                        height: 20,
+                        width: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor:
+                              AlwaysStoppedAnimation<Color>(Colors.white),
+                        ),
+                      )
+                    : const Text(
+                        'Update Profile',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
                           color: Colors.white,
                         ),
                       ),
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      _currentUser?.email ?? 'No Email',
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                            fontWeight: FontWeight.bold,
-                          ),
-                    ),
-                    const SizedBox(height: 32),
-                    _buildProfileSection(
-                      title: 'Account Info',
-                      icon: Icons.person_outline,
-                      children: [
-                        _buildInfoTile(
-                          icon: Icons.email,
-                          title: 'Email',
-                          subtitle: _currentUser?.email ?? 'No Email',
-                        ),
-                        _buildInfoTile(
-                          icon: Icons.access_time,
-                          title: 'Joined',
-                          subtitle:
-                              _currentUser?.metadata.creationTime?.toString() ??
-                                  'Unknown',
-                        ),
-                        _buildInfoTile(
-                          icon: Icons.verified_user,
-                          title: 'Email Verified',
-                          subtitle: _currentUser?.emailVerified ?? false
-                              ? 'Verified'
-                              : 'Not Verified',
-                          trailing: _currentUser?.emailVerified ?? false
-                              ? const Icon(Icons.check_circle,
-                                  color: Colors.green)
-                              : TextButton(
-                                  onPressed: () async {
-                                    try {
-                                      await _authService
-                                          .sendEmailVerification();
-                                      if (mounted) {
-                                        ScaffoldMessenger.of(context)
-                                            .showSnackBar(
-                                          const SnackBar(
-                                            content: Text(
-                                              'Verification email sent. Please check your inbox.',
-                                            ),
-                                          ),
-                                        );
-                                      }
-                                    } catch (e) {
-                                      _showError(
-                                          'Failed to send verification email');
-                                    }
-                                  },
-                                  child: const Text('Verify Now'),
-                                ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    _buildProfileSection(
-                      title: 'App Settings',
-                      icon: Icons.settings_outlined,
-                      children: [
-                        SwitchListTile(
-                          title: const Text('Dark Mode'),
-                          secondary: const Icon(Icons.dark_mode),
-                          value:
-                              Theme.of(context).brightness == Brightness.dark,
-                          onChanged: (bool value) {
-                            // TODO: Implement theme switching
+              ),
+
+              const SizedBox(height: 32),
+
+              // Preferences section
+              const Text('Preferences',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 16),
+
+              // Theme toggle
+              Card(
+                child: ListTile(
+                  leading: const Icon(Icons.brightness_6_outlined),
+                  title: const Text('Dark Mode'),
+                  trailing: Switch(
+                    value: _currentUser!.settings.isDarkMode,
+                    onChanged: _isLoading
+                        ? null
+                        : (bool value) {
+                            // Theme toggle will be handled by theme provider
                           },
-                        ),
-                        ListTile(
-                          leading: const Icon(Icons.language),
-                          title: const Text('Language'),
-                          subtitle: const Text('English'),
-                          trailing:
-                              const Icon(Icons.arrow_forward_ios, size: 16),
-                          onTap: () {
-                            // TODO: Implement language selection
-                          },
-                        ),
-                        ListTile(
-                          leading: const Icon(Icons.notifications),
-                          title: const Text('Notifications'),
-                          trailing:
-                              const Icon(Icons.arrow_forward_ios, size: 16),
-                          onTap: () {
-                            // TODO: Implement notifications settings
-                          },
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    _buildProfileSection(
-                      title: 'About',
-                      icon: Icons.info_outline,
-                      children: [
-                        ListTile(
-                          leading: const Icon(Icons.update),
-                          title: const Text('Version'),
-                          subtitle: const Text('1.0.0'),
-                        ),
-                        ListTile(
-                          leading: const Icon(Icons.policy),
-                          title: const Text('Privacy Policy'),
-                          trailing:
-                              const Icon(Icons.arrow_forward_ios, size: 16),
-                          onTap: () {
-                            // TODO: Implement privacy policy
-                          },
-                        ),
-                        ListTile(
-                          leading: const Icon(Icons.description),
-                          title: const Text('Terms of Service'),
-                          trailing:
-                              const Icon(Icons.arrow_forward_ios, size: 16),
-                          onTap: () {
-                            // TODO: Implement terms of service
-                          },
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 24),
-                    ElevatedButton.icon(
-                      onPressed: _isSyncing ? null : _signOut,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.red,
-                        minimumSize: const Size(double.infinity, 50),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                      icon: _isSyncing
-                          ? const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                valueColor:
-                                    AlwaysStoppedAnimation<Color>(Colors.white),
-                              ),
-                            )
-                          : const Icon(Icons.logout),
-                      label: Text(
-                        _isSyncing ? 'Signing out...' : 'Sign Out',
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
               ),
-            ),
-    );
-  }
 
-  Widget _buildProfileSection({
-    required String title,
-    required IconData icon,
-    required List<Widget> children,
-  }) {
-    return Card(
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(
-          color: Theme.of(context).dividerColor.withOpacity(0.2),
+              // Language selection
+              Card(
+                child: ListTile(
+                  leading: const Icon(Icons.language_outlined),
+                  title: const Text('Language'),
+                  subtitle: Text(_currentUser!.settings.language.toUpperCase()),
+                  onTap: _isLoading
+                      ? null
+                      : () {
+                          // Language selection will be implemented later
+                        },
+                ),
+              ),
+
+              // Notification settings
+              Card(
+                child: ListTile(
+                  leading: const Icon(Icons.notifications_outlined),
+                  title: const Text('Notifications'),
+                  subtitle: Text(
+                    _currentUser!.settings.notifications.pushEnabled
+                        ? 'Enabled'
+                        : 'Disabled',
+                  ),
+                  trailing: Switch(
+                    value: _currentUser!.settings.notifications.pushEnabled,
+                    onChanged: _isLoading
+                        ? null
+                        : (bool value) {
+                            // Notification toggle will be handled by settings provider
+                          },
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              children: [
-                Icon(icon, color: Theme.of(context).primaryColor),
-                const SizedBox(width: 8),
-                Text(
-                  title,
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
-                ),
-              ],
-            ),
-          ),
-          const Divider(height: 1),
-          ...children,
-        ],
-      ),
-    );
-  }
-
-  Widget _buildInfoTile({
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    Widget? trailing,
-  }) {
-    return ListTile(
-      leading: Icon(icon),
-      title: Text(title),
-      subtitle: Text(
-        subtitle,
-        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: Theme.of(context).textTheme.bodySmall?.color,
-            ),
-      ),
-      trailing: trailing,
     );
   }
 }
