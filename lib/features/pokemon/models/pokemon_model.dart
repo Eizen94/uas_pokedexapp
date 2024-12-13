@@ -1,112 +1,84 @@
 // lib/features/pokemon/models/pokemon_model.dart
 
-import 'dart:convert';
+/// Pokemon model to represent Pokemon data.
+/// Contains basic Pokemon information and stats.
+library features.pokemon.models.pokemon_model;
 
-/// Model class representing a Pokemon with all its basic information.
-/// Handles proper data validation and type safety.
+import 'package:json_annotation/json_annotation.dart';
+
+part 'pokemon_model.g.dart';
+
+/// Pokemon model class
+@JsonSerializable()
 class PokemonModel {
+  /// Pokemon ID
   final int id;
-  final String name;
-  final List<String> types;
-  final String imageUrl;
-  final PokemonStats stats;
-  final String description;
-  final double height; // in meters
-  final double weight; // in kg
-  final List<String> abilities;
-  final String category;
-  final List<String> weaknesses;
-  final String generation;
-  final bool isFavorite;
 
+  /// Pokemon name
+  final String name;
+
+  /// Pokemon types
+  final List<String> types;
+
+  /// Pokemon sprite URL
+  final String spriteUrl;
+
+  /// Base stats
+  final PokemonStats stats;
+
+  /// Height in decimeters
+  final int height;
+
+  /// Weight in hectograms
+  final int weight;
+
+  /// Base experience
+  final int baseExperience;
+
+  /// Species name
+  final String species;
+
+  /// Constructor
   const PokemonModel({
     required this.id,
     required this.name,
     required this.types,
-    required this.imageUrl,
+    required this.spriteUrl,
     required this.stats,
-    required this.description,
     required this.height,
     required this.weight,
-    required this.abilities,
-    required this.category,
-    required this.weaknesses,
-    required this.generation,
-    this.isFavorite = false,
+    required this.baseExperience,
+    required this.species,
   });
 
-  /// Create Pokemon from JSON with proper validation
-  factory PokemonModel.fromJson(Map<String, dynamic> json) {
-    try {
-      return PokemonModel(
-        id: json['id'] as int,
-        name: json['name'] as String,
-        types: List<String>.from(json['types'] as List),
-        imageUrl: json['sprites']['other']['official-artwork']['front_default']
-            as String,
-        stats: PokemonStats.fromJson(json['stats'] as List<dynamic>),
-        description: json['description'] as String? ?? '',
-        height: (json['height'] as num).toDouble() / 10, // Convert to meters
-        weight: (json['weight'] as num).toDouble() / 10, // Convert to kg
-        abilities: List<String>.from(
-            json['abilities'].map((a) => a['ability']['name'])),
-        category: json['category'] as String? ?? 'Unknown',
-        weaknesses: List<String>.from(json['weaknesses'] as List? ?? []),
-        generation: json['generation'] as String? ?? 'Unknown',
-        isFavorite: json['isFavorite'] as bool? ?? false,
-      );
-    } catch (e) {
-      throw FormatException('Error parsing Pokemon data: $e');
-    }
-  }
+  /// Create from JSON
+  factory PokemonModel.fromJson(Map<String, dynamic> json) =>
+      _$PokemonModelFromJson(json);
 
-  /// Convert to JSON for storage
-  Map<String, dynamic> toJson() => {
-        'id': id,
-        'name': name,
-        'types': types,
-        'imageUrl': imageUrl,
-        'stats': stats.toJson(),
-        'description': description,
-        'height': height * 10, // Convert back to decimeters
-        'weight': weight * 10, // Convert back to hectograms
-        'abilities': abilities,
-        'category': category,
-        'weaknesses': weaknesses,
-        'generation': generation,
-        'isFavorite': isFavorite,
-      };
+  /// Convert to JSON
+  Map<String, dynamic> toJson() => _$PokemonModelToJson(this);
 
   /// Create copy with updated fields
   PokemonModel copyWith({
-    int? id,
     String? name,
     List<String>? types,
-    String? imageUrl,
+    String? spriteUrl,
     PokemonStats? stats,
-    String? description,
-    double? height,
-    double? weight,
-    List<String>? abilities,
-    String? category,
-    List<String>? weaknesses,
-    String? generation,
-    bool? isFavorite,
+    int? height,
+    int? weight,
+    int? baseExperience,
+    String? species,
   }) {
     return PokemonModel(
-      id: id ?? this.id,
+      id: id,
       name: name ?? this.name,
       types: types ?? this.types,
-      imageUrl: imageUrl ?? this.imageUrl,
+      spriteUrl: spriteUrl ?? this.spriteUrl,
       stats: stats ?? this.stats,
-      description: description ?? this.description,
       height: height ?? this.height,
       weight: weight ?? this.weight,
-      abilities: abilities ?? this.abilities,
-      category: category ?? this.category,
-      weaknesses: weaknesses ?? this.weaknesses,
-      generation: generation ?? this.generation,
-      isFavorite: isFavorite ?? this.isFavorite,
+      baseExperience: baseExperience ?? this.baseExperience,
+      species: species ?? this.species,
     );
   }
 
@@ -122,18 +94,31 @@ class PokemonModel {
   int get hashCode => id.hashCode ^ name.hashCode;
 
   @override
-  String toString() => 'Pokemon(id: $id, name: $name)';
+  String toString() => 'PokemonModel(id: $id, name: $name)';
 }
 
-/// Stats for a Pokemon with proper validation
+/// Pokemon stats model
+@JsonSerializable()
 class PokemonStats {
+  /// HP stat
   final int hp;
+
+  /// Attack stat
   final int attack;
+
+  /// Defense stat
   final int defense;
+
+  /// Special Attack stat
   final int specialAttack;
+
+  /// Special Defense stat
   final int specialDefense;
+
+  /// Speed stat
   final int speed;
 
+  /// Constructor
   const PokemonStats({
     required this.hp,
     required this.attack,
@@ -143,38 +128,16 @@ class PokemonStats {
     required this.speed,
   });
 
-  /// Create stats from JSON array with validation
-  factory PokemonStats.fromJson(List<dynamic> json) {
-    try {
-      return PokemonStats(
-        hp: json[0]['base_stat'] as int,
-        attack: json[1]['base_stat'] as int,
-        defense: json[2]['base_stat'] as int,
-        specialAttack: json[3]['base_stat'] as int,
-        specialDefense: json[4]['base_stat'] as int,
-        speed: json[5]['base_stat'] as int,
-      );
-    } catch (e) {
-      throw FormatException('Error parsing Pokemon stats: $e');
-    }
-  }
+  /// Create from JSON
+  factory PokemonStats.fromJson(Map<String, dynamic> json) =>
+      _$PokemonStatsFromJson(json);
 
-  /// Convert to JSON for storage
-  Map<String, dynamic> toJson() => {
-        'hp': hp,
-        'attack': attack,
-        'defense': defense,
-        'specialAttack': specialAttack,
-        'specialDefense': specialDefense,
-        'speed': speed,
-      };
+  /// Convert to JSON
+  Map<String, dynamic> toJson() => _$PokemonStatsToJson(this);
 
-  /// Get total stats value
+  /// Get total stats
   int get total =>
       hp + attack + defense + specialAttack + specialDefense + speed;
-
-  /// Get average stats value
-  double get average => total / 6;
 
   /// Create copy with updated fields
   PokemonStats copyWith({
@@ -215,8 +178,4 @@ class PokemonStats {
       specialAttack.hashCode ^
       specialDefense.hashCode ^
       speed.hashCode;
-
-  @override
-  String toString() =>
-      'PokemonStats(hp: $hp, attack: $attack, defense: $defense)';
 }
