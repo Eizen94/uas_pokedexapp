@@ -53,8 +53,11 @@ class FavoriteService {
 
   /// Get user's favorites stream
   Stream<List<FavoriteModel>> getFavoritesStream(String userId) {
-    return _firebaseConfig.collections.getFavorites(userId).snapshots().map(
-        (snapshot) => snapshot.docs
+    return FirebaseConfig
+        .collections // Changed from _firebaseConfig.collections
+        .getFavorites(userId)
+        .snapshots()
+        .map((snapshot) => snapshot.docs
             .map((doc) => FavoriteModel.fromJson(doc.data()))
             .toList());
   }
@@ -84,7 +87,7 @@ class FavoriteService {
 
       // Check if already exists
       final docRef =
-          _firebaseConfig.collections.getFavorites(userId).doc(favorite.id);
+          FirebaseConfig.collections.getFavorites(userId).doc(favorite.id);
       final doc = await docRef.get();
 
       if (doc.exists) {
@@ -122,7 +125,7 @@ class FavoriteService {
         return;
       }
 
-      await _firebaseConfig.collections
+      await FirebaseConfig.collections
           .getFavorites(userId)
           .doc(favoriteId)
           .delete();
@@ -163,7 +166,8 @@ class FavoriteService {
       }
 
       final docRef =
-          _firebaseConfig.collections.getFavorites(userId).doc(favoriteId);
+          FirebaseConfig.collections.getFavorites(userId).doc(favoriteId);
+
       final doc = await docRef.get();
 
       if (!doc.exists) {
@@ -198,7 +202,7 @@ class FavoriteService {
 
   /// Get user's team Pokemon (favorites with team positions)
   Stream<List<TeamMemberModel>> getTeamStream(String userId) {
-    return _firebaseConfig.collections
+    return FirebaseConfig.collections
         .getFavorites(userId)
         .where('teamPosition', isNull: false)
         .snapshots()
@@ -231,7 +235,7 @@ class FavoriteService {
       throw FavoriteServiceError.maxTeamSize;
     }
 
-    final existing = await _firebaseConfig.collections
+    final existing = await FirebaseConfig.collections
         .getFavorites(userId)
         .where('teamPosition', isEqualTo: position)
         .where(FieldPath.documentId, isNotEqualTo: excludeFavoriteId)
@@ -253,7 +257,7 @@ class FavoriteService {
     required String favoriteId,
   }) async {
     try {
-      final doc = await _firebaseConfig.collections
+      final doc = await FirebaseConfig.collections
           .getFavorites(userId)
           .doc(favoriteId)
           .get();
