@@ -133,10 +133,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (_currentUser == null) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
@@ -160,9 +156,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 radius: 50,
                 backgroundColor: AppColors.primaryButton,
                 child: Text(
-                  (_currentUser?.displayName?.isNotEmpty == true)
-                      ? _currentUser!.displayName![0].toUpperCase()
-                      : _currentUser!.email[0].toUpperCase(),
+                  (_currentUser.displayName?.isNotEmpty == true)
+                      ? _currentUser.displayName!.toUpperCase()[0]
+                      : _currentUser.email[0].toUpperCase(),
                   style: AppTextStyles.heading1.copyWith(color: Colors.white),
                 ),
               ),
@@ -189,16 +185,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
               Card(
                 child: ListTile(
                   leading: const Icon(Icons.email_outlined),
-                  title: Text(_currentUser!.email),
+                  title: Text(_currentUser.email),
                   subtitle: Text(
-                    _currentUser!.isEmailVerified ? 'Verified' : 'Not verified',
+                    _currentUser.isEmailVerified ? 'Verified' : 'Not verified',
                     style: TextStyle(
-                      color: _currentUser!.isEmailVerified
+                      color: _currentUser.isEmailVerified
                           ? AppColors.success
                           : AppColors.error,
                     ),
                   ),
-                  trailing: !_currentUser!.isEmailVerified
+                  trailing: !_currentUser.isEmailVerified
                       ? TextButton(
                           onPressed: _isLoading ? null : _handleVerifyEmail,
                           child: const Text('Verify'),
@@ -269,7 +265,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   leading: const Icon(Icons.brightness_6_outlined),
                   title: const Text('Dark Mode'),
                   trailing: Switch(
-                    value: _currentUser!.settings.isDarkMode,
+                    value: _currentUser.settings.isDarkMode,
                     onChanged: _isLoading
                         ? null
                         : (bool value) {
@@ -284,7 +280,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 child: ListTile(
                   leading: const Icon(Icons.language_outlined),
                   title: const Text('Language'),
-                  subtitle: Text(_currentUser!.settings.language.toUpperCase()),
+                  subtitle: Text(_currentUser.settings.language.toUpperCase()),
                   onTap: _isLoading
                       ? null
                       : () {
@@ -299,12 +295,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   leading: const Icon(Icons.notifications_outlined),
                   title: const Text('Notifications'),
                   subtitle: Text(
-                    _currentUser!.settings.notifications.pushEnabled
+                    _currentUser.settings.notifications.pushEnabled
                         ? 'Enabled'
                         : 'Disabled',
                   ),
                   trailing: Switch(
-                    value: _currentUser!.settings.notifications.pushEnabled,
+                    value: _currentUser.settings.notifications.pushEnabled,
                     onChanged: _isLoading
                         ? null
                         : (bool value) {
