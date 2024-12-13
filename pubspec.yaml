@@ -47,13 +47,13 @@ dependencies:
   # UI Components
   cached_network_image: ^3.3.0
   flutter_svg: ^2.0.9
+  google_fonts: ^6.1.0
 
   # HTTP Client
   http: ^1.1.2
   connectivity_plus: ^5.0.2
 
   # Local Storage
-  dependencies:
   shared_preferences: ^2.2.2
   synchronized: ^3.1.0
   
@@ -61,7 +61,6 @@ dependencies:
   json_annotation: ^4.8.1
   async: ^2.11.0
   rxdart: ^0.27.7
-  google_fonts: ^6.1.0
 
 dev_dependencies:
   flutter_test:
