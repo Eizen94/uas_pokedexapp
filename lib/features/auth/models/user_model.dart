@@ -1,171 +1,223 @@
 // lib/features/auth/models/user_model.dart
 
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart' hide UserInfo;
-import 'package:flutter/foundation.dart';
+/// User model to represent application user data.
+/// Handles user data conversion and validation.
+library features.auth.models.user_model;
 
-/// Enhanced user model with proper validation, immutability and type safety
-@immutable
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:json_annotation/json_annotation.dart';
+
+part 'user_model.g.dart';
+
+/// User model class
+@JsonSerializable()
 class UserModel {
-  final String uid;
-  final String email;
-  final List<String> favorites;
-  final DateTime createdAt;
-  final Map<String, dynamic> settings;
-  final DateTime? lastLogin;
-  final String? displayName;
-  final String? photoUrl;
-  final bool emailVerified;
-  final Map<String, dynamic>? metadata;
+  /// Unique user identifier
+  final String id;
 
-  // Constructor with named parameters and validation
+  /// User's email address
+  final String email;
+
+  /// User's display name
+  final String? displayName;
+
+  /// User's photo URL
+  final String? photoUrl;
+
+  /// Email verification status
+  final bool isEmailVerified;
+
+  /// Account creation timestamp
+  final DateTime createdAt;
+
+  /// Last login timestamp
+  final DateTime? lastLoginAt;
+
+  /// Custom user settings
+  final UserSettings settings;
+
+  /// Constructor
   const UserModel({
-    required this.uid,
+    required this.id,
     required this.email,
-    required this.favorites,
-    required this.createdAt,
-    required this.settings,
-    this.lastLogin,
     this.displayName,
     this.photoUrl,
-    this.emailVerified = false,
-    this.metadata,
-  })  : assert(uid.isNotEmpty, 'UID cannot be empty'),
-        assert(email.isNotEmpty, 'Email cannot be empty');
+    required this.isEmailVerified,
+    required this.createdAt,
+    this.lastLoginAt,
+    required this.settings,
+  });
 
-  // Factory constructor from Firestore document
-  factory UserModel.fromFirestore(DocumentSnapshot doc) {
-    try {
-      final data = doc.data() as Map<String, dynamic>?;
-
-      if (data == null) {
-        throw const FormatException('Document data is null');
-      }
-
-      return UserModel(
-        uid: doc.id,
-        email: data['email'] as String? ?? '',
-        favorites: List<String>.from(data['favorites'] ?? []),
-        createdAt:
-            (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
-        settings: Map<String, dynamic>.from(data['settings'] ?? {}),
-        lastLogin: (data['lastLogin'] as Timestamp?)?.toDate(),
-        displayName: data['displayName'] as String?,
-        photoUrl: data['photoUrl'] as String?,
-        emailVerified: data['emailVerified'] as bool? ?? false,
-        metadata: data['metadata'] as Map<String, dynamic>?,
+  /// Create from Firebase User
+  factory UserModel.fromFirebaseUser(User user) => UserModel(
+        id: user.uid,
+        email: user.email!,
+        displayName: user.displayName,
+        photoUrl: user.photoURL,
+        isEmailVerified: user.emailVerified,
+        createdAt: user.metadata.creationTime ?? DateTime.now(),
+        lastLoginAt: user.metadata.lastSignInTime,
+        settings: UserSettings(),
       );
-    } catch (e) {
-      if (kDebugMode) {
-        print('Error creating UserModel from Firestore: $e');
-      }
-      rethrow;
-    }
-  }
 
-  // Factory constructor from Firebase User
-  factory UserModel.fromFirebaseUser(User user) {
-    return UserModel(
-      uid: user.uid,
-      email: user.email ?? '',
-      favorites: const [],
-      createdAt: DateTime.now(),
-      settings: const {
-        'theme': 'light',
-        'language': 'en',
-        'notifications': true,
-      },
-      lastLogin: user.metadata.lastSignInTime,
-      displayName: user.displayName,
-      photoUrl: user.photoURL,
-      emailVerified: user.emailVerified,
-      metadata: {
-        'creationTime': user.metadata.creationTime?.millisecondsSinceEpoch,
-        'lastSignInTime': user.metadata.lastSignInTime?.millisecondsSinceEpoch,
-      },
-    );
-  }
+  /// Create from JSON
+  factory UserModel.fromJson(Map<String, dynamic> json) =>
+      _$UserModelFromJson(json);
 
-  // Convert to Firestore data
-  Map<String, dynamic> toMap() {
-    return {
-      'uid': uid,
-      'email': email,
-      'favorites': favorites,
-      'createdAt': Timestamp.fromDate(createdAt),
-      'settings': settings,
-      if (lastLogin != null) 'lastLogin': Timestamp.fromDate(lastLogin!),
-      if (displayName != null) 'displayName': displayName,
-      if (photoUrl != null) 'photoUrl': photoUrl,
-      'emailVerified': emailVerified,
-      if (metadata != null) 'metadata': metadata,
-    };
-  }
+  /// Convert to JSON
+  Map<String, dynamic> toJson() => _$UserModelToJson(this);
 
-  // Create copy with modifications
+  /// Create copy with updated fields
   UserModel copyWith({
-    String? uid,
-    String? email,
-    List<String>? favorites,
-    DateTime? createdAt,
-    Map<String, dynamic>? settings,
-    DateTime? lastLogin,
     String? displayName,
     String? photoUrl,
-    bool? emailVerified,
-    Map<String, dynamic>? metadata,
+    bool? isEmailVerified,
+    DateTime? lastLoginAt,
+    UserSettings? settings,
   }) {
     return UserModel(
-      uid: uid ?? this.uid,
-      email: email ?? this.email,
-      favorites: favorites ?? List.from(this.favorites),
-      createdAt: createdAt ?? this.createdAt,
-      settings: settings ?? Map.from(this.settings),
-      lastLogin: lastLogin ?? this.lastLogin,
+      id: id,
+      email: email,
       displayName: displayName ?? this.displayName,
       photoUrl: photoUrl ?? this.photoUrl,
-      emailVerified: emailVerified ?? this.emailVerified,
-      metadata:
-          metadata ?? (this.metadata != null ? Map.from(this.metadata!) : null),
+      isEmailVerified: isEmailVerified ?? this.isEmailVerified,
+      createdAt: createdAt,
+      lastLoginAt: lastLoginAt ?? this.lastLoginAt,
+      settings: settings ?? this.settings,
     );
   }
 
-  // Value equality
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is UserModel &&
           runtimeType == other.runtimeType &&
-          uid == other.uid &&
+          id == other.id &&
           email == other.email &&
-          listEquals(favorites, other.favorites) &&
-          createdAt == other.createdAt &&
-          mapEquals(settings, other.settings) &&
-          lastLogin == other.lastLogin &&
           displayName == other.displayName &&
           photoUrl == other.photoUrl &&
-          emailVerified == other.emailVerified &&
-          mapEquals(metadata, other.metadata);
+          isEmailVerified == other.isEmailVerified &&
+          createdAt == other.createdAt &&
+          lastLoginAt == other.lastLoginAt &&
+          settings == other.settings;
 
   @override
   int get hashCode =>
-      uid.hashCode ^
+      id.hashCode ^
       email.hashCode ^
-      favorites.hashCode ^
-      createdAt.hashCode ^
-      settings.hashCode ^
-      lastLogin.hashCode ^
       displayName.hashCode ^
       photoUrl.hashCode ^
-      emailVerified.hashCode ^
-      metadata.hashCode;
+      isEmailVerified.hashCode ^
+      createdAt.hashCode ^
+      lastLoginAt.hashCode ^
+      settings.hashCode;
 
-  // String representation
   @override
-  String toString() => 'UserModel(uid: $uid, email: $email)';
+  String toString() => 'UserModel('
+      'id: $id, '
+      'email: $email, '
+      'displayName: $displayName, '
+      'photoUrl: $photoUrl, '
+      'isEmailVerified: $isEmailVerified, '
+      'createdAt: $createdAt, '
+      'lastLoginAt: $lastLoginAt, '
+      'settings: $settings)';
+}
 
-  // Helpers
-  bool get hasPhoto => photoUrl != null && photoUrl!.isNotEmpty;
-  String get displayText => displayName ?? email;
-  bool get isComplete => email.isNotEmpty && settings.isNotEmpty;
+/// User settings model
+@JsonSerializable()
+class UserSettings {
+  /// Theme preference
+  final bool isDarkMode;
+
+  /// Language preference
+  final String language;
+
+  /// Notification settings
+  final NotificationSettings notifications;
+
+  /// Constructor
+  const UserSettings({
+    this.isDarkMode = false,
+    this.language = 'en',
+    this.notifications = const NotificationSettings(),
+  });
+
+  /// Create from JSON
+  factory UserSettings.fromJson(Map<String, dynamic> json) =>
+      _$UserSettingsFromJson(json);
+
+  /// Convert to JSON
+  Map<String, dynamic> toJson() => _$UserSettingsToJson(this);
+
+  /// Create copy with updated fields
+  UserSettings copyWith({
+    bool? isDarkMode,
+    String? language,
+    NotificationSettings? notifications,
+  }) {
+    return UserSettings(
+      isDarkMode: isDarkMode ?? this.isDarkMode,
+      language: language ?? this.language,
+      notifications: notifications ?? this.notifications,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is UserSettings &&
+          runtimeType == other.runtimeType &&
+          isDarkMode == other.isDarkMode &&
+          language == other.language &&
+          notifications == other.notifications;
+
+  @override
+  int get hashCode =>
+      isDarkMode.hashCode ^ language.hashCode ^ notifications.hashCode;
+}
+
+/// Notification settings model
+@JsonSerializable()
+class NotificationSettings {
+  /// Push notifications enabled
+  final bool pushEnabled;
+
+  /// Email notifications enabled
+  final bool emailEnabled;
+
+  /// Constructor
+  const NotificationSettings({
+    this.pushEnabled = true,
+    this.emailEnabled = true,
+  });
+
+  /// Create from JSON
+  factory NotificationSettings.fromJson(Map<String, dynamic> json) =>
+      _$NotificationSettingsFromJson(json);
+
+  /// Convert to JSON
+  Map<String, dynamic> toJson() => _$NotificationSettingsToJson(this);
+
+  /// Create copy with updated fields
+  NotificationSettings copyWith({
+    bool? pushEnabled,
+    bool? emailEnabled,
+  }) {
+    return NotificationSettings(
+      pushEnabled: pushEnabled ?? this.pushEnabled,
+      emailEnabled: emailEnabled ?? this.emailEnabled,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is NotificationSettings &&
+          runtimeType == other.runtimeType &&
+          pushEnabled == other.pushEnabled &&
+          emailEnabled == other.emailEnabled;
+
+  @override
+  int get hashCode => pushEnabled.hashCode ^ emailEnabled.hashCode;
 }
