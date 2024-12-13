@@ -265,3 +265,4 @@ class PokemonService {
     processChain(chain);
     return stages;
   }
+}
