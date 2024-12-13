@@ -1,290 +1,120 @@
 // lib/core/utils/string_helper.dart
 
-// Dart imports
-import 'dart:convert';
-import 'dart:math' as math;
+/// String helper utility for consistent string formatting and validation.
+/// Provides unified string manipulation across the application.
+library core.utils.string_helper;
 
-// Package imports
-import 'package:flutter/foundation.dart';
-import 'package:intl/intl.dart';
-
-/// Enhanced string helper utilities with proper validation and error handling.
-/// Provides comprehensive string manipulation for Pokemon data formatting.
+/// Helper class for string operations
 class StringHelper {
-  // Pokemon specific formatters
-  static final _pokemonIdFormat = NumberFormat('000');
-  static final _statFormat = NumberFormat('000');
-  static final _percentageFormat = NumberFormat('##0.0');
-
-  // Regular expressions
-  static final _numericRegex = RegExp(r'[^0-9]');
-  static final _specialCharsRegex = RegExp(r'[^\w\s-]');
-  static final _multipleSpacesRegex = RegExp(r'\s+');
-  static final _validNameRegex = RegExp(r'^[a-zA-Z0-9\s\-]+$');
-
-  // Constants
-  static const String _placeholder = 'Unknown';
-  static const int _maxNameLength = 50;
-  static const int _minNameLength = 2;
-
-  // Private constructor to prevent instantiation
   const StringHelper._();
 
-  /// Format Pokemon name with proper validation
-  static String formatPokemonName(String name) {
-    try {
-      if (name.isEmpty) return _placeholder;
-      if (name.length > _maxNameLength) {
-        name = name.substring(0, _maxNameLength);
-      }
-
-      // Handle special cases
-      if (name.toLowerCase().startsWith('nidoran-')) {
-        return 'Nidoran${name.substring(name.length - 1)}';
-      }
-
-      // Split by hyphens or spaces
-      final parts = name.split(RegExp(r'[-\s]'));
-
-      return parts
-          .map((part) {
-            if (part.isEmpty) return '';
-            // Handle special cases
-            if (_isSpecialAbbreviation(part)) {
-              return part.toUpperCase();
-            }
-            // Regular capitalization
-            return _capitalize(part);
-          })
-          .join(' ')
-          .trim();
-    } catch (e) {
-      _logError('Error formatting Pokemon name', e);
-      return name;
-    }
-  }
-
-  /// Format Pokemon ID with padding
+  /// Format Pokemon ID to 3-digit format
+  /// Example: 1 -> #001, 25 -> #025
   static String formatPokemonId(int id) {
-    try {
-      return '#${_pokemonIdFormat.format(id)}';
-    } catch (e) {
-      _logError('Error formatting Pokemon ID', e);
-      return '#$id';
-    }
+    return '#${id.toString().padLeft(3, '0')}';
   }
 
-  /// Format Pokemon stat with proper alignment
-  static String formatStat(int value) {
-    try {
-      return _statFormat.format(value.clamp(0, 999));
-    } catch (e) {
-      _logError('Error formatting stat', e);
-      return value.toString();
-    }
+  /// Format Pokemon name to title case
+  /// Example: pikachu -> Pikachu
+  static String formatPokemonName(String name) {
+    if (name.isEmpty) return '';
+    return name[0].toUpperCase() + name.substring(1).toLowerCase();
   }
 
-  /// Format height from decimeters to meters
-  static String formatHeight(int decimeters) {
-    try {
-      final meters = decimeters / 10;
-      return '${_formatDecimal(meters)}m';
-    } catch (e) {
-      _logError('Error formatting height', e);
-      return '${decimeters}dm';
-    }
+  /// Format Pokemon stats
+  /// Example: 100 -> 100.0
+  static String formatStat(num value) {
+    return value.toStringAsFixed(1);
   }
 
-  /// Format weight from hectograms to kilograms
-  static String formatWeight(int hectograms) {
-    try {
-      final kilograms = hectograms / 10;
-      return '${_formatDecimal(kilograms)}kg';
-    } catch (e) {
-      _logError('Error formatting weight', e);
-      return '${hectograms}hg';
-    }
+  /// Format Pokemon height (convert to meters)
+  /// Example: 7 -> 0.7m
+  static String formatHeight(num decimeters) {
+    final meters = decimeters / 10;
+    return '${meters.toStringAsFixed(1)}m';
   }
 
-  /// Format percentage value
-  static String formatPercentage(double value) {
-    try {
-      return '${_percentageFormat.format(value.clamp(0.0, 100.0))}%';
-    } catch (e) {
-      _logError('Error formatting percentage', e);
-      return '$value%';
-    }
+  /// Format Pokemon weight (convert to kilograms)
+  /// Example: 60 -> 6.0kg
+  static String formatWeight(num hectograms) {
+    final kilograms = hectograms / 10;
+    return '${kilograms.toStringAsFixed(1)}kg';
   }
 
-  /// Format experience points
-  static String formatExp(int exp) {
-    try {
-      return NumberFormat.decimalPattern().format(exp);
-    } catch (e) {
-      _logError('Error formatting exp', e);
-      return exp.toString();
-    }
+  /// Format Pokemon types list
+  /// Example: [fire, flying] -> Fire/Flying
+  static String formatTypes(List<String> types) {
+    return types.map((type) => formatPokemonName(type)).join('/');
   }
 
-  /// Format Pokemon move name
-  static String formatMoveName(String move) {
-    try {
-      return move.split('-').map(_capitalize).join(' ');
-    } catch (e) {
-      _logError('Error formatting move name', e);
-      return move;
-    }
+  /// Format move accuracy
+  /// Example: 90 -> 90%
+  static String formatAccuracy(int? accuracy) {
+    return accuracy != null ? '$accuracy%' : '-';
   }
 
-  /// Format Pokemon ability name
-  static String formatAbilityName(String ability) {
-    try {
-      return ability.split('-').map(_capitalize).join(' ');
-    } catch (e) {
-      _logError('Error formatting ability name', e);
-      return ability;
-    }
+  /// Format move power
+  /// Example: 90 -> 90
+  static String formatPower(int? power) {
+    return power?.toString() ?? '-';
   }
 
-  /// Format Pokemon type name
-  static String formatTypeName(String type) {
-    try {
-      return type.toUpperCase();
-    } catch (e) {
-      _logError('Error formatting type name', e);
-      return type;
-    }
-  }
-
-  /// Format description text
+  /// Format Pokemon description by removing unnecessary newlines and spaces
   static String formatDescription(String description) {
-    try {
-      return description
-          .replaceAll(_multipleSpacesRegex, ' ')
-          .replaceAll('\n', ' ')
-          .trim();
-    } catch (e) {
-      _logError('Error formatting description', e);
-      return description;
-    }
+    return description
+        .replaceAll('\n', ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
   }
 
-  /// Create URL-safe slug
-  static String slugify(String text) {
-    try {
-      return text
-          .toLowerCase()
-          .replaceAll(_specialCharsRegex, '')
-          .replaceAll(_multipleSpacesRegex, '-');
-    } catch (e) {
-      _logError('Error creating slug', e);
-      return text.toLowerCase();
-    }
+  /// Format generation number
+  /// Example: 1 -> Generation I
+  static String formatGeneration(int generation) {
+    const romans = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX'];
+    if (generation < 1 || generation > romans.length) return 'Unknown';
+    return 'Generation ${romans[generation - 1]}';
   }
 
-  /// Format error message
-  static String formatErrorMessage(dynamic error) {
-    if (error == null) return 'An unknown error occurred';
-
-    try {
-      if (error is Exception) {
-        return error.toString().replaceAll('Exception: ', '');
-      }
-      return error.toString();
-    } catch (e) {
-      _logError('Error formatting error message', e);
-      return 'An unknown error occurred';
-    }
+  /// Format percentage
+  /// Example: 0.856 -> 85.6%
+  static String formatPercentage(double value) {
+    return '${(value * 100).toStringAsFixed(1)}%';
   }
 
-  /// Create safe filename
-  static String toSafeFileName(String text) {
-    try {
-      return text
-          .toLowerCase()
-          .replaceAll(_specialCharsRegex, '_')
-          .replaceAll(_multipleSpacesRegex, '_');
-    } catch (e) {
-      _logError('Error creating safe filename', e);
-      return text.toLowerCase();
-    }
+  /// Format timestamp to readable date
+  /// Example: 2024-01-01 -> January 1, 2024
+  static String formatDate(DateTime date) {
+    final months = [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December'
+    ];
+    return '${months[date.month - 1]} ${date.day}, ${date.year}';
   }
 
-  /// Validate Pokemon name
+  /// Validate Pokemon name (alphanumeric and hyphen only)
   static bool isValidPokemonName(String name) {
-    if (name.length < _minNameLength || name.length > _maxNameLength) {
-      return false;
-    }
-    return _validNameRegex.hasMatch(name);
+    return RegExp(r'^[a-zA-Z0-9-]+$').hasMatch(name);
   }
 
-  /// Extract numbers from string
-  static String extractNumbers(String text) {
-    try {
-      return text.replaceAll(_numericRegex, '');
-    } catch (e) {
-      _logError('Error extracting numbers', e);
-      return '';
-    }
+  /// Get Pokemon color name from type
+  static String getColorName(String type) {
+    return type.toLowerCase();
   }
 
-  /// Truncate text with ellipsis
-  static String truncate(String text, int maxLength) {
-    try {
-      if (text.length <= maxLength) return text;
-      return '${text.substring(0, maxLength)}...';
-    } catch (e) {
-      _logError('Error truncating text', e);
-      return text;
-    }
+  /// Format search query for API
+  static String formatSearchQuery(String query) {
+    return query.trim().toLowerCase();
   }
 
-  /// Format decimal number
-  static String _formatDecimal(double value, {int decimals = 1}) {
-    try {
-      return value.toStringAsFixed(decimals);
-    } catch (e) {
-      _logError('Error formatting decimal', e);
-      return value.toString();
-    }
-  }
-
-  /// Capitalize first letter
-  static String _capitalize(String text) {
-    if (text.isEmpty) return text;
-    return text[0].toUpperCase() + text.substring(1).toLowerCase();
-  }
-
-  /// Check for special abbreviations
-  static bool _isSpecialAbbreviation(String text) {
-    final specialCases = {'hp', 'pp', 'iv', 'ev'};
-    return specialCases.contains(text.toLowerCase());
-  }
-
-  /// Log error with proper context
-  static void _logError(String message, Object error) {
-    if (kDebugMode) {
-      print('❌ StringHelper: $message: $error');
-    }
-  }
-
-  /// Encode string to base64
-  static String encodeBase64(String text) {
-    try {
-      return base64Encode(utf8.encode(text));
-    } catch (e) {
-      _logError('Error encoding base64', e);
-      return text;
-    }
-  }
-
-  /// Decode base64 string
-  static String decodeBase64(String encoded) {
-    try {
-      return utf8.decode(base64Decode(encoded));
-    } catch (e) {
-      _logError('Error decoding base64', e);
-      return encoded;
-    }
+  /// Remove diacritics from text
+  static String removeDiacritics(String text) {
+    return text
+        .replaceAll(RegExp(r'[àáâãäå]'), 'a')
+        .replaceAll(RegExp(r'[èéêë]'), 'e')
+        .replaceAll(RegExp(r'[ìíîï]'), 'i')
+        .replaceAll(RegExp(r'[òóôõö]'), 'o')
+        .replaceAll(RegExp(r'[ùúûü]'), 'u')
+        .replaceAll(RegExp(r'[ýÿ]'), 'y')
+        .replaceAll(RegExp(r'[ñ]'), 'n');
   }
 }
