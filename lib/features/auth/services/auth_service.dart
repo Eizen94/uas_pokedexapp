@@ -1,295 +1,229 @@
 // lib/features/auth/services/auth_service.dart
 
+/// Authentication service to handle user authentication operations.
+/// Manages login, registration, and auth state persistence.
+library features.auth.services.auth_service;
+
 import 'dart:async';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/foundation.dart';
-import 'package:synchronized/synchronized.dart';
+import 'package:rxdart/subjects.dart';
 
-/// Enhanced authentication service with proper resource management, security,
-/// and error handling
+import '../../../core/config/firebase_config.dart';
+import '../../../core/utils/monitoring_manager.dart';
+import '../models/user_model.dart';
+
+/// Authentication service errors
+class AuthError {
+  static const String invalidEmail = 'Invalid email address';
+  static const String weakPassword = 'Password is too weak';
+  static const String emailInUse = 'Email already in use';
+  static const String invalidCredentials = 'Invalid email or password';
+  static const String userNotFound = 'User not found';
+  static const String networkError = 'Network error occurred';
+  static const String unknownError = 'An unknown error occurred';
+}
+
+/// Authentication service class
 class AuthService {
-  // Singleton with thread-safe initialization
-  static AuthService? _instance;
-  static final _lock = Lock();
-
   final FirebaseAuth _auth;
-  final FirebaseFirestore _firestore;
-  final _streamSubscriptions = <StreamSubscription>[];
-  bool _isInitialized = false;
-  bool _disposed = false;
+  final FirebaseConfig _firebaseConfig;
+  final MonitoringManager _monitoringManager;
 
-  // Private constructor
-  AuthService._internal(this._auth, this._firestore);
+  final BehaviorSubject<bool> _isInitializedController =
+      BehaviorSubject<bool>.seeded(false);
 
-  // Thread-safe singleton getter
-  static Future<AuthService> get instance async {
-    if (_instance == null) {
-      await _lock.synchronized(() async {
-        _instance ??= AuthService._internal(
-          FirebaseAuth.instance,
-          FirebaseFirestore.instance,
-        );
-        await _instance!._initialize();
+  /// Constructor
+  const AuthService({
+    FirebaseAuth? auth,
+    FirebaseConfig? firebaseConfig,
+    MonitoringManager? monitoringManager,
+  })  : _auth = auth ?? FirebaseAuth.instance,
+        _firebaseConfig = firebaseConfig ?? FirebaseConfig(),
+        _monitoringManager = monitoringManager ?? MonitoringManager();
+
+  /// Stream of initialization state
+  Stream<bool> get isInitializedStream => _isInitializedController.stream;
+
+  /// Current user stream
+  Stream<UserModel?> get userStream => _auth.authStateChanges().map((user) {
+        return user != null ? UserModel.fromFirebaseUser(user) : null;
       });
-    }
-    return _instance!;
+
+  /// Current user
+  UserModel? get currentUser {
+    final user = _auth.currentUser;
+    return user != null ? UserModel.fromFirebaseUser(user) : null;
   }
 
-  // Service initialization
-  Future<void> _initialize() async {
-    if (_isInitialized || _disposed) return;
-
-    try {
-      // Setup persistence
-      await _auth.setPersistence(Persistence.LOCAL);
-
-      // Setup Firestore settings
-      _firestore.settings = const Settings(
-        persistenceEnabled: true,
-        cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
-      );
-
-      _isInitialized = true;
-
-      if (kDebugMode) {
-        print('✅ AuthService initialized successfully');
-      }
-    } catch (e) {
-      if (kDebugMode) {
-        print('❌ AuthService initialization failed: $e');
-      }
-      rethrow;
-    }
-  }
-
-  // Auth state changes stream with resource management
-  Stream<User?> get authStateChanges {
-    _throwIfDisposed();
-    return _auth.authStateChanges();
-  }
-
-  // Current user with null safety
-  User? get currentUser {
-    _throwIfDisposed();
-    return _auth.currentUser;
-  }
-
-  // Enhanced sign in with proper error handling and validation
-  Future<UserCredential> signInWithEmailAndPassword({
+  /// Sign in with email and password
+  Future<UserModel> signInWithEmail({
     required String email,
     required String password,
   }) async {
-    _throwIfDisposed();
-    _validateInputs(email: email, password: password);
-
     try {
-      final credential = await _auth.signInWithEmailAndPassword(
-        email: email.trim(),
-        password: password.trim(),
+      final userCredential = await _auth.signInWithEmailAndPassword(
+        email: email,
+        password: password,
       );
 
-      // Create/update user document with audit trail
-      if (credential.user != null) {
-        await _updateUserDocument(credential.user!, {
-          'lastLogin': FieldValue.serverTimestamp(),
-          'lastLoginDevice': await _getDeviceInfo(),
-        });
+      if (userCredential.user == null) {
+        throw FirebaseAuthException(
+          code: 'user-not-found',
+          message: AuthError.userNotFound,
+        );
       }
 
-      return credential;
+      return UserModel.fromFirebaseUser(userCredential.user!);
     } on FirebaseAuthException catch (e) {
-      throw _handleAuthError(e);
-    } catch (e) {
-      throw _handleAuthError(e);
+      _monitoringManager.logError(
+        'Sign in failed',
+        error: e,
+        additionalData: {'email': email},
+      );
+
+      switch (e.code) {
+        case 'user-not-found':
+        case 'wrong-password':
+          throw AuthError.invalidCredentials;
+        case 'invalid-email':
+          throw AuthError.invalidEmail;
+        case 'network-request-failed':
+          throw AuthError.networkError;
+        default:
+          throw AuthError.unknownError;
+      }
     }
   }
 
-  // Enhanced registration with security validations
-  Future<UserCredential> registerWithEmailAndPassword({
+  /// Register with email and password
+  Future<UserModel> registerWithEmail({
     required String email,
     required String password,
   }) async {
-    _throwIfDisposed();
-    _validateInputs(email: email, password: password);
-
     try {
-      final credential = await _auth.createUserWithEmailAndPassword(
-        email: email.trim(),
-        password: password.trim(),
+      final userCredential = await _auth.createUserWithEmailAndPassword(
+        email: email,
+        password: password,
       );
 
-      // Setup initial user document with security rules
-      if (credential.user != null) {
-        await _createUserDocument(credential.user!);
+      if (userCredential.user == null) {
+        throw FirebaseAuthException(
+          code: 'registration-failed',
+          message: AuthError.unknownError,
+        );
       }
 
-      return credential;
+      // Send email verification
+      await userCredential.user!.sendEmailVerification();
+
+      return UserModel.fromFirebaseUser(userCredential.user!);
     } on FirebaseAuthException catch (e) {
-      throw _handleAuthError(e);
-    } catch (e) {
-      throw _handleAuthError(e);
+      _monitoringManager.logError(
+        'Registration failed',
+        error: e,
+        additionalData: {'email': email},
+      );
+
+      switch (e.code) {
+        case 'email-already-in-use':
+          throw AuthError.emailInUse;
+        case 'invalid-email':
+          throw AuthError.invalidEmail;
+        case 'weak-password':
+          throw AuthError.weakPassword;
+        case 'network-request-failed':
+          throw AuthError.networkError;
+        default:
+          throw AuthError.unknownError;
+      }
     }
   }
 
-  // Clean sign out with proper cleanup
+  /// Sign out
   Future<void> signOut() async {
-    _throwIfDisposed();
-
     try {
-      final user = currentUser;
+      await _auth.signOut();
+    } catch (e) {
+      _monitoringManager.logError('Sign out failed', error: e);
+      throw AuthError.unknownError;
+    }
+  }
+
+  /// Send password reset email
+  Future<void> sendPasswordResetEmail(String email) async {
+    try {
+      await _auth.sendPasswordResetEmail(email: email);
+    } on FirebaseAuthException catch (e) {
+      _monitoringManager.logError(
+        'Password reset failed',
+        error: e,
+        additionalData: {'email': email},
+      );
+
+      switch (e.code) {
+        case 'user-not-found':
+          throw AuthError.userNotFound;
+        case 'invalid-email':
+          throw AuthError.invalidEmail;
+        case 'network-request-failed':
+          throw AuthError.networkError;
+        default:
+          throw AuthError.unknownError;
+      }
+    }
+  }
+
+  /// Verify email
+  Future<void> verifyEmail() async {
+    try {
+      final user = _auth.currentUser;
       if (user != null) {
-        await _updateUserDocument(user, {
-          'lastSignOut': FieldValue.serverTimestamp(),
-        });
+        await user.sendEmailVerification();
+      }
+    } catch (e) {
+      _monitoringManager.logError('Email verification failed', error: e);
+      throw AuthError.unknownError;
+    }
+  }
+
+  /// Update user profile
+  Future<UserModel> updateProfile({
+    String? displayName,
+    String? photoUrl,
+  }) async {
+    try {
+      final user = _auth.currentUser;
+      if (user == null) {
+        throw AuthError.userNotFound;
       }
 
-      await _auth.signOut();
-      _clearCache();
+      await user.updateDisplayName(displayName);
+      if (photoUrl != null) {
+        await user.updatePhotoURL(photoUrl);
+      }
+
+      return UserModel.fromFirebaseUser(user);
     } catch (e) {
-      throw _handleAuthError(e);
+      _monitoringManager.logError('Profile update failed', error: e);
+      throw AuthError.unknownError;
     }
   }
 
-  // Secure user document creation
-  Future<void> _createUserDocument(User user) async {
-    final userDoc = _firestore.collection('users').doc(user.uid);
-
-    final userData = {
-      'uid': user.uid,
-      'email': user.email,
-      'createdAt': FieldValue.serverTimestamp(),
-      'lastLogin': FieldValue.serverTimestamp(),
-      'deviceInfo': await _getDeviceInfo(),
-      'settings': _getDefaultSettings(),
-    };
-
-    await userDoc.set(userData, SetOptions(merge: true));
-  }
-
-  // Safe user document update
-  Future<void> _updateUserDocument(User user, Map<String, dynamic> data) async {
-    await _firestore.collection('users').doc(user.uid).update({
-      ...data,
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
-  }
-
-  // Input validation
-  void _validateInputs({required String email, required String password}) {
-    if (email.isEmpty || password.isEmpty) {
-      throw const AuthValidationException('Email and password are required');
-    }
-
-    if (!email.contains('@') || email.length < 5) {
-      throw const AuthValidationException('Invalid email format');
-    }
-
-    if (password.length < 6) {
-      throw const AuthValidationException(
-          'Password must be at least 6 characters');
+  /// Initialize service
+  Future<void> initialize() async {
+    try {
+      await _firebaseConfig.initialize();
+      _isInitializedController.add(true);
+    } catch (e) {
+      _monitoringManager.logError('Auth service initialization failed',
+          error: e);
+      _isInitializedController.add(false);
+      throw AuthError.unknownError;
     }
   }
 
-  // Default user settings
-  Map<String, dynamic> _getDefaultSettings() {
-    return {
-      'theme': 'light',
-      'notifications': true,
-      'language': 'en',
-    };
+  /// Dispose resources
+  void dispose() {
+    _isInitializedController.close();
   }
-
-  // Device info for audit
-  Future<Map<String, dynamic>> _getDeviceInfo() async {
-    return {
-      'platform': defaultTargetPlatform.toString(),
-      'timestamp': FieldValue.serverTimestamp(),
-    };
-  }
-
-  // Cache cleanup
-  void _clearCache() {
-    // Clear any cached data
-  }
-
-  // Error handling with proper error types
-  Exception _handleAuthError(dynamic error) {
-    if (error is FirebaseAuthException) {
-      return AuthException(
-        code: error.code,
-        message: _getErrorMessage(error.code),
-      );
-    }
-    if (error is AuthValidationException) {
-      return error;
-    }
-    return AuthException(
-      code: 'unknown',
-      message: 'An unexpected authentication error occurred',
-    );
-  }
-
-  // Localized error messages
-  String _getErrorMessage(String code) {
-    switch (code) {
-      case 'user-not-found':
-        return 'No user found with this email';
-      case 'wrong-password':
-        return 'Invalid password';
-      case 'email-already-in-use':
-        return 'Email is already registered';
-      case 'weak-password':
-        return 'Password is too weak';
-      case 'invalid-email':
-        return 'Invalid email format';
-      case 'user-disabled':
-        return 'This account has been disabled';
-      case 'too-many-requests':
-        return 'Too many attempts, please try again later';
-      default:
-        return 'Authentication error occurred';
-    }
-  }
-
-  // Resource cleanup
-  Future<void> dispose() async {
-    if (_disposed) return;
-
-    _disposed = true;
-    for (final sub in _streamSubscriptions) {
-      await sub.cancel();
-    }
-    _streamSubscriptions.clear();
-    _instance = null;
-  }
-
-  void _throwIfDisposed() {
-    if (_disposed) {
-      throw StateError('AuthService has been disposed');
-    }
-  }
-}
-
-// Custom exceptions for better error handling
-class AuthException implements Exception {
-  final String code;
-  final String message;
-
-  const AuthException({
-    required this.code,
-    required this.message,
-  });
-
-  @override
-  String toString() => 'AuthException: $message (code: $code)';
-}
-
-class AuthValidationException implements Exception {
-  final String message;
-
-  const AuthValidationException(this.message);
-
-  @override
-  String toString() => 'AuthValidationException: $message';
 }
