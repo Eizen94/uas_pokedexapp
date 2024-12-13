@@ -1,331 +1,235 @@
 // lib/features/pokemon/services/pokemon_service.dart
 
 import 'dart:async';
-import 'dart:io';
+
 import 'package:flutter/foundation.dart';
+
+import '../../../core/constants/api_paths.dart';
+import '../../../core/utils/api_helper.dart';
+import '../../../core/utils/connectivity_manager.dart';
+import '../../../core/utils/prefs_helper.dart';
+import '../../../core/utils/cancellation_token.dart';
 import '../models/pokemon_model.dart';
 import '../models/pokemon_detail_model.dart';
-import '../../../core/utils/api_helper.dart';
-import '../../../core/constants/api_paths.dart';
-import '../../../core/utils/request_manager.dart';
 
+/// Service responsible for fetching and caching Pokemon data.
+/// Provides offline support and efficient data management.
 class PokemonService {
-  static const String baseUrl = ApiPaths.pokeApiBase;
-  final ApiHelper _apiHelper = ApiHelper();
-  bool _hasInitialized = false;
-  bool _isDisposed = false;
+  // Core dependencies
+  final ApiHelper _apiHelper;
+  final ConnectivityManager _connectivityManager;
+  final PrefsHelper _prefsHelper;
 
-  // Request tracking
-  final Map<String, CancellationToken> _activeTokens = {};
+  // Cache keys
+  static const String _pokemonListKey = 'pokemon_list';
+  static const String _pokemonDetailsKey = 'pokemon_details';
+  static const Duration _cacheExpiration = Duration(hours: 24);
 
-  // Singleton pattern
-  static final PokemonService _instance = PokemonService._internal();
-  factory PokemonService() => _instance;
-  PokemonService._internal();
+  // Stream controllers
+  final _pokemonListController = StreamController<List<PokemonModel>>.broadcast();
+  final _selectedPokemonController = StreamController<PokemonDetailModel?>.broadcast();
 
-  Future<void> initialize() async {
-    if (_isDisposed) {
-      throw StateError('Service has been disposed');
-    }
+  // State management
+  bool _isLoading = false;
+  bool _hasMore = true;
+  int _currentPage = 0;
+  static const int _pageSize = 20;
 
-    if (!_hasInitialized) {
-      await _apiHelper.initialize();
-      _hasInitialized = true;
-      if (kDebugMode) {
-        print('✅ PokemonService initialized');
+  // Constructor with dependency injection
+  PokemonService({
+    ApiHelper? apiHelper,
+    ConnectivityManager? connectivityManager,
+    PrefsHelper? prefsHelper,
+  })  : _apiHelper = apiHelper ?? ApiHelper(),
+        _connectivityManager = connectivityManager ?? ConnectivityManager(),
+        _prefsHelper = prefsHelper ?? PrefsHelper();
+
+  // Stream getters
+  Stream<List<PokemonModel>> get pokemonList => _pokemonListController.stream;
+  Stream<PokemonDetailModel?> get selectedPokemon => _selectedPokemonController.stream;
+
+  /// Fetch Pokemon list with pagination and caching
+  Future<List<PokemonModel>> getPokemonList({
+    bool refresh = false,
+    CancellationToken? cancellationToken,
+  }) async {
+    if (_isLoading || (!_hasMore && !refresh)) return [];
+    _isLoading = true;
+
+    try {
+      if (refresh) {
+        _currentPage = 0;
+        _hasMore = true;
       }
+
+      final offset = _currentPage * _pageSize;
+      final cacheKey = '${_pokemonListKey}_${offset}_$_pageSize';
+
+      final response = await _apiHelper.get<List<PokemonModel>>(
+        endpoint: '${ApiPaths.kPokemon}?offset=$offset&limit=$_pageSize',
+        parser: (json) => (json['results'] as List)
+            .map((e) => PokemonModel.fromJson(e as Map<String, dynamic>))
+            .toList(),
+        useCache: !refresh,
+        cancellationToken: cancellationToken,
+      );
+
+      if (response.isSuccess && response.data != null) {
+        final pokemonList = response.data!;
+        _currentPage++;
+        _hasMore = pokemonList.length >= _pageSize;
+
+        if (!_pokemonListController.isClosed) {
+          _pokemonListController.add(pokemonList);
+        }
+
+        return pokemonList;
+      }
+
+      return [];
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error fetching Pokemon list: $e');
+      }
+      rethrow;
+    } finally {
+      _isLoading = false;
     }
   }
 
-  Future<List<PokemonModel>> getPokemonList({
-    int offset = 0,
-    int limit = 20,
+  /// Get detailed Pokemon information
+  Future<PokemonDetailModel?> getPokemonDetail(
+    String idOrName, {
+    bool forceRefresh = false,
     CancellationToken? cancellationToken,
   }) async {
-    if (_isDisposed) {
-      throw StateError('Service has been disposed');
-    }
-
     try {
-      if (kDebugMode) {
-        print('📥 Fetching Pokemon list: offset=$offset, limit=$limit');
-      }
+      final cacheKey = '${_pokemonDetailsKey}_$idOrName';
 
-      await initialize();
-
-      final requestToken = cancellationToken ?? CancellationToken();
-      _activeTokens['pokemon_list_$offset'] = requestToken;
-
-      final pokemonList = <PokemonModel>[];
-
-      final response = await _apiHelper.get<List<dynamic>>(
-        endpoint: '$baseUrl${ApiPaths.pokemonList}?offset=$offset&limit=$limit',
-        parser: (data) => data['results'] as List<dynamic>,
+      final response = await _apiHelper.get<PokemonDetailModel>(
+        endpoint: ApiPaths.getPokemonEndpoint(idOrName),
+        parser: (json) => PokemonDetailModel.fromJson(json),
+        useCache: !forceRefresh,
+        cancellationToken: cancellationToken,
       );
 
-      if (response.status == ApiStatus.error) {
-        throw response.error ?? 'Failed to load pokemon list';
+      if (response.isSuccess && response.data != null) {
+        if (!_selectedPokemonController.isClosed) {
+          _selectedPokemonController.add(response.data);
+        }
+        return response.data;
       }
 
-      if (response.data == null || response.data!.isEmpty) {
-        return [];
+      return null;
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error fetching Pokemon detail: $e');
       }
+      rethrow;
+    }
+  }
 
-      // Fetch details for each Pokemon
-      for (var pokemon in response.data!) {
-        if (pokemon is Map<String, dynamic> && pokemon['url'] != null) {
-          final detailData = await _fetchPokemonDetail(
-            pokemon['url'] as String,
-            requestToken,
-          );
-          if (detailData != null) {
-            pokemonList.add(PokemonModel.fromJson(detailData));
-          }
+  /// Search Pokemon by name or ID
+  Future<List<PokemonModel>> searchPokemon(
+    String query, {
+    CancellationToken? cancellationToken,
+  }) async {
+    try {
+      if (query.isEmpty) return [];
+
+      final response = await _apiHelper.get<List<PokemonModel>>(
+        endpoint: '${ApiPaths.kPokemon}/search?q=$query',
+        parser: (json) => (json['results'] as List)
+            .map((e) => PokemonModel.fromJson(e as Map<String, dynamic>))
+            .toList(),
+        useCache: false,
+        cancellationToken: cancellationToken,
+      );
+
+      return response.isSuccess && response.data != null ? response.data! : [];
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error searching Pokemon: $e');
+      }
+      return [];
+    }
+  }
+
+  /// Get Pokemon evolution chain
+  Future<List<EvolutionStage>> getEvolutionChain(
+    int id, {
+    CancellationToken? cancellationToken,
+  }) async {
+    try {
+      final response = await _apiHelper.get<List<EvolutionStage>>(
+        endpoint: ApiPaths.getEvolutionChainEndpoint(id),
+        parser: (json) => (json['chain'] as List)
+            .map((e) => EvolutionStage.fromJson(e as Map<String, dynamic>))
+            .toList(),
+        useCache: true,
+        cancellationToken: cancellationToken,
+      );
+
+      return response.isSuccess && response.data != null ? response.data! : [];
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error fetching evolution chain: $e');
+      }
+      return [];
+    }
+  }
+
+  /// Get type effectiveness chart
+  Future<Map<String, double>> getTypeEffectiveness(
+    List<String> types, {
+    CancellationToken? cancellationToken,
+  }) async {
+    try {
+      final effectiveness = <String, double>{};
+
+      for (final type in types) {
+        final response = await _apiHelper.get<Map<String, double>>(
+          endpoint: ApiPaths.getTypeEndpoint(type),
+          parser: (json) => Map<String, double>.from(
+              json['damage_relations'] as Map<String, dynamic>),
+          useCache: true,
+          cancellationToken: cancellationToken,
+        );
+
+        if (response.isSuccess && response.data != null) {
+          effectiveness.addAll(response.data!);
         }
       }
 
-      pokemonList.sort((a, b) => a.id.compareTo(b.id));
-
-      if (kDebugMode) {
-        print('✅ Successfully fetched ${pokemonList.length} Pokemon');
-      }
-
-      return pokemonList;
-    } on RequestCancelledException {
-      if (kDebugMode) {
-        print('🚫 Pokemon list request cancelled');
-      }
-      rethrow;
+      return effectiveness;
     } catch (e) {
       if (kDebugMode) {
-        print('❌ Error getting pokemon list: $e');
+        print('Error fetching type effectiveness: $e');
       }
-      throw _handleError(e);
-    } finally {
-      _activeTokens.remove('pokemon_list_$offset');
+      return {};
     }
   }
 
-  Future<PokemonDetailModel> getPokemonDetail(
-    String idOrName, {
-    CancellationToken? cancellationToken,
-  }) async {
-    if (_isDisposed) {
-      throw StateError('Service has been disposed');
-    }
-
+  /// Clear cached data
+  Future<void> clearCache() async {
     try {
-      if (kDebugMode) {
-        print('📥 Fetching Pokemon detail: $idOrName');
+      final prefs = _prefsHelper.prefs;
+      final keys = prefs.getKeys().where((key) =>
+          key.startsWith(_pokemonListKey) || key.startsWith(_pokemonDetailsKey));
+      
+      for (final key in keys) {
+        await prefs.remove(key);
       }
-
-      await initialize();
-
-      final requestToken = cancellationToken ?? CancellationToken();
-      _activeTokens['pokemon_detail_$idOrName'] = requestToken;
-
-      // Get base Pokemon data
-      final response = await _apiHelper.get<Map<String, dynamic>>(
-        endpoint:
-            '$baseUrl${ApiPaths.pokemonDetail.replaceAll('{id}', idOrName)}',
-        parser: (data) => data,
-      );
-
-      if (response.status == ApiStatus.error || response.data == null) {
-        throw response.error ?? 'Failed to load pokemon detail';
-      }
-
-      final pokemonData = response.data!;
-
-      // Fetch species data
-      final speciesUrl = pokemonData['species']['url'] as String;
-      final speciesResponse = await _apiHelper.get<Map<String, dynamic>>(
-        endpoint: speciesUrl,
-        parser: (data) => data,
-      );
-
-      if (speciesResponse.status == ApiStatus.error ||
-          speciesResponse.data == null) {
-        throw speciesResponse.error ?? 'Failed to load species data';
-      }
-
-      final speciesData = speciesResponse.data!;
-
-      // Get evolution chain if available
-      if (speciesData['evolution_chain']?['url'] != null) {
-        final evolutionChain = await _getEvolutionChain(
-          speciesData['evolution_chain']['url'] as String,
-          requestToken,
-        );
-        pokemonData['evolution'] = evolutionChain;
-      }
-
-      // Create Pokemon detail model
-      final pokemon = PokemonDetailModel.fromJson(pokemonData);
-
-      if (kDebugMode) {
-        print('✅ Successfully fetched Pokemon detail: ${pokemon.name}');
-      }
-
-      return pokemon;
-    } on RequestCancelledException {
-      if (kDebugMode) {
-        print('🚫 Pokemon detail request cancelled');
-      }
-      rethrow;
     } catch (e) {
       if (kDebugMode) {
-        print('❌ Error getting pokemon detail: $e');
+        print('Error clearing cache: $e');
       }
-      throw _handleError(e);
-    } finally {
-      _activeTokens.remove('pokemon_detail_$idOrName');
     }
   }
 
-  Future<Map<String, dynamic>?> _fetchPokemonDetail(
-    String url,
-    CancellationToken token,
-  ) async {
-    try {
-      final response = await _apiHelper.get<Map<String, dynamic>>(
-        endpoint: url,
-        parser: (data) => data,
-      );
-
-      if (response.status == ApiStatus.success && response.data != null) {
-        return response.data;
-      }
-      return null;
-    } catch (e) {
-      if (kDebugMode) {
-        print('⚠️ Warning: Failed to fetch individual Pokemon: $e');
-      }
-      return null;
-    }
-  }
-
-  Future<Map<String, dynamic>> _getEvolutionChain(
-    String url,
-    CancellationToken token,
-  ) async {
-    try {
-      final response = await _apiHelper.get<Map<String, dynamic>>(
-        endpoint: url,
-        parser: (data) => _parseEvolutionChain(data['chain']),
-      );
-
-      if (response.status == ApiStatus.error) {
-        return {
-          'chain_id': 0,
-          'stages': <Map<String, dynamic>>[],
-        };
-      }
-
-      return response.data ??
-          {
-            'chain_id': 0,
-            'stages': <Map<String, dynamic>>[],
-          };
-    } catch (e) {
-      if (kDebugMode) {
-        print('⚠️ Warning: Evolution chain fetch failed: $e');
-      }
-      return {
-        'chain_id': 0,
-        'stages': <Map<String, dynamic>>[],
-      };
-    }
-  }
-
-  Map<String, dynamic> _parseEvolutionChain(Map<String, dynamic>? chain) {
-    if (chain == null) {
-      return {
-        'chain_id': 0,
-        'stages': <Map<String, dynamic>>[],
-      };
-    }
-
-    final List<Map<String, dynamic>> stages = [];
-    Map<String, dynamic>? current = chain;
-
-    while (current != null) {
-      final speciesData = current['species'] as Map<String, dynamic>?;
-      if (speciesData == null) break;
-
-      final speciesUrl = speciesData['url'] as String;
-      final pokemonId = int.parse(speciesUrl.split('/')[6]);
-
-      stages.add({
-        'pokemon_id': pokemonId,
-        'name': speciesData['name'] as String? ?? 'unknown',
-        'min_level': (current['evolution_details'] as List?)?.isEmpty ?? true
-            ? 1
-            : ((current['evolution_details'] as List).first
-                    as Map<String, dynamic>)['min_level'] as int? ??
-                1,
-      });
-
-      final evolvesTo = current['evolves_to'] as List?;
-      current = evolvesTo?.isNotEmpty == true
-          ? evolvesTo!.first as Map<String, dynamic>?
-          : null;
-    }
-
-    return {
-      'chain_id': int.parse(chain['species']['url'].split('/')[6]),
-      'stages': stages,
-    };
-  }
-
-  Exception _handleError(dynamic error) {
-    if (error is TimeoutException) {
-      return TimeoutException('Connection timeout: Please check your internet');
-    } else if (error is HttpException) {
-      return HttpException('Network error: ${error.message}');
-    } else if (error is FormatException) {
-      return FormatException('Data format error: Please try again later');
-    } else if (error is RequestCancelledException) {
-      return error;
-    } else {
-      return Exception('An unexpected error occurred: ${error.toString()}');
-    }
-  }
-
-  // Cancel specific request
-  void cancelRequest(String identifier) {
-    if (_isDisposed) return;
-
-    final token = _activeTokens[identifier];
-    if (token != null) {
-      if (kDebugMode) {
-        print('🚫 Cancelling request: $identifier');
-      }
-      token.cancel();
-      _activeTokens.remove(identifier);
-    }
-  }
-
-  // Cancel all active requests
-  void cancelAllRequests() {
-    if (_isDisposed) return;
-
-    if (kDebugMode) {
-      print('🚫 Cancelling all requests');
-    }
-    for (var token in _activeTokens.values) {
-      token.cancel();
-    }
-    _activeTokens.clear();
-  }
-
+  /// Proper resource disposal
   void dispose() {
-    if (_isDisposed) return;
-
-    if (kDebugMode) {
-      print('🧹 Disposing PokemonService');
-    }
-    cancelAllRequests();
-    _isDisposed = true;
+    _pokemonListController.close();
+    _selectedPokemonController.close();
   }
 }
