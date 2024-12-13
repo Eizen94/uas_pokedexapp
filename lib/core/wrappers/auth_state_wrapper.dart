@@ -1,121 +1,116 @@
 // lib/core/wrappers/auth_state_wrapper.dart
 
+/// Authentication state wrapper to manage user authentication state.
+/// Provides unified authentication state management across the application.
+library core.wrappers.auth_state_wrapper;
+
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import '../../features/auth/screens/login_screen.dart';
-import '../../features/pokemon/screens/pokemon_list_screen.dart';
-import '../../widgets/loading_indicator.dart';
-import 'package:flutter/foundation.dart';
+import 'package:provider/provider.dart';
 
-class AuthStateWrapper extends StatefulWidget {
-  const AuthStateWrapper({super.key});
+import '../config/firebase_config.dart';
+import '../../features/auth/models/user_model.dart';
+import '../../features/auth/services/auth_service.dart';
 
-  @override
-  State<AuthStateWrapper> createState() => _AuthStateWrapperState();
-}
+/// Wrapper for authentication state management
+class AuthStateWrapper extends StatelessWidget {
+  /// Child widget to be wrapped
+  final Widget child;
 
-class _AuthStateWrapperState extends State<AuthStateWrapper> {
+  /// Firebase configuration instance
+  final FirebaseConfig _firebaseConfig;
+  
+  /// Auth service instance
+  final AuthService _authService;
+
+  /// Constructor
+  const AuthStateWrapper({
+    super.key,
+    required this.child,
+    FirebaseConfig? firebaseConfig,
+    AuthService? authService,
+  }) : _firebaseConfig = firebaseConfig ?? FirebaseConfig(),
+       _authService = authService ?? const AuthService();
+
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<User?>(
-      stream: FirebaseAuth.instance.authStateChanges(),
+      stream: _firebaseConfig.auth.authStateChanges(),
       builder: (context, snapshot) {
-        // Handle loading state
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const LoadingScreen(
-            message: 'Checking authentication...',
+          return const MaterialApp(
+            home: Scaffold(
+              body: Center(
+                child: CircularProgressIndicator(),
+              ),
+            ),
           );
         }
 
-        // Handle error state
-        if (snapshot.hasError) {
-          return ErrorScreen(
-            error: snapshot.error.toString(),
-            onRetry: () {
-              FirebaseAuth.instance.signOut();
+        // Convert Firebase User to UserModel
+        final UserModel? user = snapshot.hasData 
+            ? UserModel.fromFirebaseUser(snapshot.data!)
+            : null;
+
+        // Provide user model to app
+        return Provider<UserModel?>.value(
+          value: user,
+          child: StreamBuilder<bool>(
+            stream: _authService.isInitializedStream,
+            builder: (context, initSnapshot) {
+              // Wait for auth service initialization
+              if (!initSnapshot.hasData || !initSnapshot.data!) {
+                return const MaterialApp(
+                  home: Scaffold(
+                    body: Center(
+                      child: CircularProgressIndicator(),
+                    ),
+                  ),
+                );
+              }
+
+              return child;
             },
-          );
-        }
-
-        // Handle authenticated state
-        if (snapshot.hasData && snapshot.data != null) {
-          if (kDebugMode) {
-            print('👤 User authenticated: ${snapshot.data?.email}');
-          }
-          return const PokemonListScreen();
-        }
-
-        // Handle unauthenticated state
-        if (kDebugMode) {
-          print('🔒 No authenticated user, showing login screen');
-        }
-        return const LoginScreen();
+          ),
+        );
       },
     );
   }
 }
 
-class LoadingScreen extends StatelessWidget {
-  final String message;
-
-  const LoadingScreen({super.key, required this.message});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const LoadingIndicator(),
-            const SizedBox(height: 16),
-            Text(message),
-          ],
-        ),
-      ),
-    );
-  }
+/// Extension methods for AuthStateWrapper
+extension AuthStateWrapperExtension on BuildContext {
+  /// Get current user model
+  UserModel? get currentUser => Provider.of<UserModel?>(this, listen: false);
+  
+  /// Check if user is authenticated
+  bool get isAuthenticated => currentUser != null;
+  
+  /// Stream of authentication state changes
+  Stream<UserModel?> get authStateChanges => 
+      Provider.of<UserModel?>(this, listen: true).asStream();
 }
 
-class ErrorScreen extends StatelessWidget {
-  final String error;
-  final VoidCallback onRetry;
+/// Authentication state change callback type
+typedef AuthStateChangeCallback = void Function(UserModel? user);
 
-  const ErrorScreen({
-    super.key,
-    required this.error,
-    required this.onRetry,
-  });
+/// Authentication error callback type
+typedef AuthErrorCallback = void Function(String error);
 
+/// Mixin for handling auth state changes
+mixin AuthStateHandler<T extends StatefulWidget> on State<T> {
+  /// Handle auth state changes
+  void onAuthStateChanged(UserModel? user) {}
+  
+  /// Handle auth errors
+  void onAuthError(String error) {}
+  
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(
-                Icons.error_outline,
-                size: 64,
-                color: Colors.red,
-              ),
-              const SizedBox(height: 16),
-              Text(
-                'Error: $error',
-                textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 16),
-              ),
-              const SizedBox(height: 16),
-              ElevatedButton(
-                onPressed: onRetry,
-                child: const Text('Retry'),
-              ),
-            ],
-          ),
-        ),
-      ),
+  void initState() {
+    super.initState();
+    context.authStateChanges.listen(
+      onAuthStateChanged,
+      onError: (error) => onAuthError(error.toString()),
     );
   }
 }
