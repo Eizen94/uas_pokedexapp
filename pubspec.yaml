@@ -52,12 +52,15 @@ dependencies:
   connectivity_plus: ^5.0.2
 
   # Local Storage
+  dependencies:
   shared_preferences: ^2.2.2
+  synchronized: ^3.1.0
   
   # Utils
   json_annotation: ^4.8.1
   async: ^2.11.0
   rxdart: ^0.27.7
+  google_fonts: ^6.1.0
 
 dev_dependencies:
   flutter_test:
