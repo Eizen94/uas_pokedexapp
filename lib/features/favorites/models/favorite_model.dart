@@ -1,93 +1,118 @@
 // lib/features/favorites/models/favorite_model.dart
 
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/foundation.dart';
+/// Favorite Pokemon model to manage user's favorite Pokemon.
+/// Handles favorite Pokemon data and metadata.
+library features.favorites.models.favorite_model;
+
+import 'package:json_annotation/json_annotation.dart';
 import '../../pokemon/models/pokemon_model.dart';
 
-class FavoriteModel {
-  final String id;
-  final String userId;
-  final int pokemonId;
-  final DateTime addedAt;
-  final String pokemonName;
-  final List<String> pokemonTypes;
-  final String imageUrl;
-  PokemonModel? pokemonData;
+part 'favorite_model.g.dart';
 
-  FavoriteModel({
+/// Favorite Pokemon model
+@JsonSerializable()
+class FavoriteModel {
+  /// Unique identifier
+  final String id;
+
+  /// User ID
+  final String userId;
+
+  /// Pokemon data
+  final PokemonModel pokemon;
+
+  /// Added timestamp
+  final DateTime addedAt;
+
+  /// Custom note
+  final String? note;
+
+  /// Custom nickname
+  final String? nickname;
+
+  /// Team position (if part of team)
+  final int? teamPosition;
+
+  /// Constructor
+  const FavoriteModel({
     required this.id,
     required this.userId,
-    required this.pokemonId,
+    required this.pokemon,
     required this.addedAt,
-    required this.pokemonName,
-    required this.pokemonTypes,
-    required this.imageUrl,
-    this.pokemonData,
+    this.note,
+    this.nickname,
+    this.teamPosition,
   });
 
-  // Create from Firestore document
-  factory FavoriteModel.fromFirestore(DocumentSnapshot doc) {
-    final data = doc.data() as Map<String, dynamic>;
-    return FavoriteModel(
-      id: doc.id,
-      userId: data['userId'] as String? ?? '',
-      pokemonId: data['pokemonId'] as int? ?? 0,
-      addedAt: (data['addedAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
-      pokemonName: data['pokemonName'] as String? ?? '',
-      pokemonTypes: List<String>.from(data['pokemonTypes'] ?? []),
-      imageUrl: data['imageUrl'] as String? ?? '',
-    );
-  }
+  /// Create from JSON
+  factory FavoriteModel.fromJson(Map<String, dynamic> json) =>
+      _$FavoriteModelFromJson(json);
 
-  // Create from Pokemon model
+  /// Convert to JSON
+  Map<String, dynamic> toJson() => _$FavoriteModelToJson(this);
+
+  /// Create from Pokemon
   factory FavoriteModel.fromPokemon({
     required String userId,
     required PokemonModel pokemon,
+    String? note,
+    String? nickname,
+    int? teamPosition,
   }) {
     return FavoriteModel(
       id: '${userId}_${pokemon.id}',
       userId: userId,
-      pokemonId: pokemon.id,
+      pokemon: pokemon,
       addedAt: DateTime.now(),
-      pokemonName: pokemon.name,
-      pokemonTypes: pokemon.types,
-      imageUrl: pokemon.imageUrl,
-      pokemonData: pokemon,
+      note: note,
+      nickname: nickname,
+      teamPosition: teamPosition,
     );
   }
 
-  // Convert to map for Firestore
-  Map<String, dynamic> toMap() {
+  /// Create copy with updated fields
+  FavoriteModel copyWith({
+    String? note,
+    String? nickname,
+    int? teamPosition,
+  }) {
+    return FavoriteModel(
+      id: id,
+      userId: userId,
+      pokemon: pokemon,
+      addedAt: addedAt,
+      note: note ?? this.note,
+      nickname: nickname ?? this.nickname,
+      teamPosition: teamPosition ?? this.teamPosition,
+    );
+  }
+
+  /// Convert to Firestore data
+  Map<String, dynamic> toFirestore() {
     return {
+      'id': id,
       'userId': userId,
-      'pokemonId': pokemonId,
-      'addedAt': Timestamp.fromDate(addedAt),
-      'pokemonName': pokemonName,
-      'pokemonTypes': pokemonTypes,
-      'imageUrl': imageUrl,
+      'pokemonId': pokemon.id,
+      'addedAt': addedAt,
+      if (note != null) 'note': note,
+      if (nickname != null) 'nickname': nickname,
+      if (teamPosition != null) 'teamPosition': teamPosition,
     };
   }
 
-  // Create copy with modifications
-  FavoriteModel copyWith({
-    String? id,
-    String? userId,
-    int? pokemonId,
-    DateTime? addedAt,
-    String? pokemonName,
-    List<String>? pokemonTypes,
-    String? imageUrl,
-    PokemonModel? pokemonData,
-  }) {
+  /// Create from Firestore data
+  static Future<FavoriteModel> fromFirestore({
+    required Map<String, dynamic> data,
+    required PokemonModel pokemon,
+  }) async {
     return FavoriteModel(
-      id: id ?? this.id,
-      userId: userId ?? this.userId,
-      pokemonId: pokemonId ?? this.pokemonId,
-      addedAt: addedAt ?? this.addedAt,
-      pokemonName: pokemonName ?? this.pokemonName,
-      pokemonTypes: pokemonTypes ?? this.pokemonTypes,
-      imageUrl: imageUrl ?? this.imageUrl,
-      pokemonData: pokemonData ?? this.pokemonData,
+      id: data['id'] as String,
+      userId: data['userId'] as String,
+      pokemon: pokemon,
+      addedAt: (data['addedAt'] as Timestamp).toDate(),
+      note: data['note'] as String?,
+      nickname: data['nickname'] as String?,
+      teamPosition: data['teamPosition'] as int?,
     );
   }
 
@@ -96,37 +121,50 @@ class FavoriteModel {
       identical(this, other) ||
       other is FavoriteModel &&
           runtimeType == other.runtimeType &&
-          id == other.id &&
-          userId == other.userId &&
-          pokemonId == other.pokemonId;
+          id == other.id;
 
   @override
-  int get hashCode => id.hashCode ^ userId.hashCode ^ pokemonId.hashCode;
+  int get hashCode => id.hashCode;
 
   @override
-  String toString() {
-    return 'FavoriteModel{id: $id, pokemonId: $pokemonId, pokemonName: $pokemonName}';
-  }
+  String toString() => 'FavoriteModel('
+      'id: $id, '
+      'pokemon: ${pokemon.name}, '
+      'nickname: $nickname)';
+}
 
-  // Helper method to check if favorite is valid
-  bool isValid() {
-    return userId.isNotEmpty &&
-        pokemonId > 0 &&
-        pokemonName.isNotEmpty &&
-        imageUrl.isNotEmpty;
-  }
+/// Team member model for Pokemon team
+@JsonSerializable()
+class TeamMemberModel {
+  /// Position in team (1-6)
+  final int position;
 
-  // Helper method for debugging
-  void debugPrint() {
-    if (kDebugMode) {
-      print('FavoriteModel:');
-      print('  ID: $id');
-      print('  User ID: $userId');
-      print('  Pokemon ID: $pokemonId');
-      print('  Pokemon Name: $pokemonName');
-      print('  Added At: $addedAt');
-      print('  Types: $pokemonTypes');
-      print('  Has Pokemon Data: ${pokemonData != null}');
-    }
+  /// Favorite Pokemon reference
+  final FavoriteModel favorite;
+
+  /// Custom moves for team
+  final List<String> selectedMoves;
+
+  /// Constructor
+  const TeamMemberModel({
+    required this.position,
+    required this.favorite,
+    required this.selectedMoves,
+  });
+
+  /// Create from JSON
+  factory TeamMemberModel.fromJson(Map<String, dynamic> json) =>
+      _$TeamMemberModelFromJson(json);
+
+  /// Convert to JSON
+  Map<String, dynamic> toJson() => _$TeamMemberModelToJson(this);
+
+  /// Convert to Firestore data
+  Map<String, dynamic> toFirestore() {
+    return {
+      'position': position,
+      'favoriteId': favorite.id,
+      'selectedMoves': selectedMoves,
+    };
   }
 }

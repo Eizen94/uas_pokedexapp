@@ -1,192 +1,222 @@
 // lib/features/pokemon/models/pokemon_move_model.dart
 
-import 'dart:convert';
-import 'package:flutter/foundation.dart';
+/// Detailed Pokemon move model for complete move information.
+/// Contains all move properties, effects, and metadata.
+library features.pokemon.models.pokemon_move_model;
 
-class PokemonMove {
+import 'package:json_annotation/json_annotation.dart';
+
+part 'pokemon_move_model.g.dart';
+
+/// Move category types
+enum MoveCategory {
+  /// Physical moves (use Attack and Defense)
+  physical,
+
+  /// Special moves (use Sp. Attack and Sp. Defense)
+  special,
+
+  /// Status moves (no direct damage)
+  status
+}
+
+/// Detailed Pokemon move model
+@JsonSerializable()
+class PokemonMoveDetail {
+  /// Move ID
   final int id;
-  final String name;
-  final String type;
-  final String category;
-  final int power;
-  final int accuracy;
-  final int pp;
-  final String effect;
-  final int effectChance;
-  final String target;
-  final int priority;
-  final String damageClass;
 
-  PokemonMove({
+  /// Move name
+  final String name;
+
+  /// Move type (fire, water, etc.)
+  final String type;
+
+  /// Move category
+  final MoveCategory category;
+
+  /// Base power
+  final int? power;
+
+  /// Accuracy percentage
+  final int? accuracy;
+
+  /// Base PP (Power Points)
+  final int pp;
+
+  /// Move priority
+  final int priority;
+
+  /// Detailed effect description
+  final String effect;
+
+  /// Short effect description
+  final String shortEffect;
+
+  /// Effect chance percentage
+  final int? effectChance;
+
+  /// Target type (single, all adjacent, etc.)
+  final String target;
+
+  /// Critical hit rate bonus
+  final int critRate;
+
+  /// Drain percentage (if applicable)
+  final int? drainPercentage;
+
+  /// Healing percentage (if applicable)
+  final int? healPercentage;
+
+  /// Max number of hits (if applicable)
+  final int? maxHits;
+
+  /// Min number of hits (if applicable)
+  final int? minHits;
+
+  /// Max number of turns (if applicable)
+  final int? maxTurns;
+
+  /// Min number of turns (if applicable)
+  final int? minTurns;
+
+  /// Stats changed
+  final List<MoveStatChange> statChanges;
+
+  /// Move flags
+  final List<MoveFlag> flags;
+
+  /// Constructor
+  const PokemonMoveDetail({
     required this.id,
     required this.name,
     required this.type,
     required this.category,
-    required this.power,
-    required this.accuracy,
+    this.power,
+    this.accuracy,
     required this.pp,
-    required this.effect,
-    required this.effectChance,
-    required this.target,
     required this.priority,
-    required this.damageClass,
+    required this.effect,
+    required this.shortEffect,
+    this.effectChance,
+    required this.target,
+    required this.critRate,
+    this.drainPercentage,
+    this.healPercentage,
+    this.maxHits,
+    this.minHits,
+    this.maxTurns,
+    this.minTurns,
+    required this.statChanges,
+    required this.flags,
   });
 
-  factory PokemonMove.fromJson(Map<String, dynamic> json) {
-    try {
-      return PokemonMove(
-        id: json['id'] as int? ?? 0,
-        name: json['name'] as String? ?? '',
-        type: json['type']?['name'] as String? ?? 'normal',
-        category: _determineMoveCategory(json),
-        power: json['power'] as int? ?? 0,
-        accuracy: json['accuracy'] as int? ?? 0,
-        pp: json['pp'] as int? ?? 0,
-        effect: _getEffectText(json),
-        effectChance: json['effect_chance'] as int? ?? 0,
-        target: json['target']?['name'] as String? ?? 'selected-pokemon',
-        priority: json['priority'] as int? ?? 0,
-        damageClass: json['damage_class']?['name'] as String? ?? 'physical',
-      );
-    } catch (e) {
-      if (kDebugMode) {
-        print('Error parsing move data: $e');
-      }
-      rethrow;
-    }
-  }
+  /// Create from JSON
+  factory PokemonMoveDetail.fromJson(Map<String, dynamic> json) =>
+      _$PokemonMoveDetailFromJson(json);
 
-  Map<String, dynamic> toJson() => {
-        'id': id,
-        'name': name,
-        'type': {'name': type},
-        'power': power,
-        'accuracy': accuracy,
-        'pp': pp,
-        'effect': effect,
-        'effect_chance': effectChance,
-        'target': {'name': target},
-        'priority': priority,
-        'damage_class': {'name': damageClass},
-      };
+  /// Convert to JSON
+  Map<String, dynamic> toJson() => _$PokemonMoveDetailToJson(this);
 
-  static String _determineMoveCategory(Map<String, dynamic> json) {
-    final damageClass = json['damage_class']?['name'] as String?;
-    if (damageClass == null) return 'status';
+  /// Get display power
+  String get displayPower => power?.toString() ?? '-';
 
-    switch (damageClass.toLowerCase()) {
-      case 'physical':
-        return 'physical';
-      case 'special':
-        return 'special';
-      default:
-        return 'status';
-    }
-  }
+  /// Get display accuracy
+  String get displayAccuracy => accuracy != null ? '$accuracy%' : '-';
 
-  static String _getEffectText(Map<String, dynamic> json) {
-    try {
-      final effectEntries = json['effect_entries'] as List?;
-      if (effectEntries == null || effectEntries.isEmpty) {
-        return json['effect'] as String? ?? '';
-      }
+  /// Get effect with replaced effect chance
+  String get formattedEffect => effectChance != null
+      ? effect.replaceAll('$effectChance', '$effectChance%')
+      : effect;
 
-      final englishEffect = effectEntries.firstWhere(
-        (entry) => entry['language']?['name'] == 'en',
-        orElse: () => {'effect': ''},
-      );
+  /// Whether move has additional effect
+  bool get hasAdditionalEffect => effectChance != null && effectChance! > 0;
+}
 
-      return englishEffect['effect'] as String? ?? '';
-    } catch (e) {
-      if (kDebugMode) {
-        print('Error getting effect text: $e');
-      }
-      return '';
-    }
-  }
+/// Move stat change model
+@JsonSerializable()
+class MoveStatChange {
+  /// Affected stat
+  final String stat;
 
-  // Helper methods for move information
-  bool get isPhysical => damageClass == 'physical';
-  bool get isSpecial => damageClass == 'special';
-  bool get isStatus => damageClass == 'status';
+  /// Change amount
+  final int change;
 
-  bool get hasPower => power > 0;
-  bool get hasAccuracy => accuracy > 0;
-  bool get hasEffect => effectChance > 0;
+  /// Constructor
+  const MoveStatChange({
+    required this.stat,
+    required this.change,
+  });
 
-  String get formattedName {
-    return name
-        .split('-')
-        .map((word) => word[0].toUpperCase() + word.substring(1))
-        .join(' ');
-  }
+  /// Create from JSON
+  factory MoveStatChange.fromJson(Map<String, dynamic> json) =>
+      _$MoveStatChangeFromJson(json);
 
-  String get formattedEffect {
-    if (effectChance > 0) {
-      return effect.replaceAll('\$effect_chance', effectChance.toString());
-    }
-    return effect;
-  }
+  /// Convert to JSON
+  Map<String, dynamic> toJson() => _$MoveStatChangeToJson(this);
 
-  // Comparison methods for sorting
-  static int compareByName(PokemonMove a, PokemonMove b) {
-    return a.name.compareTo(b.name);
-  }
+  /// Get formatted change
+  String get formattedChange => change >= 0 ? '+$change' : '$change';
+}
 
-  static int compareByPower(PokemonMove a, PokemonMove b) {
-    if (a.power == b.power) return compareByName(a, b);
-    return b.power.compareTo(a.power);
-  }
+/// Move flag model
+@JsonSerializable()
+class MoveFlag {
+  /// Flag name
+  final String name;
 
-  static int compareByAccuracy(PokemonMove a, PokemonMove b) {
-    if (a.accuracy == b.accuracy) return compareByName(a, b);
-    return b.accuracy.compareTo(a.accuracy);
-  }
+  /// Flag description
+  final String description;
 
-  static int compareByPP(PokemonMove a, PokemonMove b) {
-    if (a.pp == b.pp) return compareByName(a, b);
-    return b.pp.compareTo(a.pp);
-  }
+  /// Constructor
+  const MoveFlag({
+    required this.name,
+    required this.description,
+  });
 
-  @override
-  bool operator ==(Object other) {
-    if (identical(this, other)) return true;
-    return other is PokemonMove && other.id == id;
-  }
+  /// Create from JSON
+  factory MoveFlag.fromJson(Map<String, dynamic> json) =>
+      _$MoveFlagFromJson(json);
 
-  @override
-  int get hashCode => id.hashCode;
+  /// Convert to JSON
+  Map<String, dynamic> toJson() => _$MoveFlagToJson(this);
+}
 
-  @override
-  String toString() => json.encode(toJson());
+/// Move meta data model
+@JsonSerializable()
+class MoveMeta {
+  /// Ailment caused
+  final String? ailment;
 
-  PokemonMove copyWith({
-    int? id,
-    String? name,
-    String? type,
-    String? category,
-    int? power,
-    int? accuracy,
-    int? pp,
-    String? effect,
-    int? effectChance,
-    String? target,
-    int? priority,
-    String? damageClass,
-  }) {
-    return PokemonMove(
-      id: id ?? this.id,
-      name: name ?? this.name,
-      type: type ?? this.type,
-      category: category ?? this.category,
-      power: power ?? this.power,
-      accuracy: accuracy ?? this.accuracy,
-      pp: pp ?? this.pp,
-      effect: effect ?? this.effect,
-      effectChance: effectChance ?? this.effectChance,
-      target: target ?? this.target,
-      priority: priority ?? this.priority,
-      damageClass: damageClass ?? this.damageClass,
-    );
-  }
+  /// Ailment chance
+  final int? ailmentChance;
+
+  /// Category (damage, ailment, etc.)
+  final String category;
+
+  /// Critical hit rate
+  final int critRate;
+
+  /// Flinch chance
+  final int? flinchChance;
+
+  /// Stat chance
+  final int? statChance;
+
+  /// Constructor
+  const MoveMeta({
+    this.ailment,
+    this.ailmentChance,
+    required this.category,
+    required this.critRate,
+    this.flinchChance,
+    this.statChance,
+  });
+
+  /// Create from JSON
+  factory MoveMeta.fromJson(Map<String, dynamic> json) =>
+      _$MoveMetaFromJson(json);
+
+  /// Convert to JSON
+  Map<String, dynamic> toJson() => _$MoveMetaToJson(this);
 }
