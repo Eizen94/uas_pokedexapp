@@ -66,10 +66,13 @@ class PokemonService {
         parser: (json) => json,
       );
 
-      if (response.data == null) throw PokemonServiceError.fetchError;
+      final data = response.data;
+      if (data == null) throw PokemonServiceError.fetchError;
+
+      final results = data['results'] as List<dynamic>?;
+      if (results == null) throw PokemonServiceError.fetchError;
 
       final List<PokemonModel> pokemonList = [];
-      final List<dynamic> results = response.data['results'] as List<dynamic>;
 
       for (final item in results) {
         final pokemonResponse = await _apiHelper.get<Map<String, dynamic>>(
