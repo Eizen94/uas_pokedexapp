@@ -2,7 +2,7 @@
 
 /// Detailed Pokemon move model for complete move information.
 /// Contains all move properties, effects, and metadata.
-library features.pokemon.models.pokemon_move_model;
+library;
 
 import 'package:json_annotation/json_annotation.dart';
 

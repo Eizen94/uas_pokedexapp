@@ -2,7 +2,7 @@
 
 /// Request manager utility to track and optimize API requests.
 /// Handles request deduplication, batching, and prioritization.
-library core.utils.request_manager;
+library;
 
 import 'dart:async';
 import 'package:flutter/foundation.dart';

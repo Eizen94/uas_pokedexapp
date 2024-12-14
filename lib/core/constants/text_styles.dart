@@ -2,7 +2,7 @@
 
 /// Text style constants for the Pokedex application.
 /// Defines consistent typography throughout the app.
-library core.constants.text_styles;
+library;
 
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';

@@ -2,7 +2,7 @@
 
 /// Pokemon detail model to represent detailed Pokemon information.
 /// Contains complete Pokemon data including moves, abilities, and evolution chain.
-library features.pokemon.models.pokemon_detail_model;
+library;
 
 import 'package:json_annotation/json_annotation.dart';
 import 'pokemon_model.dart';

@@ -2,7 +2,7 @@
 
 /// String helper utility for consistent string formatting and validation.
 /// Provides unified string manipulation across the application.
-library core.utils.string_helper;
+library;
 
 /// Helper class for string operations
 class StringHelper {

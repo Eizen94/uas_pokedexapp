@@ -2,7 +2,7 @@
 
 /// API path constants for the Pokedex application.
 /// Contains all endpoints and URL builders for API calls.
-library core.constants.api_paths;
+library;
 
 /// Base URLs for different API services
 class ApiBaseUrls {

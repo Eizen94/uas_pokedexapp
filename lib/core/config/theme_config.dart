@@ -2,7 +2,7 @@
 
 /// Theme configuration for the Pokedex application.
 /// Defines global theme data and dynamic theming support.
-library core.config.theme_config;
+library;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -21,7 +21,6 @@ class ThemeConfig {
         colorScheme: ColorScheme.light(
           primary: AppColors.primaryButton,
           secondary: AppColors.secondaryButton,
-          background: AppColors.background,
           error: AppColors.error,
           surface: AppColors.cardBackground,
         ),
@@ -109,7 +108,6 @@ class ThemeConfig {
       colorScheme: ColorScheme.light(
         primary: typeColor,
         secondary: AppColors.secondaryButton,
-        background: AppColors.background,
         error: AppColors.error,
         surface: AppColors.cardBackground,
       ),

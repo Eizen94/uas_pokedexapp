@@ -2,7 +2,7 @@
 
 /// Cache management utility for efficient data storage and retrieval.
 /// Implements LRU (Least Recently Used) caching with a strict 5MB size limit.
-library core.utils.cache_manager;
+library;
 
 import 'dart:collection';
 import 'dart:convert';

@@ -7,13 +7,11 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
-import '../constants/api_paths.dart';
 import 'request_manager.dart';
 import 'connectivity_manager.dart';
 import 'sync_manager.dart';
 import 'rate_limiter.dart';
 import 'cancellation_token.dart';
-import 'monitoring_manager.dart';
 import 'prefs_helper.dart';
 
 class ApiHelper {

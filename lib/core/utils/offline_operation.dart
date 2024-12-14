@@ -2,7 +2,7 @@
 
 /// Offline operation handler for managing operations when device is offline.
 /// Ensures data consistency and operation queuing during offline periods.
-library core.utils.offline_operation;
+library;
 
 import 'dart:async';
 import 'package:flutter/foundation.dart';

@@ -19,13 +19,13 @@ class PokemonCard extends StatelessWidget {
   final bool isLoading;
 
   const PokemonCard({
-    Key? key,
+    super.key,
     required this.pokemon,
     this.onTap,
     this.isSelected = false,
     this.showStats = false,
     this.isLoading = false,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {

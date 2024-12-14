@@ -2,7 +2,7 @@
 
 /// Favorite service to manage user's favorite Pokemon.
 /// Handles favorite operations and synchronization with Firestore.
-library features.favorites.services.favorite_service;
+library;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 

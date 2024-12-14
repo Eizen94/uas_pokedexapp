@@ -2,7 +2,7 @@
 
 /// Authentication service to handle user authentication operations.
 /// Manages login, registration, and auth state persistence.
-library features.auth.services.auth_service;
+library;
 
 import 'dart:async';
 import 'package:firebase_auth/firebase_auth.dart';

@@ -2,7 +2,7 @@
 
 /// Performance manager to ensure smooth animations and efficient resource usage.
 /// Handles frame timing, memory optimization, and battery efficiency.
-library core.utils.performance_manager;
+library;
 
 import 'dart:async';
 import 'package:flutter/foundation.dart';

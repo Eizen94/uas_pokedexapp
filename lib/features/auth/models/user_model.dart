@@ -2,7 +2,7 @@
 
 /// User model to represent application user data.
 /// Handles user data conversion and validation.
-library features.auth.models.user_model;
+library;
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:json_annotation/json_annotation.dart';

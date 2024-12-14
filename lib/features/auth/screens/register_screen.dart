@@ -2,7 +2,7 @@
 
 /// Registration screen for new user sign up.
 /// Handles user registration process with form validation.
-library features.auth.screens.register_screen;
+library;
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';

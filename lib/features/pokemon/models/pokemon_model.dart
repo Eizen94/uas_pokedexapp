@@ -2,7 +2,7 @@
 
 /// Pokemon model to represent Pokemon data.
 /// Contains basic Pokemon information and stats.
-library features.pokemon.models.pokemon_model;
+library;
 
 import 'package:json_annotation/json_annotation.dart';
 

@@ -2,7 +2,7 @@
 
 /// Core color constants for the Pokedex application.
 /// Contains all color definitions used throughout the app for consistent theming.
-library core.constants.colors;
+library;
 
 import 'package:flutter/material.dart';
 

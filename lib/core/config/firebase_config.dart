@@ -2,7 +2,7 @@
 
 /// Firebase configuration and initialization manager.
 /// Handles Firebase setup and provides access to Firebase services.
-library core.config.firebase_config;
+library;
 
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -62,8 +62,8 @@ class FirebaseConfig {
   /// Configure Firestore settings
   Future<void> _configureFirestore() async {
     // Configure Firestore for offline persistence within free tier limits
-    await _firestore.settings.persistenceEnabled;
-    await _firestore.settings.cacheSizeBytes;
+    _firestore.settings.persistenceEnabled;
+    _firestore.settings.cacheSizeBytes;
 
     _firestore.settings = const Settings(
       persistenceEnabled: true,

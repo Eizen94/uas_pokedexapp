@@ -1,7 +1,9 @@
 // lib/features/pokemon/screens/pokemon_list_screen.dart
 
-// Pokemon list screen to display all Pokemon with search and filtering.
-// Main screen for browsing Pokemon collection.
+/// Pokemon list screen to display all Pokemon with search and filtering.
+/// Main screen for browsing Pokemon collection.
+library;
+
 
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -14,6 +16,50 @@ import '../services/pokemon_service.dart';
 import '../../favorites/services/favorite_service.dart';
 import '../../auth/models/user_model.dart';
 import 'pokemon_detail_screen.dart';
+
+/// Get color for Pokemon type
+Color _getTypeColor(String type) {
+  switch (type.toLowerCase()) {
+    case 'bug':
+      return PokemonTypeColors.bug;
+    case 'dark':
+      return PokemonTypeColors.dark;
+    case 'dragon':
+      return PokemonTypeColors.dragon;
+    case 'electric':
+      return PokemonTypeColors.electric;
+    case 'fairy':
+      return PokemonTypeColors.fairy;
+    case 'fighting':
+      return PokemonTypeColors.fighting;
+    case 'fire':
+      return PokemonTypeColors.fire;
+    case 'flying':
+      return PokemonTypeColors.flying;
+    case 'ghost':
+      return PokemonTypeColors.ghost;
+    case 'grass':
+      return PokemonTypeColors.grass;
+    case 'ground':
+      return PokemonTypeColors.ground;
+    case 'ice':
+      return PokemonTypeColors.ice;
+    case 'normal':
+      return PokemonTypeColors.normal;
+    case 'poison':
+      return PokemonTypeColors.poison;
+    case 'psychic':
+      return PokemonTypeColors.psychic;
+    case 'rock':
+      return PokemonTypeColors.rock;
+    case 'steel':
+      return PokemonTypeColors.steel;
+    case 'water':
+      return PokemonTypeColors.water;
+    default:
+      return PokemonTypeColors.normal;
+  }
+}
 
 /// Pokemon list screen widget
 class PokemonListScreen extends StatefulWidget {
@@ -55,8 +101,10 @@ class _PokemonListScreenState extends State<PokemonListScreen> {
     try {
       _pokemonService = await PokemonService.initialize();
       _favoriteService = await FavoriteService.initialize();
+      if (!mounted) return;
       _loadPokemon();
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _errorMessage = 'Failed to initialize services: $e';
       });
@@ -77,6 +125,8 @@ class _PokemonListScreenState extends State<PokemonListScreen> {
         offset: _currentPage * _pageSize,
       );
 
+      if (!mounted) return;
+
       setState(() {
         _pokemonList.addAll(newPokemon);
         _currentPage++;
@@ -84,6 +134,7 @@ class _PokemonListScreenState extends State<PokemonListScreen> {
         _isLoading = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _errorMessage = 'Failed to load Pokemon: $e';
         _isLoading = false;
@@ -126,12 +177,15 @@ class _PokemonListScreenState extends State<PokemonListScreen> {
               '#${pokemon.id}'.contains(query))
           .toList();
 
+      if (!mounted) return;
+
       setState(() {
         _pokemonList = searchResult;
         _hasMore = false;
         _isLoading = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _errorMessage = 'Search failed: $e';
         _isLoading = false;
@@ -145,6 +199,8 @@ class _PokemonListScreenState extends State<PokemonListScreen> {
         userId: widget.user.id,
         pokemon: pokemon,
       );
+
+      if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -161,6 +217,7 @@ class _PokemonListScreenState extends State<PokemonListScreen> {
         ),
       );
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(e.toString())),
       );
@@ -273,12 +330,8 @@ class _PokemonCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final types = pokemon.types;
-    final mainType = types.first.toLowerCase();
-    final color = PokemonTypeColors.values.firstWhere(
-      (color) => color.toString().toLowerCase().contains(mainType),
-      orElse: () => PokemonTypeColors.normal,
-    );
+    final mainType = pokemon.types.first.toLowerCase();
+    final color = _getTypeColor(mainType);
 
     return InkWell(
       onTap: onTap,
@@ -349,7 +402,8 @@ class _PokemonCard extends StatelessWidget {
                   const SizedBox(height: 8),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
-                    children: types.map((type) {
+                    children: pokemon.types.map((type) {
+                      final typeColor = _getTypeColor(type);
                       return Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 4),
                         child: Container(
@@ -358,13 +412,7 @@ class _PokemonCard extends StatelessWidget {
                             vertical: 4,
                           ),
                           decoration: BoxDecoration(
-                            color: PokemonTypeColors.values.firstWhere(
-                              (color) => color
-                                  .toString()
-                                  .toLowerCase()
-                                  .contains(type.toLowerCase()),
-                              orElse: () => PokemonTypeColors.normal,
-                            ),
+                            color: typeColor,
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: Text(

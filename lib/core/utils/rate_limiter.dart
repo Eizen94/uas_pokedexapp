@@ -2,7 +2,7 @@
 
 /// Rate limiter utility to manage API request rates.
 /// Prevents API abuse and ensures compliance with rate limits.
-library core.utils.rate_limiter;
+library;
 
 import 'dart:async';
 import 'dart:collection';

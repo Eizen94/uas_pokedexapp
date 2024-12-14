@@ -2,7 +2,7 @@
 
 /// Pokemon service to handle Pokemon data operations.
 /// Manages Pokemon data fetching, caching, and processing.
-library features.pokemon.services.pokemon_service;
+library;
 
 import 'dart:async';
 import 'package:flutter/foundation.dart';

@@ -4,7 +4,6 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../../../core/constants/colors.dart';
 import '../../../core/constants/text_styles.dart';
-import '../models/pokemon_detail_model.dart';
 
 class PokemonStatsRadar extends StatelessWidget {
   final List<Stat> stats;

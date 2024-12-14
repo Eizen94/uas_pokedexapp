@@ -2,7 +2,7 @@
 
 /// Login screen for user authentication.
 /// Handles user login and navigation to registration.
-library features.auth.screens.login_screen;
+library;
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';

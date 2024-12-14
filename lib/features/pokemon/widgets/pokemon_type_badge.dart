@@ -15,12 +15,12 @@ class PokemonTypeBadge extends StatelessWidget {
   final bool isAnimated;
 
   const PokemonTypeBadge({
-    Key? key,
+    super.key,
     required this.type,
     this.small = false,
     this.onTap,
     this.isAnimated = true,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {

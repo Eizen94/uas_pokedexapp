@@ -2,7 +2,7 @@
 
 /// Authentication state wrapper to manage user authentication state.
 /// Provides unified authentication state management across the application.
-library core.wrappers.auth_state_wrapper;
+library;
 
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';

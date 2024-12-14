@@ -2,7 +2,7 @@
 
 /// Favorite Pokemon model to manage user's favorite Pokemon.
 /// Handles favorite Pokemon data and metadata.
-library features.favorites.models.favorite_model;
+library;
 
 import 'package:json_annotation/json_annotation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';

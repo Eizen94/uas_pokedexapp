@@ -2,7 +2,7 @@
 
 /// Connectivity manager to handle network state and offline capabilities.
 /// Provides real-time network status monitoring and offline mode management.
-library core.utils.connectivity_manager;
+library;
 
 import 'dart:async';
 import 'package:connectivity_plus/connectivity_plus.dart';

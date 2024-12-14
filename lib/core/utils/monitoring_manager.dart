@@ -2,7 +2,7 @@
 
 /// Monitoring manager to track app performance and stability.
 /// Handles performance metrics, error tracking, and analytics.
-library core.utils.monitoring_manager;
+library;
 
 import 'dart:async';
 import 'package:flutter/foundation.dart';

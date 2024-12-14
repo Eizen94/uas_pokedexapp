@@ -2,7 +2,7 @@
 
 /// Profile screen to display and manage user profile information.
 /// Handles user profile updates and sign out functionality.
-library features.auth.screens.profile_screen;
+library;
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';

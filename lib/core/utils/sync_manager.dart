@@ -2,7 +2,7 @@
 
 /// Sync manager to handle data synchronization between local and remote storage.
 /// Ensures data consistency and handles offline-to-online synchronization.
-library core.utils.sync_manager;
+library;
 
 import 'dart:async';
 import 'package:flutter/foundation.dart';

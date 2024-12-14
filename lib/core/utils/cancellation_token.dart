@@ -3,8 +3,6 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 
-import 'monitoring_manager.dart';
-import 'request_manager.dart';
 
 /// Enhanced cancellation token with proper resource management and error handling
 class CancellationToken {

@@ -3,7 +3,6 @@
 import 'package:flutter/material.dart';
 import '../../../core/constants/colors.dart';
 import '../../../core/constants/text_styles.dart';
-import '../models/pokemon_move_model.dart';
 import '../widgets/pokemon_type_badge.dart';
 
 class PokemonMovesTable extends StatefulWidget {
