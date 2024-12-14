@@ -1,213 +1,138 @@
 // lib/main.dart
 
+/// Entry point and initialization for Pokedex application.
+/// Handles app configuration, Firebase setup, and initial routing.
+library;
+
+import 'dart:async';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import 'package:uas_pokedexapp/core/config/firebase_config.dart';
-import 'package:uas_pokedexapp/core/config/theme_config.dart';
-import 'package:uas_pokedexapp/features/auth/screens/login_screen.dart';
-import 'package:uas_pokedexapp/features/auth/screens/register_screen.dart';
-import 'package:uas_pokedexapp/features/auth/screens/profile_screen.dart';
-import 'package:uas_pokedexapp/features/pokemon/screens/pokemon_list_screen.dart';
-import 'package:uas_pokedexapp/features/pokemon/screens/pokemon_detail_screen.dart';
-import 'package:uas_pokedexapp/dev/tools/test_screen.dart';
-import 'package:uas_pokedexapp/dev/tools/dev_tools.dart';
-import 'package:uas_pokedexapp/providers/auth_provider.dart';
-import 'package:uas_pokedexapp/providers/theme_provider.dart';
-import 'package:uas_pokedexapp/providers/pokemon_provider.dart';
-import 'package:uas_pokedexapp/widgets/loading_indicator.dart';
 
-void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
+import 'core/config/firebase_config.dart';
+import 'core/config/theme_config.dart';
+import 'core/utils/connectivity_manager.dart';
+import 'core/utils/monitoring_manager.dart';
+import 'core/wrappers/auth_state_wrapper.dart';
+import 'features/auth/services/auth_service.dart';
+import 'features/pokemon/services/pokemon_service.dart';
+import 'features/favorites/services/favorite_service.dart';
 
-  try {
-    if (kDebugMode) {
-      print('🚀 Starting app initialization...');
-    }
+/// Global navigator key for app-wide navigation
+final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
-    // Firebase harus diinisialisasi terlebih dahulu karena service lain bergantung padanya
-    await FirebaseConfig.instance.initializeApp().timeout(
-      const Duration(seconds: 10),
-      onTimeout: () {
-        throw Exception('Firebase initialization timeout');
-      },
-    );
+void main() {
+ runZonedGuarded(() async {
+   WidgetsFlutterBinding.ensureInitialized();
 
-    // DevTools diinisialisasi setelah Firebase siap
-    if (DevTools.isDevMode) {
-      await DevTools().initialize();
-    }
+   // Configure system UI
+   await SystemChrome.setPreferredOrientations([
+     DeviceOrientation.portraitUp,
+     DeviceOrientation.portraitDown,
+   ]);
 
-    if (kDebugMode) {
-      print('✅ App initialization complete');
-    }
+   SystemChrome.setSystemUIOverlayStyle(
+     const SystemUiOverlayStyle(
+       statusBarColor: Colors.transparent,
+       statusBarIconBrightness: Brightness.dark,
+       systemNavigationBarColor: Colors.white,
+       systemNavigationBarIconBrightness: Brightness.dark,
+     ),
+   );
 
-    runApp(const AppRoot());
-  } catch (e) {
-    if (kDebugMode) {
-      print('❌ Fatal error in main: $e');
-    }
-    runApp(ErrorApp(error: e.toString()));
-  }
+   // Initialize Firebase
+   await Firebase.initializeApp();
+   await FirebaseConfig().initialize();
+   
+   // Initialize services
+   final authService = await _initializeAuthService();
+   final pokemonService = await _initializePokedexServices();
+   final favoriteService = await _initializeFavoriteService();
+   final connectivityManager = ConnectivityManager();
+   final monitoringManager = MonitoringManager();
+
+   FlutterError.onError = FirebaseCrashlytics.instance.recordFlutterError;
+
+   runApp(
+     MultiProvider(
+       providers: [
+         Provider<AuthService>.value(value: authService),
+         Provider<PokemonService>.value(value: pokemonService),
+         Provider<FavoriteService>.value(value: favoriteService),
+         Provider<ConnectivityManager>.value(value: connectivityManager),
+         Provider<MonitoringManager>.value(value: monitoringManager),
+       ],
+       child: AuthStateWrapper(
+         child: PokedexApp(
+           navigatorKey: navigatorKey,
+         ),
+       ),
+     ),
+   );
+ }, (error, stack) {
+   FirebaseCrashlytics.instance.recordError(error, stack);
+ });
 }
 
-class AppRoot extends StatelessWidget {
-  const AppRoot({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return MultiProvider(
-      providers: [
-        ChangeNotifierProvider(
-          create: (_) => ThemeProvider(),
-        ),
-        ChangeNotifierProvider(
-          create: (_) => AppAuthProvider(),
-        ),
-        ChangeNotifierProvider(
-          create: (_) => PokemonProvider(),
-        ),
-      ],
-      child: const MyApp(),
-    );
-  }
+/// Initialize auth service with proper error handling
+Future<AuthService> _initializeAuthService() async {
+ try {
+   final service = AuthService();
+   await service.initialize();
+   return service;
+ } catch (e) {
+   FirebaseCrashlytics.instance.recordError(e, StackTrace.current);
+   rethrow;
+ }
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    final themeProvider = context.watch<ThemeProvider>();
-
-    return MaterialApp(
-      title: 'UAS Pokedex',
-      debugShowCheckedModeBanner: false,
-      theme: themeProvider.currentTheme,
-      home: const AuthenticationHandler(),
-      routes: {
-        '/login': (context) => const LoginScreen(),
-        '/register': (context) => const RegisterScreen(),
-        '/profile': (context) => const ProfileScreen(),
-        '/home': (context) => const PokemonListScreen(),
-        '/pokemon/detail': (context) => const PokemonDetailScreen(),
-        '/test': (context) => const TestScreen(),
-        '/dev/test': (context) => DevTools.getTestScreen(),
-      },
-    );
-  }
+/// Initialize pokemon service with error handling
+Future<PokemonService> _initializePokedexServices() async {
+ try {
+   return await PokemonService.initialize();
+ } catch (e) {
+   FirebaseCrashlytics.instance.recordError(e, StackTrace.current);
+   rethrow;
+ }
 }
 
-class AuthenticationHandler extends StatelessWidget {
-  const AuthenticationHandler({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return StreamBuilder<User?>(
-      stream: context.read<AppAuthProvider>().authStateChanges,
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Scaffold(
-            body: Center(
-              child: LoadingIndicator(
-                message: 'Checking authentication...',
-              ),
-            ),
-          );
-        }
-
-        if (snapshot.hasError) {
-          return Scaffold(
-            body: Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Icon(
-                    Icons.error_outline,
-                    size: 64,
-                    color: Colors.red,
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    'Authentication Error: ${snapshot.error}',
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 16),
-                  ElevatedButton(
-                    onPressed: () {
-                      FirebaseAuth.instance.signOut();
-                    },
-                    child: const Text('Retry'),
-                  ),
-                ],
-              ),
-            ),
-          );
-        }
-
-        final user = snapshot.data;
-        if (user != null) {
-          if (kDebugMode) {
-            print('👤 User authenticated: ${user.email}');
-          }
-          return const PokemonListScreen();
-        }
-
-        return const LoginScreen();
-      },
-    );
-  }
+/// Initialize favorites service with error handling
+Future<FavoriteService> _initializeFavoriteService() async {
+ try {
+   return await FavoriteService.initialize();
+ } catch (e) {
+   FirebaseCrashlytics.instance.recordError(e, StackTrace.current);
+   rethrow;
+ }
 }
 
-class ErrorApp extends StatelessWidget {
-  final String error;
+/// Root application widget
+class PokedexApp extends StatelessWidget {
+ /// Global navigator key
+ final GlobalKey<NavigatorState> navigatorKey;
 
-  const ErrorApp({super.key, required this.error});
+ /// Constructor
+ const PokedexApp({
+   required this.navigatorKey,
+   super.key,
+ });
 
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      theme: ThemeConfig.lightTheme,
-      home: Scaffold(
-        body: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(
-                  Icons.error_outline,
-                  size: 64,
-                  color: Colors.red,
-                ),
-                const SizedBox(height: 16),
-                const Text(
-                  'Failed to start application',
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  error,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(fontSize: 16),
-                ),
-                const SizedBox(height: 16),
-                ElevatedButton(
-                  onPressed: () {
-                    main();
-                  },
-                  child: const Text('Retry'),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
+ @override
+ Widget build(BuildContext context) {
+   return MaterialApp(
+     title: 'Pokédex',
+     debugShowCheckedModeBanner: false,
+     navigatorKey: navigatorKey,
+     theme: ThemeConfig.lightTheme,
+     builder: (context, child) => MediaQuery(
+       data: MediaQuery.of(context).copyWith(textScaleFactor: 1.0),
+       child: child!,
+     ),
+     home: const AuthStateWrapper(
+       child: PokedexHomePage(),
+     ),
+   );
+ }
 }

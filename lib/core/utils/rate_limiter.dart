@@ -6,7 +6,6 @@ library;
 
 import 'dart:async';
 import 'dart:collection';
-import 'package:flutter/foundation.dart';
 import 'package:rxdart/subjects.dart';
 
 /// Rate limit exceeded exception

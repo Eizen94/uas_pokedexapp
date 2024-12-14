@@ -2,6 +2,8 @@
 
 /// Pokemon detail screen to display detailed Pokemon information.
 /// Shows complete Pokemon data, stats, evolution chain, and moves.
+library;
+
 
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';

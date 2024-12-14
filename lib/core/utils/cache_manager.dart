@@ -6,7 +6,6 @@ library;
 
 import 'dart:collection';
 import 'dart:convert';
-import 'package:flutter/foundation.dart';
 import 'package:shared_preferences.dart';
 import 'package:synchronized/synchronized.dart';
 

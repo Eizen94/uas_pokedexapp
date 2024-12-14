@@ -11,7 +11,6 @@ import '../../../core/constants/colors.dart';
 import '../../../core/constants/text_styles.dart';
 import '../models/user_model.dart';
 import '../services/auth_service.dart';
-import '../../favorites/services/favorite_service.dart';
 
 /// Profile screen widget
 class ProfileScreen extends StatefulWidget {

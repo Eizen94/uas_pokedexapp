@@ -5,7 +5,6 @@
 library;
 
 import 'dart:async';
-import 'package:flutter/foundation.dart';
 
 import '../../../core/utils/api_helper.dart';
 import '../../../core/utils/cache_manager.dart';
@@ -14,7 +13,6 @@ import '../../../core/utils/monitoring_manager.dart';
 import '../../../core/constants/api_paths.dart';
 import '../models/pokemon_model.dart';
 import '../models/pokemon_detail_model.dart';
-import '../models/pokemon_move_model.dart';
 
 /// Pokemon service error messages
 class PokemonServiceError {

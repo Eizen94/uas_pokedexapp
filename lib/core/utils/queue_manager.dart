@@ -6,9 +6,6 @@ import 'dart:collection';
 import 'package:flutter/foundation.dart';
 
 import 'cancellation_token.dart';
-import 'monitoring_manager.dart';
-import 'request_manager.dart';
-import '../constants/api_paths.dart';
 
 /// Enhanced queue manager with proper generic constraints and resource management.
 /// Type T must be a non-nullable type to ensure type safety.

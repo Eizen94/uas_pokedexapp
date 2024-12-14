@@ -5,7 +5,6 @@
 library;
 
 import 'dart:async';
-import 'package:flutter/foundation.dart';
 import 'package:rxdart/subjects.dart';
 
 import 'cache_manager.dart';
