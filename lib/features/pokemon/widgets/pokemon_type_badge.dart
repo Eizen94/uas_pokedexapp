@@ -1,171 +1,147 @@
-// lib/features/pokemon/widgets/pokemon_type_badge.dart
+// lib/widgets/pokemon_type_badge.dart
+
+/// Pokemon type badge widget to display Pokemon types.
+/// Used across the app for consistent type representation.
+library;
 
 import 'package:flutter/material.dart';
 
-import '../../../core/constants/colors.dart';
-import '../../../core/constants/text_styles.dart';
-import '../../../core/utils/string_helper.dart';
+import '../core/constants/colors.dart';
+import '../core/constants/text_styles.dart';
 
-/// Pokemon type badge component that displays the Pokemon's type
-/// with proper styling and animations based on the design reference.
+/// Pokemon type badge widget
 class PokemonTypeBadge extends StatelessWidget {
+  /// Pokemon type to display
   final String type;
-  final bool small;
-  final VoidCallback? onTap;
-  final bool isAnimated;
 
+  /// Optional badge size
+  final BadgeSize size;
+
+  /// Optional explicit width
+  final double? width;
+
+  /// Constructor
   const PokemonTypeBadge({
-    super.key,
     required this.type,
-    this.small = false,
-    this.onTap,
-    this.isAnimated = true,
+    this.size = BadgeSize.medium,
+    this.width,
+    super.key,
   });
+
+  /// Get background color based on type
+  Color _getTypeColor(String pokemonType) {
+    switch (pokemonType.toLowerCase()) {
+      case 'bug':
+        return PokemonTypeColors.bug;
+      case 'dark':
+        return PokemonTypeColors.dark;
+      case 'dragon':
+        return PokemonTypeColors.dragon;
+      case 'electric':
+        return PokemonTypeColors.electric;
+      case 'fairy':
+        return PokemonTypeColors.fairy;
+      case 'fighting':
+        return PokemonTypeColors.fighting;
+      case 'fire':
+        return PokemonTypeColors.fire;
+      case 'flying':
+        return PokemonTypeColors.flying;
+      case 'ghost':
+        return PokemonTypeColors.ghost;
+      case 'grass':
+        return PokemonTypeColors.grass;
+      case 'ground':
+        return PokemonTypeColors.ground;
+      case 'ice':
+        return PokemonTypeColors.ice;
+      case 'normal':
+        return PokemonTypeColors.normal;
+      case 'poison':
+        return PokemonTypeColors.poison;
+      case 'psychic':
+        return PokemonTypeColors.psychic;
+      case 'rock':
+        return PokemonTypeColors.rock;
+      case 'steel':
+        return PokemonTypeColors.steel;
+      case 'water':
+        return PokemonTypeColors.water;
+      default:
+        return PokemonTypeColors.normal;
+    }
+  }
+
+  /// Get padding based on size
+  EdgeInsets _getPadding() {
+    switch (size) {
+      case BadgeSize.small:
+        return const EdgeInsets.symmetric(
+          horizontal: 8,
+          vertical: 4,
+        );
+      case BadgeSize.medium:
+        return const EdgeInsets.symmetric(
+          horizontal: 12,
+          vertical: 6,
+        );
+      case BadgeSize.large:
+        return const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 8,
+        );
+    }
+  }
+
+  /// Get font size based on size
+  double _getFontSize() {
+    switch (size) {
+      case BadgeSize.small:
+        return 10;
+      case BadgeSize.medium:
+        return 12;
+      case BadgeSize.large:
+        return 14;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    return isAnimated
-        ? _buildAnimatedBadge(context)
-        : _buildStaticBadge(context);
-  }
-
-  Widget _buildAnimatedBadge(BuildContext context) {
-    return TweenAnimationBuilder<double>(
-      duration: const Duration(milliseconds: 300),
-      curve: Curves.easeInOut,
-      tween: Tween<double>(begin: 0.8, end: 1.0),
-      builder: (context, value, child) {
-        return Transform.scale(
-          scale: value,
-          child: _buildStaticBadge(context),
-        );
-      },
-    );
-  }
-
-  Widget _buildStaticBadge(BuildContext context) {
-    final typeColor = AppColors.getTypeColor(type);
-    final textColor = Colors.white; // Type badges always use white text
-    final gradientColors = AppColors.getTypeGradient(type);
-
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(small ? 8 : 12),
-        child: Ink(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: gradientColors,
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-            borderRadius: BorderRadius.circular(small ? 8 : 12),
-            boxShadow: [
-              BoxShadow(
-                color: typeColor.withOpacity(0.3),
-                blurRadius: 4,
-                offset: const Offset(0, 2),
-              ),
-            ],
-          ),
-          child: Container(
-            padding: EdgeInsets.symmetric(
-              horizontal: small ? 8 : 12,
-              vertical: small ? 4 : 6,
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _buildTypeIcon(type),
-                if (!small) const SizedBox(width: 4),
-                Text(
-                  StringHelper.formatTypeName(type),
-                  style: (small
-                          ? AppTextStyles.caption
-                          : AppTextStyles.pokemonType)
-                      .copyWith(
-                    color: textColor,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 0.5,
-                    shadows: [
-                      Shadow(
-                        color: Colors.black.withOpacity(0.2),
-                        offset: const Offset(0, 1),
-                        blurRadius: 2,
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildTypeIcon(String type) {
-    // Use custom icons based on Pokemon type
-    IconData getTypeIcon() {
-      switch (type.toLowerCase()) {
-        case 'bug':
-          return Icons.bug_report;
-        case 'dark':
-          return Icons.nights_stay;
-        case 'dragon':
-          return Icons.auto_fix_high;
-        case 'electric':
-          return Icons.flash_on;
-        case 'fairy':
-          return Icons.star;
-        case 'fighting':
-          return Icons.sports_kabaddi;
-        case 'fire':
-          return Icons.local_fire_department;
-        case 'flying':
-          return Icons.air;
-        case 'ghost':
-          return Icons.blur_on;
-        case 'grass':
-          return Icons.eco;
-        case 'ground':
-          return Icons.landscape;
-        case 'ice':
-          return Icons.ac_unit;
-        case 'normal':
-          return Icons.circle_outlined;
-        case 'poison':
-          return Icons.science;
-        case 'psychic':
-          return Icons.psychology;
-        case 'rock':
-          return Icons.terrain;
-        case 'steel':
-          return Icons.shield;
-        case 'water':
-          return Icons.water_drop;
-        default:
-          return Icons.catching_pokemon;
-      }
-    }
-
-    if (small) return const SizedBox.shrink();
-
-    return Padding(
-      padding: const EdgeInsets.only(right: 4),
-      child: Icon(
-        getTypeIcon(),
-        color: Colors.white,
-        size: small ? 12 : 16,
-        shadows: [
-          Shadow(
-            color: Colors.black.withOpacity(0.2),
-            offset: const Offset(0, 1),
-            blurRadius: 2,
+    final backgroundColor = _getTypeColor(type);
+    
+    return Container(
+      width: width,
+      padding: _getPadding(),
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: backgroundColor.withOpacity(0.4),
+            blurRadius: 4,
+            offset: const Offset(0, 2),
           ),
         ],
       ),
+      child: Text(
+        type.toUpperCase(),
+        style: AppTextStyles.typeBadge.copyWith(
+          fontSize: _getFontSize(),
+        ),
+        textAlign: TextAlign.center,
+      ),
     );
   }
+}
+
+/// Badge size options
+enum BadgeSize {
+  /// Small badge (icons list)
+  small,
+  
+  /// Medium badge (card view)
+  medium,
+  
+  /// Large badge (detail view)
+  large,
 }
