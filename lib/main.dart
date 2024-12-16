@@ -1,123 +1,83 @@
 // lib/main.dart
 
-/// Entry point and initialization for Pokedex application.
-/// Handles core services setup and application configuration.
+/// Application entry point.
+/// Initializes services and launches the app.
 library;
 
-import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:provider/provider.dart';
 
+import 'app.dart';
 import 'core/config/firebase_config.dart';
-import 'core/config/theme_config.dart';
-import 'core/utils/connectivity_manager.dart';
-import 'core/wrappers/auth_state_wrapper.dart';
-import 'features/auth/models/user_model.dart';
-import 'features/auth/services/auth_service.dart';
-import 'features/pokemon/services/pokemon_service.dart';
-import 'features/favorites/services/favorite_service.dart';
-import 'features/pokemon/screens/pokemon_list_screen.dart';
+import 'core/utils/monitoring_manager.dart';
+import 'core/utils/performance_manager.dart';
 
-/// Global navigator key for app-wide navigation
-final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+void main() {
+  runZonedGuarded(
+    () async {
+      WidgetsFlutterBinding.ensureInitialized();
 
-/// Entry point of the application
-Future<void> main() async {
-  try {
-    WidgetsFlutterBinding.ensureInitialized();
+      // Lock orientation to portrait
+      await SystemChrome.setPreferredOrientations([
+        DeviceOrientation.portraitUp,
+        DeviceOrientation.portraitDown,
+      ]);
 
-    // Configure system UI
-    await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
-    SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
-      statusBarColor: Colors.transparent,
-      statusBarIconBrightness: Brightness.dark,
-    ));
+      // Initialize Firebase
+      final firebaseConfig = FirebaseConfig();
+      await firebaseConfig.initialize();
 
-    // Initialize Firebase
-    await Firebase.initializeApp();
-    final firebaseConfig = FirebaseConfig();
-    await firebaseConfig.initialize();
+      // Initialize performance monitoring
+      final performanceManager = PerformanceManager();
 
-    // Initialize core services
-    final connectivityManager = ConnectivityManager();
-    final authService = AuthService();
-    await authService.initialize();
-    
-    final pokemonService = await PokemonService.initialize();
-    final favoriteService = await FavoriteService.initialize();
+      // Initialize error monitoring
+      final monitoringManager = MonitoringManager();
 
-    // Setup error handling
-    FlutterError.onError = (FlutterErrorDetails details) {
-      FirebaseCrashlytics.instance.recordFlutterError(details);
-    };
+      // Set error handlers
+      FlutterError.onError = (FlutterErrorDetails details) {
+        monitoringManager.logError(
+          'Flutter Error',
+          error: details.exception,
+          additionalData: {
+            'stack': details.stack.toString(),
+            'library': details.library,
+          },
+        );
+      };
 
-    runApp(
-      MultiProvider(
-        providers: [
-          Provider<FirebaseConfig>.value(value: firebaseConfig),
-          Provider<AuthService>.value(value: authService),
-          Provider<PokemonService>.value(value: pokemonService),
-          Provider<FavoriteService>.value(value: favoriteService),
-          Provider<ConnectivityManager>.value(value: connectivityManager),
-          // Add Stream provider for user state
-          StreamProvider<UserModel?>(
-            create: (_) => authService.userStream,
-            initialData: null,
-          ),
-        ],
-        child: PokedexApp(
-          firebaseConfig: firebaseConfig,
-          authService: authService,
+      // Run app with performance monitoring
+      runApp(
+        performanceManager.enableSmoothAnimations(
+          const PokemonApp(),
         ),
-      ),
-    );
-  } catch (error, stackTrace) {
-    FirebaseCrashlytics.instance.recordError(error, stackTrace);
-    debugPrint('Initialization error: $error');
-    rethrow;
-  }
+      );
+    },
+    (error, stack) {
+      // Log any errors that occur in the zone
+      MonitoringManager().logError(
+        'Uncaught Error',
+        error: error,
+        stackTrace: stack,
+      );
+    },
+  );
 }
 
-/// Root application widget
-class PokedexApp extends StatelessWidget {
-  /// Firebase configuration
-  final FirebaseConfig firebaseConfig;
-  
-  /// Authentication service
-  final AuthService authService;
+/// Run app in error-boundary zone
+Future<void> runZonedGuarded(
+  Future<void> Function() body,
+  void Function(Object error, StackTrace stack) onError,
+) async {
+  final Zone parentZone = Zone.current;
 
-  /// Constructor
-  const PokedexApp({
-    required this.firebaseConfig,
-    required this.authService,
-    super.key,
-  });
+  final ZoneSpecification specification = ZoneSpecification(
+    handleUncaughtError: (Zone self, ZoneDelegate parent, Zone zone,
+        Object error, StackTrace stackTrace) {
+      parentZone.runBinary(onError, error, stackTrace);
+    },
+  );
 
-  @override
-  Widget build(BuildContext context) {
-    // Get current user from provider
-    final user = context.watch<UserModel?>();
+  final Zone zone = Zone.current.fork(specification: specification);
 
-    return MaterialApp(
-      title: 'Pokédex',
-      debugShowCheckedModeBanner: false,
-      navigatorKey: navigatorKey,
-      theme: ThemeConfig.lightTheme,
-      home: AuthStateWrapper(
-        firebaseConfig: firebaseConfig,
-        authService: authService,
-        child: user != null 
-          ? PokemonListScreen(user: user)
-          : const Center(child: CircularProgressIndicator()),
-      ),
-      builder: (context, child) {
-        return MediaQuery(
-          data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(1.0)),
-          child: child ?? const SizedBox.shrink(),
-        );
-      },
-    );
-  }
+  await zone.run<Future<void>>(() => body());
 }
