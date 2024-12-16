@@ -6,9 +6,9 @@ library;
 
 import 'package:flutter/material.dart';
 
-import '../core/constants/colors.dart';
-import '../core/constants/text_styles.dart';
-import '../core/utils/string_helper.dart';
+import '../../../core/constants/colors.dart';
+import '../../../core/constants/text_styles.dart';
+import '../../../core/utils/string_helper.dart';
 import 'pokemon_type_badge.dart';
 
 /// Sort options for Pokemon list

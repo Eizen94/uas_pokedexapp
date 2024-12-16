@@ -7,10 +7,10 @@ library;
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 
-import '../core/constants/colors.dart';
-import '../core/constants/text_styles.dart';
-import '../core/utils/string_helper.dart';
-import '../features/pokemon/models/pokemon_model.dart';
+import '../../../core/constants/colors.dart';
+import '../../../core/constants/text_styles.dart';
+import '../../../core/utils/string_helper.dart';
+import '../models/pokemon_model.dart';
 import 'pokemon_type_badge.dart';
 
 /// Pokemon card widget

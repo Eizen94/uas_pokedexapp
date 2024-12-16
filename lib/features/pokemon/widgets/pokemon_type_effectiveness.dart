@@ -6,8 +6,8 @@ library;
 
 import 'package:flutter/material.dart';
 
-import '../core/constants/colors.dart';
-import '../core/constants/text_styles.dart';
+import '../../../core/constants/colors.dart';
+import '../../../core/constants/text_styles.dart';
 import 'pokemon_type_badge.dart';
 
 /// Type effectiveness grid widget
