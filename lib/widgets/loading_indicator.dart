@@ -1,64 +1,93 @@
 // lib/widgets/loading_indicator.dart
 
-import 'package:flutter/material.dart';
-import '../core/constants/colors.dart';
-import '../core/constants/text_styles.dart';
+/// Loading indicator widget for displaying loading states.
+/// Provides consistent loading animation across the app.
+library;
 
+import 'package:flutter/material.dart';
+
+import '../core/constants/colors.dart';
+
+/// Loading indicator widget
 class LoadingIndicator extends StatelessWidget {
+  /// Loading message
   final String? message;
+
+  /// Whether to show background overlay
+  final bool showOverlay;
+
+  /// Loading indicator color
   final Color? color;
+
+  /// Loading indicator size
   final double size;
 
+  /// Constructor
   const LoadingIndicator({
-    super.key,
     this.message,
+    this.showOverlay = true,
     this.color,
-    this.size = 24.0,
+    this.size = 48.0,
+    super.key,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          SizedBox(
-            width: size,
-            height: size,
-            child: CircularProgressIndicator(
-              strokeWidth: size / 8,
-              valueColor: AlwaysStoppedAnimation<Color>(
-                color ?? AppColors.primary,
-              ),
+    final indicator = Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox(
+          width: size,
+          height: size,
+          child: CircularProgressIndicator(
+            strokeWidth: 3,
+            valueColor: AlwaysStoppedAnimation<Color>(
+              color ?? AppColors.primaryButton,
             ),
           ),
-          if (message != null) ...[
-            const SizedBox(height: 16),
-            Text(
-              message!,
-              textAlign: TextAlign.center,
-              style: AppTextStyles.bodyMedium.copyWith(
-                color: Theme.of(context).textTheme.bodyMedium?.color,
-              ),
+        ),
+        if (message != null) ...[
+          const SizedBox(height: 16),
+          Text(
+            message!,
+            style: TextStyle(
+              color: color ?? AppColors.primaryText,
+              fontSize: 16,
             ),
-          ],
+            textAlign: TextAlign.center,
+          ),
         ],
+      ],
+    );
+
+    if (!showOverlay) {
+      return Center(child: indicator);
+    }
+
+    return Material(
+      type: MaterialType.transparency,
+      child: Container(
+        color: Colors.black.withOpacity(0.3),
+        child: Center(child: indicator),
       ),
     );
   }
-}
 
-class LoadingScreen extends StatelessWidget {
-  final String message;
-
-  const LoadingScreen({super.key, required this.message});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: Center(
-        child: LoadingIndicator(message: message),
-      ),
+  /// Show loading overlay
+  static Future<void> show({
+    required BuildContext context,
+    String? message,
+  }) {
+    return showDialog(
+      context: context,
+      barrierDismissible: false,
+      barrierColor: Colors.transparent,
+      builder: (context) => LoadingIndicator(message: message),
     );
+  }
+
+  /// Hide loading overlay
+  static void hide(BuildContext context) {
+    Navigator.pop(context);
   }
 }
