@@ -12,7 +12,7 @@ import 'package:flutter/foundation.dart';
 /// Firebase configuration manager
 class FirebaseConfig {
   static final FirebaseConfig _instance = FirebaseConfig._internal();
-  
+
   /// Singleton instance
   factory FirebaseConfig() => _instance;
 
@@ -20,10 +20,10 @@ class FirebaseConfig {
 
   /// Firebase application instance
   late final FirebaseApp _app;
-  
+
   /// Firebase Auth instance
   late final FirebaseAuth _auth;
-  
+
   /// Firestore instance
   late final FirebaseFirestore _firestore;
 
@@ -38,7 +38,7 @@ class FirebaseConfig {
       _firestore = FirebaseFirestore.instance;
 
       await _configureFirestore();
-      
+
       debugPrint('Firebase initialized successfully');
     } catch (e) {
       debugPrint('Failed to initialize Firebase: $e');
@@ -111,8 +111,6 @@ class FirebaseConfig {
         return 'Operation not implemented';
       case 'internal':
         return 'Internal system error';
-      case 'unavailable':
-        return 'Service unavailable';
       case 'data-loss':
         return 'Unrecoverable data loss/corruption';
       case 'unauthenticated':
@@ -126,18 +124,18 @@ class FirebaseConfig {
 /// Firebase collection references
 class _FirebaseCollections {
   /// Users collection reference
-  CollectionReference<Map<String, dynamic>> get users => 
+  CollectionReference<Map<String, dynamic>> get users =>
       FirebaseFirestore.instance.collection('users');
 
   /// Favorites collection reference
-  CollectionReference<Map<String, dynamic>> getFavorites(String userId) => 
+  CollectionReference<Map<String, dynamic>> getFavorites(String userId) =>
       users.doc(userId).collection('favorites');
 
   /// Notes collection reference
-  CollectionReference<Map<String, dynamic>> getNotes(String userId) => 
+  CollectionReference<Map<String, dynamic>> getNotes(String userId) =>
       users.doc(userId).collection('notes');
 
   /// Settings collection reference
-  CollectionReference<Map<String, dynamic>> getSettings(String userId) => 
+  CollectionReference<Map<String, dynamic>> getSettings(String userId) =>
       users.doc(userId).collection('settings');
 }
