@@ -97,10 +97,7 @@ class ThemeConfig {
 
   /// Get Pokemon type specific theme data
   static ThemeData getPokemonTypeTheme(String type) {
-    final typeColor = PokemonTypeColors.values.firstWhere(
-      (color) => color.toString().toLowerCase().contains(type.toLowerCase()),
-      orElse: () => PokemonTypeColors.normal,
-    );
+    final typeColor = _getTypeColor(type);
 
     return ThemeData(
       useMaterial3: true,
@@ -134,7 +131,7 @@ class ThemeConfig {
   }
 
   /// Get color for Pokemon type badge
-  static Color getPokemonTypeColor(String type) {
+  static Color _getTypeColor(String type) {
     switch (type.toLowerCase()) {
       case 'bug':
         return PokemonTypeColors.bug;
