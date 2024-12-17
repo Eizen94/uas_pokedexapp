@@ -5,23 +5,25 @@
 library;
 
 import 'dart:async';
+import 'dart:ui';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:rxdart/subjects.dart';
 
 /// Log level for monitoring
 enum LogLevel {
   /// Debug level logs
   debug,
-  
+
   /// Info level logs
   info,
-  
+
   /// Warning level logs
   warning,
-  
+
   /// Error level logs
   error,
-  
+
   /// Critical level logs
   critical
 }
@@ -30,16 +32,16 @@ enum LogLevel {
 enum MetricType {
   /// API response time
   apiResponse,
-  
+
   /// Frame render time
   frameTime,
-  
+
   /// Memory usage
   memory,
-  
+
   /// Battery impact
   battery,
-  
+
   /// Cache usage
   cache
 }
@@ -47,7 +49,7 @@ enum MetricType {
 /// Monitoring manager for app performance and stability
 class MonitoringManager {
   static final MonitoringManager _instance = MonitoringManager._internal();
-  
+
   /// Singleton instance
   factory MonitoringManager() => _instance;
 
@@ -55,10 +57,10 @@ class MonitoringManager {
     _startPeriodicMetricsCollection();
   }
 
-  final BehaviorSubject<Map<MetricType, double>> _metricsController = 
+  final BehaviorSubject<Map<MetricType, double>> _metricsController =
       BehaviorSubject<Map<MetricType, double>>.seeded({});
-      
-  final BehaviorSubject<List<LogEntry>> _logsController = 
+
+  final BehaviorSubject<List<LogEntry>> _logsController =
       BehaviorSubject<List<LogEntry>>.seeded([]);
 
   final List<LogEntry> _logs = [];
@@ -67,8 +69,9 @@ class MonitoringManager {
   static const Duration _metricInterval = Duration(minutes: 1);
 
   /// Stream of performance metrics
-  Stream<Map<MetricType, double>> get metricsStream => _metricsController.stream;
-  
+  Stream<Map<MetricType, double>> get metricsStream =>
+      _metricsController.stream;
+
   /// Stream of application logs
   Stream<List<LogEntry>> get logsStream => _logsController.stream;
 
@@ -140,7 +143,7 @@ class MonitoringManager {
   /// Add log entry
   void _addLog(LogEntry entry) {
     _logs.add(entry);
-    
+
     // Maintain log size limit
     while (_logs.length > _maxLogRetention) {
       _logs.removeAt(0);
@@ -154,7 +157,8 @@ class MonitoringManager {
   /// Track performance metric
   void _trackMetric(MetricType type, double value) {
     if (!_metricsController.isClosed) {
-      final currentMetrics = Map<MetricType, double>.from(_metricsController.value);
+      final currentMetrics =
+          Map<MetricType, double>.from(_metricsController.value);
       currentMetrics[type] = value;
       _metricsController.add(currentMetrics);
     }
@@ -171,7 +175,8 @@ class MonitoringManager {
   /// Collect current metrics
   void _collectMetrics() {
     // Frame time metrics
-    final frameTime = WidgetsBinding.instance.currentFrameTimeStamp.inMicroseconds / 1000.0;
+    final frameTime =
+        WidgetsBinding.instance.currentFrameTimeStamp.inMicroseconds / 1000.0;
     logPerformanceMetric(type: MetricType.frameTime, value: frameTime);
 
     // Memory metrics (debug only)
@@ -215,13 +220,13 @@ class MonitoringManager {
 class LogEntry {
   /// Log level
   final LogLevel level;
-  
+
   /// Log message
   final String message;
-  
+
   /// Timestamp
   final DateTime timestamp;
-  
+
   /// Additional data
   final Map<String, dynamic> data;
 
@@ -233,6 +238,6 @@ class LogEntry {
   });
 
   @override
-  String toString() => 
+  String toString() =>
       '[${timestamp.toIso8601String()}] ${level.name.toUpperCase()}: $message';
 }

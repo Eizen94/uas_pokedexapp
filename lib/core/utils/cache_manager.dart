@@ -6,7 +6,7 @@ library;
 
 import 'dart:collection';
 import 'dart:convert';
-import 'package:shared_preferences.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:synchronized/synchronized.dart';
 
 /// Cache entry with metadata
