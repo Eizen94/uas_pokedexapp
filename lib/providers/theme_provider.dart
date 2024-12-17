@@ -1,123 +1,195 @@
 // lib/providers/theme_provider.dart
 
+/// Theme provider to manage application theming.
+/// Handles theme state and user theme preferences.
+library;
+
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter/services.dart';
+
 import '../core/config/theme_config.dart';
 import '../core/constants/colors.dart';
+import '../services/firebase_service.dart';
+import '../features/auth/models/user_model.dart';
 
-class ThemeProvider extends ChangeNotifier {
-  static const String _themeKey = 'app_theme';
-  bool _isDarkMode = false;
-  late SharedPreferences _prefs;
-  bool _isInitialized = false;
+/// Theme provider
+class ThemeProvider with ChangeNotifier {
+  // Dependencies
+  final FirebaseService _firebaseService;
 
-  // Getters
+  // Internal state
+  ThemeData _currentTheme;
+  bool _isDarkMode;
+  String? _error;
+
+  /// Constructor
+  ThemeProvider({
+    FirebaseService? firebaseService,
+    bool isDarkMode = false,
+  })  : _firebaseService = firebaseService ?? FirebaseService(),
+        _currentTheme = ThemeConfig.lightTheme,
+        _isDarkMode = isDarkMode {
+    _initialize();
+  }
+
+  /// Getters
+  ThemeData get theme => _currentTheme;
   bool get isDarkMode => _isDarkMode;
-  bool get isInitialized => _isInitialized;
-  ThemeData get currentTheme =>
-      _isDarkMode ? ThemeConfig.darkTheme : ThemeConfig.lightTheme;
-  Color get primaryColor => AppColors.primary;
+  String? get error => _error;
 
-  ThemeProvider() {
-    _loadThemePreference();
+  /// Initialize provider
+  Future<void> _initialize() async {
+    try {
+      await _firebaseService.initialize();
+      await _loadTheme();
+    } catch (e) {
+      _handleError(e);
+    }
   }
 
-  // Initialize theme preference
-  Future<void> _loadThemePreference() async {
+  /// Load saved theme
+  Future<void> _loadTheme() async {
     try {
-      _prefs = await SharedPreferences.getInstance();
-      _isDarkMode = _prefs.getBool(_themeKey) ?? false;
-      _isInitialized = true;
-      notifyListeners();
+      _updateTheme(_isDarkMode);
+    } catch (e) {
+      _handleError(e);
+    }
+  }
 
-      if (kDebugMode) {
-        print('Theme loaded: ${_isDarkMode ? 'dark' : 'light'}');
+  /// Toggle theme mode
+  Future<void> toggleTheme(UserModel? user) async {
+    try {
+      final newMode = !_isDarkMode;
+      _updateTheme(newMode);
+
+      // Save preference if user is logged in
+      if (user != null) {
+        await _firebaseService.updateUserSettings(
+          userId: user.id,
+          settings: {'theme': newMode ? 'dark' : 'light'},
+        );
       }
     } catch (e) {
-      if (kDebugMode) {
-        print('Error loading theme preference: $e');
-      }
-      _isDarkMode = false;
-      _isInitialized = true;
-      notifyListeners();
+      _handleError(e);
     }
   }
 
-  // Toggle theme
-  Future<void> toggleTheme() async {
+  /// Set theme for Pokemon type
+  void setPokemonTypeTheme(String type) {
     try {
-      _isDarkMode = !_isDarkMode;
-      await _prefs.setBool(_themeKey, _isDarkMode);
+      _currentTheme = ThemeConfig.getPokemonTypeTheme(type);
+      _updateSystemUI(type);
       notifyListeners();
+    } catch (e) {
+      _handleError(e);
+    }
+  }
 
-      if (kDebugMode) {
-        print('Theme changed to: ${_isDarkMode ? 'dark' : 'light'}');
+  /// Reset to default theme
+  void resetTheme() {
+    try {
+      _updateTheme(_isDarkMode);
+      _updateSystemUI(null);
+    } catch (e) {
+      _handleError(e);
+    }
+  }
+
+  /// Sync theme with user preferences
+  Future<void> syncWithUserPreferences(UserModel user) async {
+    try {
+      final settings = await _firebaseService.getUserSettings(user.id);
+      final isDark = settings['theme'] == 'dark';
+
+      if (isDark != _isDarkMode) {
+        _updateTheme(isDark);
       }
     } catch (e) {
-      if (kDebugMode) {
-        print('Error toggling theme: $e');
-      }
-      // Revert change if saving fails
-      _isDarkMode = !_isDarkMode;
-      notifyListeners();
+      _handleError(e);
     }
   }
 
-  // Set specific theme
-  Future<void> setTheme(bool isDark) async {
-    if (_isDarkMode == isDark) return;
+  /// Update theme
+  void _updateTheme(bool isDark) {
+    _isDarkMode = isDark;
+    _currentTheme = isDark ? _createDarkTheme() : ThemeConfig.lightTheme;
+    _updateSystemUI(null);
+    notifyListeners();
+  }
 
-    try {
-      _isDarkMode = isDark;
-      await _prefs.setBool(_themeKey, isDark);
-      notifyListeners();
+  /// Create dark theme
+  ThemeData _createDarkTheme() {
+    return ThemeData(
+      useMaterial3: true,
+      brightness: Brightness.dark,
+      colorScheme: ColorScheme.dark(
+        primary: AppColors.primaryButton,
+        secondary: AppColors.secondaryButton,
+        error: AppColors.error,
+        surface: const Color(0xFF1E1E1E),
+      ),
+      scaffoldBackgroundColor: const Color(0xFF121212),
+      cardTheme: CardTheme(
+        color: const Color(0xFF2A2A2A),
+        elevation: 2,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+      ),
+      appBarTheme: AppBarTheme(
+        backgroundColor: const Color(0xFF121212),
+        elevation: 0,
+        centerTitle: true,
+        systemOverlayStyle: SystemUiOverlayStyle.light,
+        iconTheme: const IconThemeData(color: Colors.white),
+      ),
+      bottomNavigationBarTheme: BottomNavigationBarThemeData(
+        backgroundColor: const Color(0xFF1E1E1E),
+        selectedItemColor: AppColors.primaryButton,
+        unselectedItemColor: Colors.grey,
+        elevation: 8,
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: const Color(0xFF2A2A2A),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 12,
+        ),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide.none,
+        ),
+      ),
+    );
+  }
 
-      if (kDebugMode) {
-        print('Theme set to: ${isDark ? 'dark' : 'light'}');
-      }
-    } catch (e) {
-      if (kDebugMode) {
-        print('Error setting theme: $e');
-      }
-      // Revert change if saving fails
-      _isDarkMode = !isDark;
-      notifyListeners();
+  /// Update system UI overlay style
+  void _updateSystemUI(String? pokemonType) {
+    if (pokemonType != null) {
+      SystemChrome.setSystemUIOverlayStyle(
+        ThemeConfig.getPokemonDetailSystemUiStyle(pokemonType),
+      );
+    } else {
+      SystemChrome.setSystemUIOverlayStyle(
+        _isDarkMode
+            ? SystemUiOverlayStyle.light
+            : SystemUiOverlayStyle.dark.copyWith(
+                statusBarColor: Colors.transparent,
+              ),
+      );
     }
   }
 
-  // Reset theme to default (light)
-  Future<void> resetTheme() async {
-    try {
-      _isDarkMode = false;
-      await _prefs.setBool(_themeKey, false);
-      notifyListeners();
-
-      if (kDebugMode) {
-        print('Theme reset to default (light)');
-      }
-    } catch (e) {
-      if (kDebugMode) {
-        print('Error resetting theme: $e');
-      }
-    }
+  /// Handle errors
+  void _handleError(dynamic error) {
+    _error = error.toString();
+    notifyListeners();
   }
 
-  // Update theme without saving (temporary)
-  void updateThemeTemporary(bool isDark) {
-    if (_isDarkMode != isDark) {
-      _isDarkMode = isDark;
-      notifyListeners();
-
-      if (kDebugMode) {
-        print('Theme temporarily changed to: ${isDark ? 'dark' : 'light'}');
-      }
-    }
+  /// Clear error
+  void clearError() {
+    _error = null;
+    notifyListeners();
   }
-
-  // Get current theme mode as string
-  String getCurrentThemeMode() => _isDarkMode ? 'dark' : 'light';
-
-  // Check if theme is initialized
-  bool isThemeLoaded() => _isInitialized;
 }
