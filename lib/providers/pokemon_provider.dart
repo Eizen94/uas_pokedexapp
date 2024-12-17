@@ -8,7 +8,6 @@ import '../features/pokemon/services/pokemon_service.dart';
 import '../core/utils/connectivity_manager.dart';
 import '../core/utils/api_helper.dart';
 import '../services/firebase_service.dart';
-import 'auth_provider.dart';
 
 class PokemonProvider extends ChangeNotifier {
   // Services

@@ -64,13 +64,13 @@ class _MainBottomNavigationState extends State<MainBottomNavigation> {
     return Scaffold(
       body: PageView(
         controller: _pageController,
-        children: _screens,
         onPageChanged: (index) {
           setState(() {
             _currentIndex = index;
           });
         },
         physics: const NeverScrollableScrollPhysics(),
+        children: _screens,
       ),
       bottomNavigationBar: Container(
         decoration: BoxDecoration(

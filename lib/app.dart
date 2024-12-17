@@ -10,7 +10,6 @@ import 'package:provider/provider.dart';
 
 import 'core/config/firebase_config.dart';
 import 'core/config/theme_config.dart';
-import 'core/constants/colors.dart';
 import 'core/wrappers/auth_state_wrapper.dart';
 import 'features/auth/models/user_model.dart';
 import 'features/auth/screens/login_screen.dart';

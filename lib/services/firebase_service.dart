@@ -244,7 +244,7 @@ class FirebaseService {
 
           if (pokemonDoc.exists) {
             final pokemon = PokemonModel.fromJson(
-              pokemonDoc.data()! as Map<String, dynamic>,
+              pokemonDoc.data()!,
             );
 
             favorites.add(await FavoriteModel.fromFirestore(
