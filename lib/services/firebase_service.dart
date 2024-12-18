@@ -11,7 +11,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../core/config/firebase_config.dart';
 import '../core/utils/monitoring_manager.dart';
-import '../core/utils/connectivity_manager.dart';
 import '../features/auth/models/user_model.dart';
 import '../features/favorites/models/favorite_model.dart';
 import '../features/pokemon/models/pokemon_model.dart';
@@ -79,7 +78,6 @@ class FirebaseService {
       // Initialize dependencies
       _config = FirebaseConfig();
       _monitoring = MonitoringManager();
-      _connectivity = ConnectivityManager();
 
       await _config.initialize();
 
