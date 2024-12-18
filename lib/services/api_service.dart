@@ -59,7 +59,6 @@ class ApiService {
   final _client = http.Client();
 
   // Configuration constants
-  static const Duration _cacheExpiration = Duration(hours: 24);
   static const Duration _defaultTimeout = Duration(seconds: 30);
   static const int _maxRetries = 3;
   static const int _baseDelaySeconds = 2;
