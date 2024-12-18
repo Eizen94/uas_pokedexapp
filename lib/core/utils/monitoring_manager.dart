@@ -175,20 +175,14 @@ class MonitoringManager {
 
   /// Collect current metrics
   void _collectMetrics() {
-    // Frame time
-    final binding = WidgetsBinding.instance;
-    final frameTime = binding.currentFrameTimeStamp.inMilliseconds.toDouble();
+    // Frame time using utility
+    final frameTime = PerformanceUtils.getCurrentFrameTime();
     logPerformanceMetric(type: MetricType.frameTime, value: frameTime);
 
     // Memory metrics (debug only)
     if (kDebugMode) {
-      try {
-        final performanceOverlay = binding.performanceOverlay.value;
-        logPerformanceMetric(
-            type: MetricType.memory, value: performanceOverlay);
-      } catch (e) {
-        logError('Error collecting memory metrics', error: e);
-      }
+      final memoryUsage = PerformanceUtils.getApproximateMemoryUsage();
+      logPerformanceMetric(type: MetricType.memory, value: memoryUsage);
     }
   }
 
