@@ -5,9 +5,9 @@
 library;
 
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:rxdart/subjects.dart';
-import 'package:shared_preferences.dart';
 
 import 'connectivity_manager.dart';
 import 'cache_manager.dart';
@@ -16,16 +16,16 @@ import 'cache_manager.dart';
 enum SyncStatus {
   /// Initial state
   initial,
-  
+
   /// Sync in progress
   syncing,
-  
+
   /// Sync completed successfully
   completed,
-  
+
   /// Sync failed
   failed,
-  
+
   /// Offline mode active
   offline
 }
@@ -34,19 +34,20 @@ enum SyncStatus {
 class SyncEntry {
   /// Unique identifier for sync entry
   final String id;
-  
+
   /// Type of operation
   final String operation;
-  
+
   /// Data to sync
   final Map<String, dynamic> data;
-  
+
   /// Timestamp of creation
   final DateTime timestamp;
-  
+
   /// Number of retry attempts
   int retryCount;
 
+  /// Constructor
   SyncEntry({
     required this.id,
     required this.operation,
@@ -57,27 +58,27 @@ class SyncEntry {
 
   /// Convert to JSON
   Map<String, dynamic> toJson() => {
-    'id': id,
-    'operation': operation,
-    'data': data,
-    'timestamp': timestamp.toIso8601String(),
-    'retryCount': retryCount,
-  };
+        'id': id,
+        'operation': operation,
+        'data': data,
+        'timestamp': timestamp.toIso8601String(),
+        'retryCount': retryCount,
+      };
 
   /// Create from JSON
   factory SyncEntry.fromJson(Map<String, dynamic> json) => SyncEntry(
-    id: json['id'] as String,
-    operation: json['operation'] as String,
-    data: json['data'] as Map<String, dynamic>,
-    timestamp: DateTime.parse(json['timestamp'] as String),
-    retryCount: json['retryCount'] as int,
-  );
+        id: json['id'] as String,
+        operation: json['operation'] as String,
+        data: json['data'] as Map<String, dynamic>,
+        timestamp: DateTime.parse(json['timestamp'] as String),
+        retryCount: json['retryCount'] as int,
+      );
 }
 
 /// Manager class for data synchronization
 class SyncManager {
   static final SyncManager _instance = SyncManager._internal();
-  
+
   /// Singleton instance
   factory SyncManager() => _instance;
 
@@ -85,10 +86,10 @@ class SyncManager {
 
   final ConnectivityManager _connectivityManager = ConnectivityManager();
   late final CacheManager _cacheManager;
-  final BehaviorSubject<SyncStatus> _statusController = 
+  final BehaviorSubject<SyncStatus> _statusController =
       BehaviorSubject<SyncStatus>.seeded(SyncStatus.initial);
   final List<SyncEntry> _syncQueue = [];
-  
+
   Timer? _syncTimer;
   bool _isSyncing = false;
   static const String _syncQueueKey = 'sync_queue';
@@ -105,7 +106,7 @@ class SyncManager {
 
   /// Stream of sync status changes
   Stream<SyncStatus> get statusStream => _statusController.stream;
-  
+
   /// Current sync status
   SyncStatus get currentStatus => _statusController.value;
 
@@ -148,24 +149,25 @@ class SyncManager {
   Future<void> _loadSyncQueue() async {
     final String? queueJson = await _cacheManager.get<String>(_syncQueueKey);
     if (queueJson != null) {
-      final List<dynamic> queueData = await compute(jsonDecode, queueJson);
+      final List<dynamic> queueData = await compute(json.decode, queueJson);
       _syncQueue.clear();
-      _syncQueue.addAll(
-        queueData.map((item) => SyncEntry.fromJson(item as Map<String, dynamic>))
-      );
+      _syncQueue.addAll(queueData
+          .map((item) => SyncEntry.fromJson(item as Map<String, dynamic>)));
     }
   }
 
   /// Save sync queue to storage
   Future<void> _saveSyncQueue() async {
     final queueData = _syncQueue.map((e) => e.toJson()).toList();
-    final queueJson = await compute(jsonEncode, queueData);
+    final queueJson = await compute(json.encode, queueData);
     await _cacheManager.put(_syncQueueKey, queueJson);
   }
 
   /// Perform sync operation
   Future<void> sync() async {
-    if (_isSyncing || _syncQueue.isEmpty || !_connectivityManager.hasConnection) {
+    if (_isSyncing ||
+        _syncQueue.isEmpty ||
+        !_connectivityManager.hasConnection) {
       return;
     }
 
@@ -186,9 +188,8 @@ class SyncManager {
       }
 
       await _saveSyncQueue();
-      _statusController.add(
-        _syncQueue.isEmpty ? SyncStatus.completed : SyncStatus.failed
-      );
+      _statusController
+          .add(_syncQueue.isEmpty ? SyncStatus.completed : SyncStatus.failed);
     } catch (e) {
       _statusController.add(SyncStatus.failed);
     } finally {
