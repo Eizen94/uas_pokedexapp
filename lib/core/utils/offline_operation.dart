@@ -16,19 +16,19 @@ import 'sync_manager.dart';
 enum OfflineOperationType {
   /// Add to favorites
   addFavorite,
-  
+
   /// Remove from favorites
   removeFavorite,
-  
+
   /// Add note
   addNote,
-  
+
   /// Update note
   updateNote,
-  
+
   /// Delete note
   deleteNote,
-  
+
   /// Update settings
   updateSettings
 }
@@ -37,13 +37,13 @@ enum OfflineOperationType {
 enum OfflineOperationStatus {
   /// Operation is pending
   pending,
-  
+
   /// Operation is being processed
   processing,
-  
+
   /// Operation completed successfully
   completed,
-  
+
   /// Operation failed
   failed
 }
@@ -52,22 +52,23 @@ enum OfflineOperationStatus {
 class OfflineOperation {
   /// Unique operation ID
   final String id;
-  
+
   /// Operation type
   final OfflineOperationType type;
-  
+
   /// Operation data
   final Map<String, dynamic> data;
-  
+
   /// Creation timestamp
   final DateTime timestamp;
-  
+
   /// Current status
   OfflineOperationStatus status;
-  
+
   /// Error message if failed
   String? error;
 
+  /// Constructor
   OfflineOperation({
     required this.id,
     required this.type,
@@ -79,52 +80,58 @@ class OfflineOperation {
 
   /// Convert to JSON
   Map<String, dynamic> toJson() => {
-    'id': id,
-    'type': type.name,
-    'data': data,
-    'timestamp': timestamp.toIso8601String(),
-    'status': status.name,
-    if (error != null) 'error': error,
-  };
+        'id': id,
+        'type': type.name,
+        'data': data,
+        'timestamp': timestamp.toIso8601String(),
+        'status': status.name,
+        if (error != null) 'error': error,
+      };
 
   /// Create from JSON
-  factory OfflineOperation.fromJson(Map<String, dynamic> json) => OfflineOperation(
-    id: json['id'] as String,
-    type: OfflineOperationType.values.firstWhere(
-      (e) => e.name == json['type'],
-    ),
-    data: json['data'] as Map<String, dynamic>,
-    timestamp: DateTime.parse(json['timestamp'] as String),
-    status: OfflineOperationStatus.values.firstWhere(
-      (e) => e.name == json['status'],
-    ),
-    error: json['error'] as String?,
-  );
+  factory OfflineOperation.fromJson(Map<String, dynamic> json) =>
+      OfflineOperation(
+        id: json['id'] as String,
+        type: OfflineOperationType.values.firstWhere(
+          (e) => e.name == json['type'],
+        ),
+        data: json['data'] as Map<String, dynamic>,
+        timestamp: DateTime.parse(json['timestamp'] as String),
+        status: OfflineOperationStatus.values.firstWhere(
+          (e) => e.name == json['status'],
+        ),
+        error: json['error'] as String?,
+      );
 }
 
 /// Manager class for offline operations
 class OfflineOperationManager {
-  static final OfflineOperationManager _instance = OfflineOperationManager._internal();
-  
+  static final OfflineOperationManager _instance =
+      OfflineOperationManager._internal();
+
   /// Singleton instance
   factory OfflineOperationManager() => _instance;
 
-  OfflineOperationManager._internal();
+  late final ConnectivityManager _connectivityManager;
+  late final SyncManager _syncManager;
+  late final CacheManager _cacheManager;
+  late final MonitoringManager _monitoringManager;
 
-  final ConnectivityManager _connectivityManager = ConnectivityManager();
-  final SyncManager _syncManager = SyncManager();
-  final CacheManager _cacheManager;
-  final MonitoringManager _monitoringManager = MonitoringManager();
-  
-  final BehaviorSubject<List<OfflineOperation>> _operationsController = 
+  OfflineOperationManager._internal() {
+    _connectivityManager = ConnectivityManager();
+    _syncManager = SyncManager();
+    _monitoringManager = MonitoringManager();
+  }
+
+  final BehaviorSubject<List<OfflineOperation>> _operationsController =
       BehaviorSubject<List<OfflineOperation>>.seeded([]);
-  
+
   final List<OfflineOperation> _operations = [];
   static const String _operationsKey = 'offline_operations';
 
   /// Initialize manager
   static Future<OfflineOperationManager> initialize() async {
-    final instance = OfflineOperationManager();
+    final instance = OfflineOperationManager._instance;
     instance._cacheManager = await CacheManager.initialize();
     await instance._loadOperations();
     instance._setupConnectivityListener();
@@ -132,7 +139,7 @@ class OfflineOperationManager {
   }
 
   /// Stream of offline operations
-  Stream<List<OfflineOperation>> get operationsStream => 
+  Stream<List<OfflineOperation>> get operationsStream =>
       _operationsController.stream;
 
   /// Add new offline operation
@@ -168,12 +175,12 @@ class OfflineOperationManager {
         _updateOperations();
 
         await _processOperation(operation);
-        
+
         operation.status = OfflineOperationStatus.completed;
       } catch (e) {
         operation.status = OfflineOperationStatus.failed;
         operation.error = e.toString();
-        
+
         _monitoringManager.logError(
           'Failed to process offline operation',
           error: e,
@@ -183,7 +190,7 @@ class OfflineOperationManager {
           },
         );
       }
-      
+
       _updateOperations();
       await _saveOperations();
     }
@@ -199,7 +206,7 @@ class OfflineOperationManager {
           data: operation.data,
         );
         break;
-        
+
       case OfflineOperationType.addNote:
       case OfflineOperationType.updateNote:
       case OfflineOperationType.deleteNote:
@@ -208,7 +215,7 @@ class OfflineOperationManager {
           data: operation.data,
         );
         break;
-        
+
       case OfflineOperationType.updateSettings:
         await _syncManager.addToSyncQueue(
           operation: operation.type.name,
@@ -223,9 +230,8 @@ class OfflineOperationManager {
     final data = await _cacheManager.get<List<dynamic>>(_operationsKey);
     if (data != null) {
       _operations.clear();
-      _operations.addAll(
-        data.map((item) => OfflineOperation.fromJson(item as Map<String, dynamic>))
-      );
+      _operations.addAll(data.map(
+          (item) => OfflineOperation.fromJson(item as Map<String, dynamic>)));
       _updateOperations();
     }
   }
@@ -248,7 +254,7 @@ class OfflineOperationManager {
   }
 
   /// Generate unique operation ID
-  String _generateOperationId() => 
+  String _generateOperationId() =>
       '${DateTime.now().millisecondsSinceEpoch}_${_operations.length}';
 
   /// Update operations stream
@@ -260,7 +266,8 @@ class OfflineOperationManager {
 
   /// Clear completed operations
   Future<void> clearCompletedOperations() async {
-    _operations.removeWhere((op) => op.status == OfflineOperationStatus.completed);
+    _operations
+        .removeWhere((op) => op.status == OfflineOperationStatus.completed);
     await _saveOperations();
     _updateOperations();
   }

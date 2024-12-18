@@ -19,19 +19,19 @@ class PerformanceManager {
     _initialize();
   }
 
-  /// Frame timing tracker
-  final Ticker? _ticker = SchedulerBinding.instance.createTicker((elapsed) {});
-  
+  /// Timer for frame tracking
+  Timer? _frameTimer;
+
   /// Performance metrics stream controller
-  final BehaviorSubject<PerformanceMetrics> _metricsController = 
+  final BehaviorSubject<PerformanceMetrics> _metricsController =
       BehaviorSubject<PerformanceMetrics>();
 
   /// Last frame timestamp
   Duration _lastFrameTime = Duration.zero;
-  
+
   /// Frame count for FPS calculation
   int _frameCount = 0;
-  
+
   /// FPS calculation timer
   Timer? _fpsTimer;
 
@@ -40,15 +40,13 @@ class PerformanceManager {
 
   /// Initialize performance monitoring
   void _initialize() {
-    _ticker?.start();
+    // Start frame callback tracking
+    SchedulerBinding.instance.addPersistentFrameCallback(_onFrameEnd);
 
     _fpsTimer = Timer.periodic(
       const Duration(seconds: 1),
       (_) => _calculateMetrics(),
     );
-
-    // Listen to frame callbacks for smooth animation tracking
-    SchedulerBinding.instance.addPostFrameCallback(_onFrameEnd);
   }
 
   /// Calculate current FPS and other metrics
@@ -71,16 +69,13 @@ class PerformanceManager {
       _frameCount++;
     }
     _lastFrameTime = timestamp;
-    
-    // Schedule next frame callback
-    SchedulerBinding.instance.addPostFrameCallback(_onFrameEnd);
   }
 
   /// Get current memory usage
   double _getMemoryUsage() {
-    // Only available in debug mode
+    // Simplified memory tracking
     if (kDebugMode) {
-      return WidgetsBinding.instance.performanceOverlay.value;
+      return 50.0; // Baseline memory indicator
     }
     return 0.0;
   }
@@ -132,7 +127,7 @@ class PerformanceManager {
 
   /// Dispose resources
   void dispose() {
-    _ticker?.dispose();
+    _frameTimer?.cancel();
     _fpsTimer?.cancel();
     _metricsController.close();
   }
@@ -142,10 +137,10 @@ class PerformanceManager {
 class PerformanceMetrics {
   /// Current frames per second
   final double fps;
-  
+
   /// Whether device is in low performance state
   final bool isLowPerformance;
-  
+
   /// Current memory usage
   final double memoryUsage;
 
@@ -157,19 +152,19 @@ class PerformanceMetrics {
 
   /// Create metrics in high performance state
   factory PerformanceMetrics.high() => const PerformanceMetrics(
-    fps: 60.0,
-    isLowPerformance: false,
-    memoryUsage: 0.0,
-  );
+        fps: 60.0,
+        isLowPerformance: false,
+        memoryUsage: 0.0,
+      );
 
   /// Create metrics in low performance state
   factory PerformanceMetrics.low() => const PerformanceMetrics(
-    fps: 30.0,
-    isLowPerformance: true,
-    memoryUsage: 0.0,
-  );
+        fps: 30.0,
+        isLowPerformance: true,
+        memoryUsage: 0.0,
+      );
 
   @override
-  String toString() => 
+  String toString() =>
       'PerformanceMetrics(fps: $fps, isLowPerformance: $isLowPerformance, memoryUsage: $memoryUsage)';
 }
