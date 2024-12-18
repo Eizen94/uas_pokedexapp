@@ -7,7 +7,6 @@ library;
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
-import 'package:flutter/rendering.dart';
 import 'package:rxdart/subjects.dart';
 
 /// Log level for monitoring
@@ -177,20 +176,16 @@ class MonitoringManager {
   /// Collect current metrics
   void _collectMetrics() {
     // Frame time
-    final frameTime =
-        WidgetsBinding.instance.currentFrameTimeStamp.inMilliseconds.toDouble();
+    final binding = WidgetsBinding.instance;
+    final frameTime = binding.currentFrameTimeStamp.inMilliseconds.toDouble();
     logPerformanceMetric(type: MetricType.frameTime, value: frameTime);
 
     // Memory metrics (debug only)
     if (kDebugMode) {
       try {
-        // Get frame build time as a performance indicator
-        final lastFrame =
-            WidgetsBinding.instance.renderView.lastPerformanceFrameTime;
-        if (lastFrame != null) {
-          final memoryValue = lastFrame.inMicroseconds / 1000.0;
-          logPerformanceMetric(type: MetricType.memory, value: memoryValue);
-        }
+        final performanceOverlay = binding.performanceOverlay.value;
+        logPerformanceMetric(
+            type: MetricType.memory, value: performanceOverlay);
       } catch (e) {
         logError('Error collecting memory metrics', error: e);
       }
