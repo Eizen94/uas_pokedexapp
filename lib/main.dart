@@ -7,6 +7,7 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'dart:async';
 import 'app.dart';
 import 'core/config/firebase_config.dart';
 import 'core/utils/monitoring_manager.dart';
