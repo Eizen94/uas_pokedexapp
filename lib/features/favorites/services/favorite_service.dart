@@ -25,18 +25,15 @@ class FavoriteServiceError {
 
 /// Service class for managing favorites
 class FavoriteService {
-  final FirebaseConfig _firebaseConfig;
   final ConnectivityManager _connectivityManager;
   final MonitoringManager _monitoringManager;
   final OfflineOperationManager _offlineManager;
 
   FavoriteService._({
-    required FirebaseConfig firebaseConfig,
     required ConnectivityManager connectivityManager,
     required MonitoringManager monitoringManager,
     required OfflineOperationManager offlineManager,
-  })  : _firebaseConfig = firebaseConfig,
-        _connectivityManager = connectivityManager,
+  })  : _connectivityManager = connectivityManager,
         _monitoringManager = monitoringManager,
         _offlineManager = offlineManager;
 
@@ -44,7 +41,6 @@ class FavoriteService {
     final offlineManager = await OfflineOperationManager.initialize();
 
     return FavoriteService._(
-      firebaseConfig: FirebaseConfig(),
       connectivityManager: ConnectivityManager(),
       monitoringManager: MonitoringManager(),
       offlineManager: offlineManager,
