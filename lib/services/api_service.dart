@@ -20,10 +20,16 @@ import '../features/pokemon/models/pokemon_move_model.dart';
 
 /// Pokemon API service errors
 class ApiServiceError implements Exception {
+  /// Error message
   final String message;
+
+  /// HTTP status code if applicable
   final int? statusCode;
+
+  /// API endpoint that caused error
   final String? endpoint;
 
+  /// Constructor
   const ApiServiceError({
     required this.message,
     this.statusCode,
@@ -50,8 +56,7 @@ class ApiService {
   bool _isInitialized = false;
   final _client = http.Client();
 
-  // Cache configuration
-  static const Duration _cacheExpiration = Duration(hours: 24);
+  // Configuration
   static const Duration _defaultTimeout = Duration(seconds: 30);
   static const int _maxRetries = 3;
 
@@ -81,12 +86,23 @@ class ApiService {
     int limit = 20,
     bool forceRefresh = false,
   }) async {
+    _checkInitialization();
     final cacheKey = CacheKeys.pokemonList(limit, offset);
 
     try {
-      // Check cache first
+      if (!_connectivity.hasConnection && !forceRefresh) {
+        final cached = await _getFromCache<List<dynamic>>(cacheKey);
+        if (cached != null) {
+          return cached
+              .map(
+                  (json) => PokemonModel.fromJson(json as Map<String, dynamic>))
+              .toList();
+        }
+        throw const ApiServiceError(message: 'No internet connection');
+      }
+
       if (!forceRefresh) {
-        final cached = await _cache.get<List<dynamic>>(cacheKey);
+        final cached = await _getFromCache<List<dynamic>>(cacheKey);
         if (cached != null) {
           return cached
               .map(
@@ -95,24 +111,17 @@ class ApiService {
         }
       }
 
-      // Fetch from API
-      final response = await _get(
-        ApiPaths.pokemonList(limit, offset),
-      );
-
+      final response = await _get(ApiPaths.pokemonList(limit, offset));
       final results = response['results'] as List<dynamic>;
       final List<PokemonModel> pokemonList = [];
 
-      // Fetch details for each Pokemon
       for (final pokemon in results) {
         final url = pokemon['url'] as String;
         final detailResponse = await _get(url);
         pokemonList.add(_mapPokemonResponse(detailResponse));
       }
 
-      // Cache results
-      await _cache.put(cacheKey, pokemonList.map((p) => p.toJson()).toList());
-
+      await _saveToCache(cacheKey, pokemonList.map((p) => p.toJson()).toList());
       return pokemonList;
     } catch (e) {
       _monitoring.logError(
@@ -129,37 +138,37 @@ class ApiService {
     int id, {
     bool forceRefresh = false,
   }) async {
+    _checkInitialization();
     final cacheKey = CacheKeys.pokemonDetails(id);
 
     try {
-      // Check cache first
+      if (!_connectivity.hasConnection && !forceRefresh) {
+        final cached = await _getFromCache<Map<String, dynamic>>(cacheKey);
+        if (cached != null) {
+          return PokemonDetailModel.fromJson(cached);
+        }
+        throw const ApiServiceError(message: 'No internet connection');
+      }
+
       if (!forceRefresh) {
-        final cached = await _cache.get<Map<String, dynamic>>(cacheKey);
+        final cached = await _getFromCache<Map<String, dynamic>>(cacheKey);
         if (cached != null) {
           return PokemonDetailModel.fromJson(cached);
         }
       }
 
-      // Get basic Pokemon data
       final pokemonData = await _get(ApiPaths.pokemonDetails(id));
-
-      // Get species data
       final speciesData = await _get(ApiPaths.pokemonSpecies(id));
-
-      // Get evolution chain data
       final evolutionChainUrl = speciesData['evolution_chain']['url'] as String;
       final evolutionData = await _get(evolutionChainUrl);
 
-      // Build complete Pokemon detail
-      final detailModel = await _mapPokemonDetailResponse(
+      final detailModel = await _buildPokemonDetail(
         pokemonData: pokemonData,
         speciesData: speciesData,
         evolutionData: evolutionData,
       );
 
-      // Cache result
-      await _cache.put(cacheKey, detailModel.toJson());
-
+      await _saveToCache(cacheKey, detailModel.toJson());
       return detailModel;
     } catch (e) {
       _monitoring.logError(
@@ -171,40 +180,26 @@ class ApiService {
     }
   }
 
-  /// Get move details
-  Future<PokemonMoveDetail> getMoveDetail(
-    String moveId, {
-    bool forceRefresh = false,
-  }) async {
-    final cacheKey = 'move_$moveId';
-
+  /// Get cached data
+  Future<T?> _getFromCache<T>(String key) async {
     try {
-      // Check cache first
-      if (!forceRefresh) {
-        final cached = await _cache.get<Map<String, dynamic>>(cacheKey);
-        if (cached != null) {
-          return PokemonMoveDetail.fromJson(cached);
-        }
-      }
-
-      final response = await _get('${ApiBaseUrls.pokeApi}/move/$moveId');
-      final moveDetail = _mapMoveDetailResponse(response);
-
-      // Cache result
-      await _cache.put(cacheKey, moveDetail.toJson());
-
-      return moveDetail;
+      return await _cache.get<T>(key);
     } catch (e) {
-      _monitoring.logError(
-        'Failed to fetch move detail',
-        error: e,
-        additionalData: {'moveId': moveId},
-      );
-      rethrow;
+      _monitoring.logError('Cache read error', error: e);
+      return null;
     }
   }
 
-  /// Base GET request with retry logic
+  /// Save data to cache
+  Future<void> _saveToCache<T>(String key, T data) async {
+    try {
+      await _cache.put(key, data);
+    } catch (e) {
+      _monitoring.logError('Cache write error', error: e);
+    }
+  }
+
+  /// Execute GET request with retry logic
   Future<Map<String, dynamic>> _get(
     String endpoint, {
     Duration timeout = _defaultTimeout,
@@ -217,9 +212,9 @@ class ApiService {
         return json.decode(response.body) as Map<String, dynamic>;
       }
 
-      // Handle rate limiting
       if (response.statusCode == 429 && retryCount < _maxRetries) {
-        await Future.delayed(Duration(seconds: pow(2, retryCount).toInt()));
+        final delay = math.pow(2, retryCount).toInt();
+        await Future.delayed(Duration(seconds: delay));
         return _get(endpoint, retryCount: retryCount + 1);
       }
 
@@ -255,7 +250,7 @@ class ApiService {
     );
   }
 
-  /// Map Pokemon stats response
+  /// Map Pokemon stats from API response
   PokemonStats _mapPokemonStats(List<dynamic> stats) {
     int getStat(String name) {
       return stats.firstWhere(
@@ -275,27 +270,18 @@ class ApiService {
     );
   }
 
-  /// Map Pokemon detail response
-  Future<PokemonDetailModel> _mapPokemonDetailResponse({
+  /// Build complete Pokemon detail model
+  Future<PokemonDetailModel> _buildPokemonDetail({
     required Map<String, dynamic> pokemonData,
     required Map<String, dynamic> speciesData,
     required Map<String, dynamic> evolutionData,
   }) async {
-    // Map basic Pokemon data
     final basicPokemon = _mapPokemonResponse(pokemonData);
-
-    // Map abilities
-    final abilities = await _mapAbilities(
-      pokemonData['abilities'] as List<dynamic>,
-    );
-
-    // Map moves
+    final abilities =
+        await _mapAbilities(pokemonData['abilities'] as List<dynamic>);
     final moves = await _mapMoves(pokemonData['moves'] as List<dynamic>);
-
-    // Map evolution chain
     final evolutionChain = await _mapEvolutionChain(
-      evolutionData['chain'] as Map<String, dynamic>,
-    );
+        evolutionData['chain'] as Map<String, dynamic>);
 
     return PokemonDetailModel(
       id: basicPokemon.id,
@@ -325,133 +311,6 @@ class ApiService {
     );
   }
 
-  /// Map move detail response
-  PokemonMoveDetail _mapMoveDetailResponse(Map<String, dynamic> data) {
-    return PokemonMoveDetail(
-      id: data['id'] as int,
-      name: data['name'] as String,
-      type: data['type']['name'] as String,
-      category: _mapMoveCategory(data['damage_class']['name'] as String),
-      power: data['power'] as int?,
-      accuracy: data['accuracy'] as int?,
-      pp: data['pp'] as int,
-      priority: data['priority'] as int,
-      effect: _getEnglishMoveEffect(data['effect_entries'] as List<dynamic>),
-      shortEffect:
-          _getEnglishMoveShortEffect(data['effect_entries'] as List<dynamic>),
-      effectChance: data['effect_chance'] as int?,
-      target: data['target']['name'] as String,
-      critRate: data['meta']?['crit_rate'] as int? ?? 0,
-      drainPercentage: data['meta']?['drain'] as int?,
-      healPercentage: data['meta']?['healing'] as int?,
-      maxHits: data['meta']?['max_hits'] as int?,
-      minHits: data['meta']?['min_hits'] as int?,
-      maxTurns: data['meta']?['max_turns'] as int?,
-      minTurns: data['meta']?['min_turns'] as int?,
-      statChanges: _mapStatChanges(data['stat_changes'] as List<dynamic>),
-      flags: _mapMoveFlags(data['flags'] as Map<String, dynamic>),
-    );
-  }
-
-  /// Map move category
-  MoveCategory _mapMoveCategory(String category) {
-    switch (category) {
-      case 'physical':
-        return MoveCategory.physical;
-      case 'special':
-        return MoveCategory.special;
-      case 'status':
-        return MoveCategory.status;
-      default:
-        return MoveCategory.status;
-    }
-  }
-
-  /// Map stat changes
-  List<MoveStatChange> _mapStatChanges(List<dynamic> changes) {
-    return changes
-        .map((change) => MoveStatChange(
-              stat: change['stat']['name'] as String,
-              change: change['change'] as int,
-            ))
-        .toList();
-  }
-
-  /// Map move flags
-  List<MoveFlag> _mapMoveFlags(Map<String, dynamic> flags) {
-    return flags.entries
-        .where((e) => e.value == true)
-        .map((e) => MoveFlag(
-              name: e.key,
-              description: _getFlagDescription(e.key),
-            ))
-        .toList();
-  }
-
-  /// Get English move effect
-  String _getEnglishMoveEffect(List<dynamic> effects) {
-    return effects.firstWhere(
-      (e) => e['language']['name'] == 'en',
-      orElse: () => {'effect': 'No description available.'},
-    )['effect'] as String;
-  }
-
-  /// Get English move short effect
-  String _getEnglishMoveShortEffect(List<dynamic> effects) {
-    return effects.firstWhere(
-      (e) => e['language']['name'] == 'en',
-      orElse: () => {'short_effect': 'No description available.'},
-    )['short_effect'] as String;
-  }
-
-  /// Get English description
-  String _getEnglishDescription(List<dynamic> entries) {
-    final entry = entries.firstWhere(
-      (e) => e['language']['name'] == 'en',
-      orElse: () => {'flavor_text': 'No description available.'},
-    );
-    return (entry['flavor_text'] as String)
-        .replaceAll('\n', ' ')
-        .replaceAll('\f', ' ')
-        .trim();
-  }
-
-  /// Get move flag description
-  String _getFlagDescription(String flag) {
-    switch (flag) {
-      case 'contact':
-        return 'Makes contact with the target';
-      case 'charge':
-        return 'Requires charging turn';
-      case 'recharge':
-        return 'Requires recharge turn';
-      case 'protect':
-        return 'Can be blocked by Protect';
-      case 'reflectable':
-        return 'Can be reflected by Magic Coat';
-      case 'snatch':
-        return 'Can be stolen by Snatch';
-      case 'mirror':
-        return 'Can be reflected by Mirror Move';
-      case 'punch':
-        return 'Punch-based move';
-      case 'sound':
-        return 'Sound-based move';
-      case 'gravity':
-        return 'Disabled by Gravity';
-      case 'defrost':
-        return 'Can defrost frozen Pokemon';
-      case 'distance':
-        return 'Can target any Pokemon in Triple Battles';
-      case 'heal':
-        return 'Blocked by Heal Block';
-      case 'authentic':
-        return 'Ignores a target\'s substitute';
-      default:
-        return 'No description available';
-    }
-  }
-
   /// Map abilities with details
   Future<List<PokemonAbility>> _mapAbilities(List<dynamic> abilities) async {
     final mappedAbilities = <PokemonAbility>[];
@@ -459,10 +318,12 @@ class ApiService {
     for (final ability in abilities) {
       final abilityUrl = ability['ability']['url'] as String;
       final abilityData = await _get(abilityUrl);
+      final effectEntries = abilityData['effect_entries'] as List<dynamic>;
 
-      final description = _getEnglishAbilityEffect(
-        abilityData['effect_entries'] as List<dynamic>,
-      );
+      final description = effectEntries.firstWhere(
+        (entry) => entry['language']['name'] == 'en',
+        orElse: () => {'effect': 'No description available.'},
+      )['effect'] as String;
 
       mappedAbilities.add(PokemonAbility(
         name: ability['ability']['name'] as String,
@@ -474,18 +335,36 @@ class ApiService {
     return mappedAbilities;
   }
 
-  /// Get English ability effect
-  String _getEnglishAbilityEffect(List<dynamic> effects) {
-    return effects.firstWhere(
-      (e) => e['language']['name'] == 'en',
-      orElse: () => {'effect': 'No description available.'},
-    )['effect'] as String;
+  /// Map moves with details
+  Future<List<PokemonMove>> _mapMoves(List<dynamic> moves) async {
+    final mappedMoves = <PokemonMove>[];
+
+    for (final move in moves) {
+      final moveUrl = move['move']['url'] as String;
+      final moveData = await _get(moveUrl);
+      final effectEntries = moveData['effect_entries'] as List<dynamic>;
+
+      final description = effectEntries.firstWhere(
+        (entry) => entry['language']['name'] == 'en',
+        orElse: () => {'effect': 'No description available.'},
+      )['effect'] as String;
+
+      mappedMoves.add(PokemonMove(
+        name: moveData['name'] as String,
+        type: moveData['type']['name'] as String,
+        power: moveData['power'] as int?,
+        accuracy: moveData['accuracy'] as int?,
+        pp: moveData['pp'] as int? ?? 0,
+        description: description,
+      ));
+    }
+
+    return mappedMoves;
   }
 
   /// Map evolution chain
   Future<List<EvolutionStage>> _mapEvolutionChain(
-    Map<String, dynamic> chain,
-  ) async {
+      Map<String, dynamic> chain) async {
     final stages = <EvolutionStage>[];
 
     Future<void> processChain(Map<String, dynamic> currentChain) async {
@@ -502,7 +381,8 @@ class ApiService {
               ['front_default'] as String? ??
           pokemonData['sprites']['front_default'] as String;
 
-      final firstEvolution = details.isNotEmpty ? details[0] : null;
+      final firstEvolution =
+          details.isNotEmpty ? details[0] as Map<String, dynamic> : null;
 
       stages.add(EvolutionStage(
         pokemonId: pokemonId,
@@ -522,49 +402,34 @@ class ApiService {
     return stages;
   }
 
-  /// Map moves with basic info
-  Future<List<PokemonMove>> _mapMoves(List<dynamic> moves) async {
-    final mappedMoves = <PokemonMove>[];
-
-    for (final move in moves) {
-      final moveUrl = move['move']['url'] as String;
-      final moveData = await _get(moveUrl);
-
-      mappedMoves.add(PokemonMove(
-        name: moveData['name'] as String,
-        type: moveData['type']['name'] as String,
-        power: moveData['power'] as int?,
-        accuracy: moveData['accuracy'] as int?,
-        pp: moveData['pp'] as int,
-        description: _getEnglishMoveEffect(
-          moveData['effect_entries'] as List<dynamic>,
-        ),
-      ));
-    }
-
-    return mappedMoves;
+  /// Get English description from flavor text entries
+  String _getEnglishDescription(List<dynamic> entries) {
+    final entry = entries.firstWhere(
+      (entry) => entry['language']['name'] == 'en',
+      orElse: () => {'flavor_text': 'No description available.'},
+    );
+    return ((entry['flavor_text'] as String?) ?? 'No description available.')
+        .replaceAll('\n', ' ')
+        .replaceAll('\f', ' ')
+        .trim();
   }
 
-  /// Clear cache
+  /// Check if service is initialized
+  void _checkInitialization() {
+    if (!_isInitialized) {
+      throw const ApiServiceError(message: 'API Service not initialized');
+    }
+  }
+
+  /// Clear all cached data
   Future<void> clearCache() => _cache.clear();
 
-  /// Dispose resources
+  /// Clean up resources
   void dispose() {
     _client.close();
+    _isInitialized = false;
     if (kDebugMode) {
       print('🧹 API Service disposed');
-    }
-  }
-
-  /// Helper method to check API status
-  Future<bool> checkApiStatus() async {
-    try {
-      final response = await _client
-          .get(Uri.parse(ApiBaseUrls.pokeApi))
-          .timeout(_defaultTimeout);
-      return response.statusCode == 200;
-    } catch (_) {
-      return false;
     }
   }
 }
