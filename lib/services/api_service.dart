@@ -234,14 +234,10 @@ class ApiService {
     }
   }
 
-  /// Save data to cache with expiration
+  /// Save data to cache
   Future<void> _saveToCache<T>(String key, T data) async {
     try {
-      await _cache.put(
-        key,
-        data,
-        expiration: _cacheExpiration,
-      );
+      await _cache.put(key, data);
       _monitoring.logPerformanceMetric(
         type: MetricType.cache,
         value: 1.0,
