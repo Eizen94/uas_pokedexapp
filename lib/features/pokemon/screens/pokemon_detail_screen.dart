@@ -48,6 +48,50 @@ class _PokemonDetailScreenState extends State<PokemonDetailScreen>
   String? _errorMessage;
   bool _isFavorite = false;
 
+  /// Color getter for Pokemon type
+  Color _getTypeColor(String type) {
+    switch (type.toLowerCase()) {
+      case 'bug':
+        return PokemonTypeColors.bug;
+      case 'dark':
+        return PokemonTypeColors.dark;
+      case 'dragon':
+        return PokemonTypeColors.dragon;
+      case 'electric':
+        return PokemonTypeColors.electric;
+      case 'fairy':
+        return PokemonTypeColors.fairy;
+      case 'fighting':
+        return PokemonTypeColors.fighting;
+      case 'fire':
+        return PokemonTypeColors.fire;
+      case 'flying':
+        return PokemonTypeColors.flying;
+      case 'ghost':
+        return PokemonTypeColors.ghost;
+      case 'grass':
+        return PokemonTypeColors.grass;
+      case 'ground':
+        return PokemonTypeColors.ground;
+      case 'ice':
+        return PokemonTypeColors.ice;
+      case 'normal':
+        return PokemonTypeColors.normal;
+      case 'poison':
+        return PokemonTypeColors.poison;
+      case 'psychic':
+        return PokemonTypeColors.psychic;
+      case 'rock':
+        return PokemonTypeColors.rock;
+      case 'steel':
+        return PokemonTypeColors.steel;
+      case 'water':
+        return PokemonTypeColors.water;
+      default:
+        return PokemonTypeColors.normal;
+    }
+  }
+
   @override
   void initState() {
     super.initState();
