@@ -9,6 +9,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:rxdart/subjects.dart';
 
+import 'performance_utils.dart';
+
 /// Log level for monitoring
 enum LogLevel {
   /// Debug level logs
@@ -175,15 +177,19 @@ class MonitoringManager {
 
   /// Collect current metrics
   void _collectMetrics() {
-    // Frame time using utility
+    if (!PerformanceUtils.isAvailable) return;
+
+    // Frame time metrics
     final frameTime = PerformanceUtils.getCurrentFrameTime();
     logPerformanceMetric(type: MetricType.frameTime, value: frameTime);
 
-    // Memory metrics (debug only)
-    if (kDebugMode) {
-      final memoryUsage = PerformanceUtils.getApproximateMemoryUsage();
-      logPerformanceMetric(type: MetricType.memory, value: memoryUsage);
-    }
+    // Memory metrics
+    final memoryUsage = PerformanceUtils.getMemoryUsage();
+    logPerformanceMetric(
+      type: MetricType.memory,
+      value: memoryUsage,
+      additionalData: {'debugMode': kDebugMode},
+    );
   }
 
   /// Get filtered logs
@@ -230,6 +236,7 @@ class LogEntry {
   /// Additional data
   final Map<String, dynamic> data;
 
+  /// Constructor
   const LogEntry({
     required this.level,
     required this.message,
