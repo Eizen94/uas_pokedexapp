@@ -6,6 +6,7 @@ library;
 
 import 'dart:async';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:rxdart/subjects.dart';
 
 import '../../../core/config/firebase_config.dart';
@@ -25,21 +26,32 @@ class AuthError {
 
 /// Authentication service class
 class AuthService {
-  final FirebaseAuth _auth;
-  final FirebaseConfig _firebaseConfig;
-  final MonitoringManager _monitoringManager;
+  static final AuthService _instance = AuthService._internal();
 
-  final BehaviorSubject<bool> _isInitializedController =
-      BehaviorSubject<bool>.seeded(false);
-
-  /// Constructor
-  const AuthService({
+  /// Singleton instance
+  factory AuthService({
     FirebaseAuth? auth,
     FirebaseConfig? firebaseConfig,
     MonitoringManager? monitoringManager,
-  })  : _auth = auth ?? FirebaseAuth.instance,
-        _firebaseConfig = firebaseConfig ?? FirebaseConfig(),
-        _monitoringManager = monitoringManager ?? MonitoringManager();
+  }) {
+    if (_instance._isInitialized) return _instance;
+
+    _instance._auth = auth ?? FirebaseAuth.instance;
+    _instance._firebaseConfig = firebaseConfig ?? FirebaseConfig();
+    _instance._monitoringManager = monitoringManager ?? MonitoringManager();
+
+    return _instance;
+  }
+
+  AuthService._internal();
+
+  late final FirebaseAuth _auth;
+  late final FirebaseConfig _firebaseConfig;
+  late final MonitoringManager _monitoringManager;
+
+  final BehaviorSubject<bool> _isInitializedController =
+      BehaviorSubject<bool>.seeded(false);
+  bool _isInitialized = false;
 
   /// Stream of initialization state
   Stream<bool> get isInitializedStream => _isInitializedController.stream;
@@ -53,6 +65,26 @@ class AuthService {
   UserModel? get currentUser {
     final user = _auth.currentUser;
     return user != null ? UserModel.fromFirebaseUser(user) : null;
+  }
+
+  /// Initialize service
+  Future<void> initialize() async {
+    if (_isInitialized) return;
+
+    try {
+      await _firebaseConfig.initialize();
+      _isInitialized = true;
+      _isInitializedController.add(true);
+
+      if (kDebugMode) {
+        print('✅ Auth service initialized');
+      }
+    } catch (e) {
+      _monitoringManager.logError('Auth service initialization failed',
+          error: e);
+      _isInitializedController.add(false);
+      throw AuthError.unknownError;
+    }
   }
 
   /// Sign in with email and password
@@ -209,21 +241,9 @@ class AuthService {
     }
   }
 
-  /// Initialize service
-  Future<void> initialize() async {
-    try {
-      await _firebaseConfig.initialize();
-      _isInitializedController.add(true);
-    } catch (e) {
-      _monitoringManager.logError('Auth service initialization failed',
-          error: e);
-      _isInitializedController.add(false);
-      throw AuthError.unknownError;
-    }
-  }
-
   /// Dispose resources
   void dispose() {
     _isInitializedController.close();
+    _isInitialized = false;
   }
 }
