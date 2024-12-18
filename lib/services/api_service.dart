@@ -16,7 +16,6 @@ import '../core/utils/connectivity_manager.dart';
 import '../core/utils/cache_manager.dart';
 import '../features/pokemon/models/pokemon_model.dart';
 import '../features/pokemon/models/pokemon_detail_model.dart';
-import '../features/pokemon/models/pokemon_move_model.dart';
 
 /// Pokemon API service errors
 class ApiServiceError implements Exception {

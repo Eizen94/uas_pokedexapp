@@ -30,7 +30,7 @@ class PerformanceUtils {
 
     try {
       final binding = WidgetsBinding.instance;
-      if (!binding.renderViewElement!.dirty) {
+      if (!binding.rootElement!.dirty) {
         // If view is clean, return lower baseline
         return 25.0;
       }
@@ -46,7 +46,7 @@ class PerformanceUtils {
   static bool get isAvailable {
     if (!kDebugMode) return false;
     try {
-      return WidgetsBinding.instance.renderViewElement != null;
+      return WidgetsBinding.instance.rootElement != null;
     } catch (_) {
       return false;
     }
