@@ -48,7 +48,6 @@ class FirebaseService {
   // Core dependencies
   late final FirebaseConfig _config;
   late final MonitoringManager _monitoring;
-  late final ConnectivityManager _connectivity;
 
   // Firebase instances
   late final FirebaseAuth _auth;

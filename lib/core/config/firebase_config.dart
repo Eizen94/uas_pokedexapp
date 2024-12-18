@@ -18,9 +18,6 @@ class FirebaseConfig {
 
   FirebaseConfig._internal();
 
-  /// Firebase application instance
-  late final FirebaseApp _app;
-
   /// Firebase Auth instance
   late final FirebaseAuth _auth;
 
@@ -30,7 +27,7 @@ class FirebaseConfig {
   /// Initialize Firebase
   Future<void> initialize() async {
     try {
-      _app = await Firebase.initializeApp(
+      await Firebase.initializeApp(
         options: _getFirebaseOptions(),
       );
 
