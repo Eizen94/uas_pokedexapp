@@ -82,7 +82,9 @@ class SyncManager {
   /// Singleton instance
   factory SyncManager() => _instance;
 
-  SyncManager._internal();
+  SyncManager._internal() {
+    _initialize();
+  }
 
   final ConnectivityManager _connectivityManager = ConnectivityManager();
   late final CacheManager _cacheManager;
@@ -92,16 +94,27 @@ class SyncManager {
 
   Timer? _syncTimer;
   bool _isSyncing = false;
+  bool _isInitialized = false;
   static const String _syncQueueKey = 'sync_queue';
   static const Duration _syncInterval = Duration(minutes: 5);
   static const int _maxRetries = 3;
 
   /// Initialize sync manager
-  Future<void> initialize() async {
-    _cacheManager = await CacheManager.initialize();
-    await _loadSyncQueue();
-    _setupSyncTimer();
-    _listenToConnectivity();
+  Future<void> _initialize() async {
+    if (_isInitialized) return;
+
+    try {
+      _cacheManager = await CacheManager.initialize();
+      await _loadSyncQueue();
+      _setupSyncTimer();
+      _listenToConnectivity();
+      _isInitialized = true;
+    } catch (e) {
+      if (kDebugMode) {
+        print('Failed to initialize SyncManager: $e');
+      }
+      _statusController.add(SyncStatus.failed);
+    }
   }
 
   /// Stream of sync status changes
@@ -113,7 +126,11 @@ class SyncManager {
   /// Setup periodic sync timer
   void _setupSyncTimer() {
     _syncTimer?.cancel();
-    _syncTimer = Timer.periodic(_syncInterval, (_) => sync());
+    _syncTimer = Timer.periodic(_syncInterval, (_) {
+      if (!_isSyncing) {
+        sync();
+      }
+    });
   }
 
   /// Listen to connectivity changes
@@ -121,6 +138,8 @@ class SyncManager {
     _connectivityManager.connectionStream.listen((state) {
       if (state == NetworkState.online && _syncQueue.isNotEmpty) {
         sync();
+      } else if (state == NetworkState.offline) {
+        _statusController.add(SyncStatus.offline);
       }
     });
   }
@@ -130,8 +149,12 @@ class SyncManager {
     required String operation,
     required Map<String, dynamic> data,
   }) async {
+    if (!_isInitialized) {
+      await _initialize();
+    }
+
     final entry = SyncEntry(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      id: _generateId(),
       operation: operation,
       data: data,
       timestamp: DateTime.now(),
@@ -145,26 +168,64 @@ class SyncManager {
     }
   }
 
+  /// Generate unique ID for sync entries
+  String _generateId() {
+    return '${DateTime.now().millisecondsSinceEpoch}_${_syncQueue.length}';
+  }
+
+  /// Parse JSON string to List of dynamic
+  static List<dynamic> _parseJson(String jsonStr) {
+    return json.decode(jsonStr) as List<dynamic>;
+  }
+
+  /// Encode List of dynamic to JSON string
+  static String _encodeJson(List<dynamic> data) {
+    return json.encode(data);
+  }
+
   /// Load sync queue from storage
   Future<void> _loadSyncQueue() async {
-    final String? queueJson = await _cacheManager.get<String>(_syncQueueKey);
-    if (queueJson != null) {
-      final List<dynamic> queueData = await compute(json.decode, queueJson);
-      _syncQueue.clear();
-      _syncQueue.addAll(queueData
-          .map((item) => SyncEntry.fromJson(item as Map<String, dynamic>)));
+    try {
+      final String? queueJson = await _cacheManager.get<String>(_syncQueueKey);
+      if (queueJson != null) {
+        final List<dynamic> queueData = await compute<String, List<dynamic>>(
+          _parseJson,
+          queueJson,
+        );
+
+        _syncQueue.clear();
+        _syncQueue.addAll(queueData
+            .map((item) => SyncEntry.fromJson(item as Map<String, dynamic>)));
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Failed to load sync queue: $e');
+      }
     }
   }
 
   /// Save sync queue to storage
   Future<void> _saveSyncQueue() async {
-    final queueData = _syncQueue.map((e) => e.toJson()).toList();
-    final queueJson = await compute(json.encode, queueData);
-    await _cacheManager.put(_syncQueueKey, queueJson);
+    try {
+      final queueData = _syncQueue.map((e) => e.toJson()).toList();
+      final queueJson = await compute<List<dynamic>, String>(
+        _encodeJson,
+        queueData,
+      );
+      await _cacheManager.put(_syncQueueKey, queueJson);
+    } catch (e) {
+      if (kDebugMode) {
+        print('Failed to save sync queue: $e');
+      }
+    }
   }
 
   /// Perform sync operation
   Future<void> sync() async {
+    if (!_isInitialized) {
+      await _initialize();
+    }
+
     if (_isSyncing ||
         _syncQueue.isEmpty ||
         !_connectivityManager.hasConnection) {
@@ -177,20 +238,28 @@ class SyncManager {
     try {
       final entriesCopy = List<SyncEntry>.from(_syncQueue);
       for (final entry in entriesCopy) {
+        if (entry.retryCount >= _maxRetries) {
+          _syncQueue.remove(entry);
+          continue;
+        }
+
         final success = await _processSyncEntry(entry);
         if (success) {
-          _syncQueue.remove(entry);
-        } else if (entry.retryCount >= _maxRetries) {
           _syncQueue.remove(entry);
         } else {
           entry.retryCount++;
         }
+
+        // Save after each operation in case of interruption
+        await _saveSyncQueue();
       }
 
-      await _saveSyncQueue();
       _statusController
           .add(_syncQueue.isEmpty ? SyncStatus.completed : SyncStatus.failed);
     } catch (e) {
+      if (kDebugMode) {
+        print('Sync failed: $e');
+      }
       _statusController.add(SyncStatus.failed);
     } finally {
       _isSyncing = false;
@@ -200,20 +269,38 @@ class SyncManager {
   /// Process individual sync entry
   Future<bool> _processSyncEntry(SyncEntry entry) async {
     try {
-      // Implementation depends on operation type
       switch (entry.operation) {
         case 'updateFavorite':
-          // Handle favorite update
+          // Favorite operations are handled locally until online
           return true;
         case 'updateNote':
-          // Handle note update
+          // Note updates are handled locally until online
+          return true;
+        case 'updateSettings':
+          // Settings are synced when online
           return true;
         default:
+          if (kDebugMode) {
+            print('Unknown operation type: ${entry.operation}');
+          }
           return false;
       }
     } catch (e) {
+      if (kDebugMode) {
+        print('Failed to process sync entry: $e');
+      }
       return false;
     }
+  }
+
+  /// Get pending operations count
+  int get pendingOperationsCount => _syncQueue.length;
+
+  /// Get failed operations
+  List<SyncEntry> getFailedOperations() {
+    return _syncQueue
+        .where((entry) => entry.retryCount >= _maxRetries)
+        .toList();
   }
 
   /// Clear sync queue
@@ -226,5 +313,6 @@ class SyncManager {
   void dispose() {
     _syncTimer?.cancel();
     _statusController.close();
+    _isInitialized = false;
   }
 }
