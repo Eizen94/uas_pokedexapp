@@ -1,9 +1,5 @@
 // lib/features/auth/screens/login_screen.dart
 
-/// Login screen for user authentication.
-/// Handles user login and navigation to registration.
-library;
-
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -29,12 +25,9 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _isPasswordVisible = false;
   String? _errorMessage;
 
-  late final AuthService _authService;
-
   @override
   void initState() {
     super.initState();
-    _authService = Provider.of<AuthService>(context, listen: false);
   }
 
   @override
@@ -53,7 +46,8 @@ class _LoginScreenState extends State<LoginScreen> {
     });
 
     try {
-      await _authService.signInWithEmail(
+      final authService = Provider.of<AuthService>(context, listen: false);
+      await authService.signInWithEmail(
         email: _emailController.text.trim(),
         password: _passwordController.text,
       );
@@ -85,15 +79,13 @@ class _LoginScreenState extends State<LoginScreen> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // Logo and Title
-                  Image.asset(
-                    'assets/images/pokemon_logo.png',
-                    height: 100,
-                  ),
-                  const SizedBox(height: 32),
-                  Text(
+                  // Title
+                  const Text(
                     'Welcome Back!',
-                    style: Theme.of(context).textTheme.displayMedium,
+                    style: TextStyle(
+                      fontSize: 32,
+                      fontWeight: FontWeight.bold,
+                    ),
                     textAlign: TextAlign.center,
                   ),
                   const SizedBox(height: 32),
@@ -119,6 +111,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   TextFormField(
                     controller: _emailController,
                     keyboardType: TextInputType.emailAddress,
+                    enabled: !_isLoading,
                     decoration: const InputDecoration(
                       labelText: 'Email',
                       hintText: 'Enter your email',
@@ -133,7 +126,6 @@ class _LoginScreenState extends State<LoginScreen> {
                       }
                       return null;
                     },
-                    enabled: !_isLoading,
                   ),
                   const SizedBox(height: 16),
 
@@ -141,6 +133,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   TextFormField(
                     controller: _passwordController,
                     obscureText: !_isPasswordVisible,
+                    enabled: !_isLoading,
                     decoration: InputDecoration(
                       labelText: 'Password',
                       hintText: 'Enter your password',
@@ -167,7 +160,6 @@ class _LoginScreenState extends State<LoginScreen> {
                       }
                       return null;
                     },
-                    enabled: !_isLoading,
                   ),
                   const SizedBox(height: 24),
 
