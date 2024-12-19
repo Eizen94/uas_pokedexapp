@@ -1,4 +1,4 @@
-// lib/features/auth/screens/login_screen.dart
+// login_screen.dart
 
 /// Login screen for user authentication.
 /// Handles user login and navigation to registration.
