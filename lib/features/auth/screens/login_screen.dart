@@ -1,4 +1,8 @@
-// login_screen.dart
+// lib/features/auth/screens/login_screen.dart
+
+/// Login screen for user authentication.
+/// Handles user login and navigation to registration.
+library;
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -7,7 +11,9 @@ import '../../../core/constants/colors.dart';
 import '../services/auth_service.dart';
 import 'register_screen.dart';
 
+/// Login screen widget
 class LoginScreen extends StatefulWidget {
+  /// Constructor
   const LoginScreen({super.key});
 
   @override
@@ -39,11 +45,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _handleLogin() async {
-    debugPrint('Handle login started');
-    if (!_formKey.currentState!.validate()) {
-      debugPrint('Form validation failed');
-      return;
-    }
+    if (!_formKey.currentState!.validate()) return;
 
     setState(() {
       _isLoading = true;
@@ -55,12 +57,11 @@ class _LoginScreenState extends State<LoginScreen> {
         email: _emailController.text.trim(),
         password: _passwordController.text,
       );
-      debugPrint('Login successful');
+      // Navigation will be handled by auth state changes
     } catch (e) {
       setState(() {
         _errorMessage = e.toString();
       });
-      debugPrint('Login error: $e');
     } finally {
       if (mounted) {
         setState(() {
@@ -84,6 +85,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  // Logo and Title
                   Image.asset(
                     'assets/images/pokemon_logo.png',
                     height: 100,
@@ -95,39 +97,60 @@ class _LoginScreenState extends State<LoginScreen> {
                     textAlign: TextAlign.center,
                   ),
                   const SizedBox(height: 32),
+
+                  // Error Message
                   if (_errorMessage != null) ...[
-                    Text(
-                      _errorMessage!,
-                      style: TextStyle(color: AppColors.error),
-                      textAlign: TextAlign.center,
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: AppColors.error.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        _errorMessage!,
+                        style: TextStyle(color: AppColors.error),
+                        textAlign: TextAlign.center,
+                      ),
                     ),
                     const SizedBox(height: 16),
                   ],
+
+                  // Email Field
                   TextFormField(
                     controller: _emailController,
                     keyboardType: TextInputType.emailAddress,
                     decoration: const InputDecoration(
                       labelText: 'Email',
+                      hintText: 'Enter your email',
                       prefixIcon: Icon(Icons.email_outlined),
                     ),
                     validator: (value) {
                       if (value == null || value.isEmpty) {
                         return 'Please enter your email';
                       }
+                      if (!value.contains('@')) {
+                        return 'Please enter a valid email';
+                      }
                       return null;
                     },
+                    enabled: !_isLoading,
                   ),
                   const SizedBox(height: 16),
+
+                  // Password Field
                   TextFormField(
                     controller: _passwordController,
                     obscureText: !_isPasswordVisible,
                     decoration: InputDecoration(
                       labelText: 'Password',
+                      hintText: 'Enter your password',
                       prefixIcon: const Icon(Icons.lock_outlined),
                       suffixIcon: IconButton(
-                        icon: Icon(_isPasswordVisible
-                            ? Icons.visibility_off
-                            : Icons.visibility),
+                        icon: Icon(
+                          _isPasswordVisible
+                              ? Icons.visibility_off_outlined
+                              : Icons.visibility_outlined,
+                        ),
                         onPressed: () {
                           setState(() {
                             _isPasswordVisible = !_isPasswordVisible;
@@ -139,32 +162,58 @@ class _LoginScreenState extends State<LoginScreen> {
                       if (value == null || value.isEmpty) {
                         return 'Please enter your password';
                       }
+                      if (value.length < 6) {
+                        return 'Password must be at least 6 characters';
+                      }
                       return null;
                     },
+                    enabled: !_isLoading,
                   ),
                   const SizedBox(height: 24),
+
+                  // Login Button
                   ElevatedButton(
+                    onPressed: _isLoading ? null : _handleLogin,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primaryButton,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: _isLoading
+                        ? const SizedBox(
+                            height: 20,
+                            width: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor:
+                                  AlwaysStoppedAnimation<Color>(Colors.white),
+                            ),
+                          )
+                        : const Text(
+                            'Login',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                            ),
+                          ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Register Link
+                  TextButton(
                     onPressed: _isLoading
                         ? null
                         : () {
-                            debugPrint('Login button pressed');
-                            _handleLogin();
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => const RegisterScreen(),
+                              ),
+                            );
                           },
-                    child: _isLoading
-                        ? const CircularProgressIndicator()
-                        : const Text('Login'),
-                  ),
-                  const SizedBox(height: 16),
-                  TextButton(
-                    onPressed: () {
-                      debugPrint('Navigate to Register');
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => const RegisterScreen(),
-                        ),
-                      );
-                    },
                     child: const Text('Don\'t have an account? Register'),
                   ),
                 ],
