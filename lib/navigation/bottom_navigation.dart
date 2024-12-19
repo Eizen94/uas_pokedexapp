@@ -20,7 +20,6 @@ class MainBottomNavigation extends StatefulWidget {
   /// Constructor
   const MainBottomNavigation({
     required this.user,
-    required this.authService,
     super.key,
   });
 
