@@ -34,6 +34,7 @@ class PokemonApp extends StatelessWidget {
           debugShowCheckedModeBanner: false,
           onGenerateRoute: AppRouter.generateRoute,
           builder: (context, child) {
+            // Set system UI overlay style
             SystemChrome.setSystemUIOverlayStyle(
               const SystemUiOverlayStyle(
                 statusBarColor: Colors.transparent,
@@ -42,6 +43,8 @@ class PokemonApp extends StatelessWidget {
                 systemNavigationBarIconBrightness: Brightness.dark,
               ),
             );
+
+            // Return the child widget or a fallback widget
             return child ?? const SizedBox.shrink();
           },
           home: const _AuthenticationHandler(),
@@ -60,11 +63,15 @@ class _AuthenticationHandler extends StatelessWidget {
   Widget build(BuildContext context) {
     return Consumer<UserModel?>(
       builder: (context, user, _) {
+        // Show login screen if user is not authenticated
         if (user == null) {
           debugPrint('User not authenticated. Showing LoginScreen.');
           return const LoginScreen();
         }
-        debugPrint('User authenticated. Showing MainBottomNavigation.');
+
+        // Show main navigation for authenticated users
+        debugPrint(
+            'User authenticated: ${user.displayName}. Showing MainBottomNavigation.');
         return MainBottomNavigation(user: user);
       },
     );
