@@ -1,9 +1,5 @@
 // lib/features/auth/services/auth_service.dart
 
-/// Authentication service to handle user authentication operations.
-/// Manages login, registration, and auth state persistence.
-library;
-
 import 'dart:async';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
@@ -28,60 +24,57 @@ class AuthError {
 class AuthService {
   static final AuthService _instance = AuthService._internal();
 
-  /// Singleton instance
+  /// Factory constructor
   factory AuthService({
-    FirebaseAuth? auth,
-    FirebaseConfig? firebaseConfig,
+    required FirebaseConfig firebaseConfig,
     MonitoringManager? monitoringManager,
   }) {
-    if (_instance._isInitialized) return _instance;
-
-    _instance._auth = auth ?? FirebaseAuth.instance;
-    _instance._firebaseConfig = firebaseConfig ?? FirebaseConfig();
+    _instance._firebaseConfig = firebaseConfig;
     _instance._monitoringManager = monitoringManager ?? MonitoringManager();
-
     return _instance;
   }
 
   AuthService._internal();
 
-  late final FirebaseAuth _auth;
   late final FirebaseConfig _firebaseConfig;
   late final MonitoringManager _monitoringManager;
-
   final BehaviorSubject<bool> _isInitializedController =
       BehaviorSubject<bool>.seeded(false);
-  bool _isInitialized = false;
+  bool _disposed = false;
 
   /// Stream of initialization state
   Stream<bool> get isInitializedStream => _isInitializedController.stream;
 
-  /// Current user stream
-  Stream<UserModel?> get userStream => _auth.authStateChanges().map((user) {
+  /// Stream of current user
+  Stream<UserModel?> get userStream =>
+      _firebaseConfig.auth.authStateChanges().map((user) {
         return user != null ? UserModel.fromFirebaseUser(user) : null;
       });
 
   /// Current user
   UserModel? get currentUser {
-    final user = _auth.currentUser;
+    final user = _firebaseConfig.auth.currentUser;
     return user != null ? UserModel.fromFirebaseUser(user) : null;
   }
 
   /// Initialize service
   Future<void> initialize() async {
-    if (_isInitialized) return;
+    if (_disposed) {
+      throw StateError('AuthService has been disposed');
+    }
 
     try {
-      await _firebaseConfig.initialize();
-      _isInitialized = true;
+      await _firebaseConfig.initialized;
       _isInitializedController.add(true);
 
       if (kDebugMode) {
         print('✅ Auth service initialized');
       }
     } catch (e) {
-      _monitoringManager.logError('Auth service initialization failed',
-          error: e);
+      _monitoringManager.logError(
+        'Auth service initialization failed',
+        error: e,
+      );
       _isInitializedController.add(false);
       throw AuthError.unknownError;
     }
@@ -93,7 +86,8 @@ class AuthService {
     required String password,
   }) async {
     try {
-      final userCredential = await _auth.signInWithEmailAndPassword(
+      final userCredential =
+          await _firebaseConfig.auth.signInWithEmailAndPassword(
         email: email,
         password: password,
       );
@@ -133,7 +127,8 @@ class AuthService {
     required String password,
   }) async {
     try {
-      final userCredential = await _auth.createUserWithEmailAndPassword(
+      final userCredential =
+          await _firebaseConfig.auth.createUserWithEmailAndPassword(
         email: email,
         password: password,
       );
@@ -145,9 +140,7 @@ class AuthService {
         );
       }
 
-      // Send email verification
       await userCredential.user!.sendEmailVerification();
-
       return UserModel.fromFirebaseUser(userCredential.user!);
     } on FirebaseAuthException catch (e) {
       _monitoringManager.logError(
@@ -171,10 +164,10 @@ class AuthService {
     }
   }
 
-  /// Sign out
+  /// Sign out current user
   Future<void> signOut() async {
     try {
-      await _auth.signOut();
+      await _firebaseConfig.auth.signOut();
     } catch (e) {
       _monitoringManager.logError('Sign out failed', error: e);
       throw AuthError.unknownError;
@@ -184,7 +177,7 @@ class AuthService {
   /// Send password reset email
   Future<void> sendPasswordResetEmail(String email) async {
     try {
-      await _auth.sendPasswordResetEmail(email: email);
+      await _firebaseConfig.auth.sendPasswordResetEmail(email: email);
     } on FirebaseAuthException catch (e) {
       _monitoringManager.logError(
         'Password reset failed',
@@ -205,31 +198,20 @@ class AuthService {
     }
   }
 
-  /// Verify email
-  Future<void> verifyEmail() async {
-    try {
-      final user = _auth.currentUser;
-      if (user != null) {
-        await user.sendEmailVerification();
-      }
-    } catch (e) {
-      _monitoringManager.logError('Email verification failed', error: e);
-      throw AuthError.unknownError;
-    }
-  }
-
   /// Update user profile
   Future<UserModel> updateProfile({
     String? displayName,
     String? photoUrl,
   }) async {
     try {
-      final user = _auth.currentUser;
+      final user = _firebaseConfig.auth.currentUser;
       if (user == null) {
         throw AuthError.userNotFound;
       }
 
-      await user.updateDisplayName(displayName);
+      if (displayName != null) {
+        await user.updateDisplayName(displayName);
+      }
       if (photoUrl != null) {
         await user.updatePhotoURL(photoUrl);
       }
@@ -241,9 +223,10 @@ class AuthService {
     }
   }
 
-  /// Dispose resources
+  /// Clean up resources
   void dispose() {
+    if (_disposed) return;
+    _disposed = true;
     _isInitializedController.close();
-    _isInitialized = false;
   }
 }

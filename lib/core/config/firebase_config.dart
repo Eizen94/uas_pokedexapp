@@ -1,9 +1,6 @@
 // lib/core/config/firebase_config.dart
 
-/// Firebase configuration and initialization manager.
-/// Handles Firebase setup and provides access to Firebase services.
-library;
-
+import 'dart:async';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -12,7 +9,10 @@ import 'package:flutter/foundation.dart';
 /// Firebase configuration manager
 class FirebaseConfig {
   static final FirebaseConfig _instance = FirebaseConfig._internal();
+
+  /// Singleton instance
   factory FirebaseConfig() => _instance;
+
   FirebaseConfig._internal();
 
   FirebaseAuth? _auth;
@@ -20,8 +20,10 @@ class FirebaseConfig {
   bool _isInitialized = false;
   final Completer<void> _initCompleter = Completer<void>();
 
+  /// Whether Firebase is initialized
   Future<void> get initialized => _initCompleter.future;
 
+  /// Initialize Firebase services
   Future<void> initialize() async {
     if (_isInitialized) {
       return await initialized;
@@ -47,28 +49,21 @@ class FirebaseConfig {
     }
   }
 
+  /// Get Firebase Auth instance
   FirebaseAuth get auth {
     assert(_isInitialized,
         'FirebaseConfig must be initialized before accessing auth');
     return _auth!;
   }
 
+  /// Get Firestore instance
   FirebaseFirestore get firestore {
     assert(_isInitialized,
         'FirebaseConfig must be initialized before accessing firestore');
     return _firestore!;
   }
 
-  FirebaseOptions _getFirebaseOptions() {
-    return const FirebaseOptions(
-        apiKey: "AIzaSyA788aYkne3gRiwAtZLtsVMRl5reUPMcXg",
-        appId: "1:631128211674:android:f88221525f9e09b7f465e3",
-        messagingSenderId: "631128211674",
-        projectId: "uas-pokedexapp",
-        storageBucket: "uas-pokedexapp.firebasestorage.app");
-  }
-
-  /// Get Firebase options based on platform
+  /// Get Firebase configuration options
   FirebaseOptions _getFirebaseOptions() {
     return const FirebaseOptions(
         apiKey: "AIzaSyA788aYkne3gRiwAtZLtsVMRl5reUPMcXg",
@@ -81,20 +76,11 @@ class FirebaseConfig {
   /// Configure Firestore settings
   Future<void> _configureFirestore() async {
     // Configure Firestore for offline persistence within free tier limits
-    _firestore.settings.persistenceEnabled;
-    _firestore.settings.cacheSizeBytes;
-
-    _firestore.settings = const Settings(
+    _firestore!.settings = const Settings(
       persistenceEnabled: true,
       cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
     );
   }
-
-  /// Get Firebase Auth instance
-  FirebaseAuth get auth => _auth;
-
-  /// Get Firestore instance
-  FirebaseFirestore get firestore => _firestore;
 
   /// Collection references
   static final collections = _FirebaseCollections();
