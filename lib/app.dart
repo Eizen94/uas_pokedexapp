@@ -11,8 +11,8 @@ import 'features/auth/screens/login_screen.dart';
 import 'navigation/bottom_navigation.dart';
 import 'navigation/routes.dart';
 import 'providers/auth_provider.dart';
-import 'providers/pokemon_provider.dart';
 import 'providers/theme_provider.dart';
+import 'providers/pokemon_provider.dart';
 
 /// Root application widget
 class PokemonApp extends StatelessWidget {
@@ -23,10 +23,9 @@ class PokemonApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
-        ChangeNotifierProvider<AuthProvider>(create: (_) => AuthProvider()),
-        ChangeNotifierProvider<ThemeProvider>(create: (_) => ThemeProvider()),
-        ChangeNotifierProvider<PokemonProvider>(
-            create: (_) => PokemonProvider()),
+        ChangeNotifierProvider(create: (_) => AuthProvider()),
+        ChangeNotifierProvider(create: (_) => ThemeProvider()),
+        ChangeNotifierProvider(create: (_) => PokemonProvider()),
       ],
       child: AuthStateWrapper(
         child: MaterialApp(
@@ -43,8 +42,6 @@ class PokemonApp extends StatelessWidget {
                 systemNavigationBarIconBrightness: Brightness.dark,
               ),
             );
-
-            // Return the child widget or a fallback widget
             return child ?? const SizedBox.shrink();
           },
           home: const _AuthenticationHandler(),
@@ -63,16 +60,11 @@ class _AuthenticationHandler extends StatelessWidget {
   Widget build(BuildContext context) {
     return Consumer<UserModel?>(
       builder: (context, user, _) {
-        // Show login screen if user is not authenticated
         if (user == null) {
           debugPrint('User not authenticated. Showing LoginScreen.');
           return const LoginScreen();
         }
-
-        // Show main navigation for authenticated users
-        debugPrint(
-          'User authenticated: ${user.displayName}. Showing MainBottomNavigation.',
-        );
+        debugPrint('User authenticated. Showing MainBottomNavigation.');
         return MainBottomNavigation(user: user);
       },
     );
