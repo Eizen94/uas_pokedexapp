@@ -9,6 +9,7 @@ import 'package:flutter/foundation.dart';
 /// Firebase configuration manager
 class FirebaseConfig {
   static final FirebaseConfig _instance = FirebaseConfig._internal();
+  static bool _isInitialized = false;
 
   /// Singleton instance
   factory FirebaseConfig() => _instance;
@@ -17,7 +18,6 @@ class FirebaseConfig {
 
   FirebaseAuth? _auth;
   FirebaseFirestore? _firestore;
-  bool _isInitialized = false;
   final Completer<void> _initCompleter = Completer<void>();
 
   /// Whether Firebase is initialized
@@ -26,7 +26,7 @@ class FirebaseConfig {
   /// Initialize Firebase services
   Future<void> initialize() async {
     if (_isInitialized) {
-      return await initialized;
+      return await _initCompleter.future;
     }
 
     try {
@@ -75,7 +75,6 @@ class FirebaseConfig {
 
   /// Configure Firestore settings
   Future<void> _configureFirestore() async {
-    // Configure Firestore for offline persistence within free tier limits
     _firestore!.settings = const Settings(
       persistenceEnabled: true,
       cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
