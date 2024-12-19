@@ -9,10 +9,12 @@ import 'app.dart';
 import 'core/config/firebase_config.dart';
 import 'core/utils/monitoring_manager.dart';
 import 'core/utils/performance_manager.dart';
+import 'core/utils/cache_manager.dart';
+import 'features/auth/services/auth_service.dart';
+import 'features/pokemon/services/pokemon_service.dart';
 import 'providers/auth_provider.dart';
 import 'providers/pokemon_provider.dart';
 import 'providers/theme_provider.dart';
-import 'features/auth/services/auth_service.dart';
 
 /// Main entry point of the application
 void main() {
@@ -27,16 +29,18 @@ void main() {
           DeviceOrientation.portraitDown,
         ]);
 
-        // Initialize core services
-        final firebaseConfig = FirebaseConfig();
-        await firebaseConfig.initialize();
-
-        // Initialize managers
+        // Initialize managers first
         final performanceManager = PerformanceManager();
         final monitoringManager = MonitoringManager();
 
-        // Initialize auth service with initialized firebase config
+        // Initialize core services in order
+        final cacheManager = await CacheManager.initialize();
+        final firebaseConfig = FirebaseConfig();
+        await firebaseConfig.initialize();
+
+        // Initialize feature services
         final authService = AuthService(firebaseConfig: firebaseConfig);
+        final pokemonService = await PokemonService.initialize();
 
         // Set global error handlers for Flutter errors
         FlutterError.onError = (FlutterErrorDetails details) {
@@ -93,9 +97,16 @@ void main() {
         runApp(
           MultiProvider(
             providers: [
+              // Core providers
               Provider<FirebaseConfig>.value(value: firebaseConfig),
-              Provider<AuthService>.value(value: authService),
               Provider<MonitoringManager>.value(value: monitoringManager),
+              Provider<CacheManager>.value(value: cacheManager),
+
+              // Service providers
+              Provider<AuthService>.value(value: authService),
+              Provider<PokemonService>.value(value: pokemonService),
+
+              // State providers
               ChangeNotifierProvider(create: (_) => AuthProvider()),
               ChangeNotifierProvider(create: (_) => PokemonProvider()),
               ChangeNotifierProvider(create: (_) => ThemeProvider()),
