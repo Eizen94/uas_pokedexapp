@@ -11,18 +11,15 @@ import '../features/auth/models/user_model.dart';
 import '../features/auth/screens/profile_screen.dart';
 import '../features/favorites/screens/favorites_screen.dart';
 import '../features/pokemon/screens/pokemon_list_screen.dart';
-import '../features/auth/services/auth_service.dart';
 
 /// Main bottom navigation bar
 class MainBottomNavigation extends StatefulWidget {
   /// Current user
   final UserModel user;
-  final AuthService authService;
 
   /// Constructor
   const MainBottomNavigation({
     required this.user,
-    required this.authService,
     super.key,
   });
 
