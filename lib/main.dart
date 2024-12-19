@@ -6,11 +6,13 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import 'app.dart';
+import 'core/config/firebase_config.dart';
 import 'core/utils/monitoring_manager.dart';
 import 'core/utils/performance_manager.dart';
 import 'providers/auth_provider.dart';
 import 'providers/pokemon_provider.dart';
 import 'providers/theme_provider.dart';
+import 'features/auth/services/auth_service.dart';
 
 /// Main entry point of the application
 void main() {
@@ -25,7 +27,13 @@ void main() {
           DeviceOrientation.portraitDown,
         ]);
 
-        // Initialize managers
+        // Initialize core services
+        final firebaseConfig = FirebaseConfig();
+        await firebaseConfig.initialize();
+
+        final authService = AuthService(firebaseConfig: firebaseConfig);
+        await authService.initialize();
+
         final performanceManager = PerformanceManager();
         final monitoringManager = MonitoringManager();
 
@@ -80,10 +88,12 @@ void main() {
           );
         };
 
-        // Run app with provider and performance monitoring
+        // Run app with all required providers
         runApp(
           MultiProvider(
             providers: [
+              Provider<FirebaseConfig>.value(value: firebaseConfig),
+              Provider<AuthService>.value(value: authService),
               Provider<MonitoringManager>.value(value: monitoringManager),
               ChangeNotifierProvider(create: (_) => AuthProvider()),
               ChangeNotifierProvider(create: (_) => PokemonProvider()),
@@ -105,7 +115,6 @@ void main() {
       }
     },
     (error, stack) {
-      // Log any unhandled errors that occur in the Zone
       MonitoringManager().logError(
         'Uncaught Error',
         error: error,
