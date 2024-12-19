@@ -45,15 +45,12 @@ class FirebaseConfig {
 
   /// Get Firebase options based on platform
   FirebaseOptions _getFirebaseOptions() {
-    // Using const constructor for options to ensure values are compile-time constants
     return const FirebaseOptions(
-      apiKey: 'YOUR_API_KEY',
-      appId: 'YOUR_APP_ID',
-      messagingSenderId: 'YOUR_SENDER_ID',
-      projectId: 'YOUR_PROJECT_ID',
-      // Free tier doesn't require storage bucket
-      storageBucket: null,
-    );
+        apiKey: "AIzaSyA788aYkne3gRiwAtZLtsVMRl5reUPMcXg",
+        appId: "1:631128211674:android:f88221525f9e09b7f465e3",
+        messagingSenderId: "631128211674",
+        projectId: "uas-pokedexapp",
+        storageBucket: "uas-pokedexapp.firebasestorage.app");
   }
 
   /// Configure Firestore settings

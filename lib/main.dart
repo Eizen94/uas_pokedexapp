@@ -1,26 +1,25 @@
-// lib/main.dart
-
-/// Application entry point.
-/// Initializes services and launches the app.
-library;
+// main.dart yang perlu diperbaiki:
 
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+// Tambahkan import yang diperlukan
+import 'package:provider/provider.dart';
 
 import 'app.dart';
 import 'core/utils/monitoring_manager.dart';
 import 'core/utils/performance_manager.dart';
+// Tambahkan provider yang dibutuhkan
+import 'providers/auth_provider.dart';
+import 'providers/pokemon_provider.dart';
+import 'providers/theme_provider.dart';
 
-/// Main entry point of the application
 void main() {
-  // Wrap the app in a guarded zone for error handling
   runZonedGuarded(
     () async {
       try {
         WidgetsFlutterBinding.ensureInitialized();
 
-        // Lock orientation to portrait
         await SystemChrome.setPreferredOrientations([
           DeviceOrientation.portraitUp,
           DeviceOrientation.portraitDown,
@@ -30,7 +29,7 @@ void main() {
         final performanceManager = PerformanceManager();
         final monitoringManager = MonitoringManager();
 
-        // Set global error handlers for Flutter errors
+        // Set error handler untuk Flutter errors
         FlutterError.onError = (FlutterErrorDetails details) {
           monitoringManager.logError(
             'Flutter Error',
@@ -42,20 +41,34 @@ void main() {
           );
         };
 
-        // Set up error handler for Platform errors
-        PlatformDispatcher.instance.onError = (error, stack) {
+        // Error handler untuk Platform/Framework errors - perbaikan untuk error PlatformDispatcher
+        ErrorWidget.builder = (FlutterErrorDetails details) {
           monitoringManager.logError(
-            'Platform Error',
-            error: error,
-            stackTrace: stack,
+            'Framework Error',
+            error: details.exception,
+            stackTrace: details.stack,
           );
-          return true;
+          return Material(
+            child: Center(
+              child: Text(
+                'An error occurred.\n${details.exception}',
+                textAlign: TextAlign.center,
+              ),
+            ),
+          );
         };
 
-        // Run app with performance monitoring
+        // Run app dengan MultiProvider sesuai providers yang ada
         runApp(
-          performanceManager.enableSmoothAnimations(
-            const PokemonApp(),
+          MultiProvider(
+            providers: [
+              ChangeNotifierProvider(create: (_) => AuthProvider()),
+              ChangeNotifierProvider(create: (_) => PokemonProvider()),
+              ChangeNotifierProvider(create: (_) => ThemeProvider()),
+            ],
+            child: performanceManager.enableSmoothAnimations(
+              const PokemonApp(),
+            ),
           ),
         );
       } catch (e, stack) {
@@ -69,7 +82,6 @@ void main() {
       }
     },
     (error, stack) {
-      // Log any unhandled errors that occur in the Zone
       MonitoringManager().logError(
         'Uncaught Error',
         error: error,
