@@ -1,14 +1,9 @@
-// lib/app.dart
-
-/// Root application widget.
-/// Configures app-wide settings and manages global state.
-library;
+// app.dart
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
-import 'core/config/firebase_config.dart';
 import 'core/config/theme_config.dart';
 import 'core/wrappers/auth_state_wrapper.dart';
 import 'features/auth/models/user_model.dart';
@@ -25,9 +20,7 @@ class PokemonApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
-        Provider<FirebaseConfig>(
-          create: (_) => FirebaseConfig(),
-        ),
+        // Add any additional providers needed for app-wide state
       ],
       child: AuthStateWrapper(
         child: MaterialApp(
@@ -46,12 +39,7 @@ class PokemonApp extends StatelessWidget {
               ),
             );
 
-            // Set preferred orientations
-            SystemChrome.setPreferredOrientations([
-              DeviceOrientation.portraitUp,
-              DeviceOrientation.portraitDown,
-            ]);
-
+            // Return the child widget or a fallback widget
             return child ?? const SizedBox.shrink();
           },
           home: const _AuthenticationHandler(),
@@ -70,12 +58,15 @@ class _AuthenticationHandler extends StatelessWidget {
   Widget build(BuildContext context) {
     return Consumer<UserModel?>(
       builder: (context, user, _) {
-        // Show loading indicator while checking auth state
+        // Show login screen if user is not authenticated
         if (user == null) {
+          debugPrint('User not authenticated. Showing LoginScreen.');
           return const LoginScreen();
         }
 
         // Show main navigation for authenticated users
+        debugPrint(
+            'User authenticated: ${user.name}. Showing MainBottomNavigation.');
         return MainBottomNavigation(user: user);
       },
     );
