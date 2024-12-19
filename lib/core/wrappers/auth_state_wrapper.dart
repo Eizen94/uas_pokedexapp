@@ -41,7 +41,7 @@ class _AuthStateWrapperState extends State<AuthStateWrapper> {
       // Get already initialized instances from provider
       _firebaseConfig = Provider.of<FirebaseConfig>(context, listen: false);
       _authService = Provider.of<AuthService>(context, listen: false);
-      await _authService.initialized;
+      await _authService.initialize();
 
       if (mounted) {
         setState(() {
