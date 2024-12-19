@@ -1,25 +1,25 @@
-// main.dart yang perlu diperbaiki:
+// lib/main.dart
 
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-// Tambahkan import yang diperlukan
 import 'package:provider/provider.dart';
 
 import 'app.dart';
 import 'core/utils/monitoring_manager.dart';
 import 'core/utils/performance_manager.dart';
-// Tambahkan provider yang dibutuhkan
 import 'providers/auth_provider.dart';
 import 'providers/pokemon_provider.dart';
 import 'providers/theme_provider.dart';
 
+/// Main entry point of the application
 void main() {
   runZonedGuarded(
     () async {
       try {
         WidgetsFlutterBinding.ensureInitialized();
 
+        // Lock orientation to portrait
         await SystemChrome.setPreferredOrientations([
           DeviceOrientation.portraitUp,
           DeviceOrientation.portraitDown,
@@ -29,7 +29,7 @@ void main() {
         final performanceManager = PerformanceManager();
         final monitoringManager = MonitoringManager();
 
-        // Set error handler untuk Flutter errors
+        // Set global error handlers for Flutter errors
         FlutterError.onError = (FlutterErrorDetails details) {
           monitoringManager.logError(
             'Flutter Error',
@@ -41,7 +41,7 @@ void main() {
           );
         };
 
-        // Error handler untuk Platform/Framework errors - perbaikan untuk error PlatformDispatcher
+        // Set error widget builder for Framework errors
         ErrorWidget.builder = (FlutterErrorDetails details) {
           monitoringManager.logError(
             'Framework Error',
@@ -50,18 +50,41 @@ void main() {
           );
           return Material(
             child: Center(
-              child: Text(
-                'An error occurred.\n${details.exception}',
-                textAlign: TextAlign.center,
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.error_outline,
+                      color: Colors.red,
+                      size: 48,
+                    ),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'An error occurred',
+                      style:
+                          TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      details.exception.toString(),
+                      style: const TextStyle(color: Colors.red),
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
+                ),
               ),
             ),
           );
         };
 
-        // Run app dengan MultiProvider sesuai providers yang ada
+        // Run app with provider and performance monitoring
         runApp(
           MultiProvider(
             providers: [
+              Provider<MonitoringManager>.value(value: monitoringManager),
               ChangeNotifierProvider(create: (_) => AuthProvider()),
               ChangeNotifierProvider(create: (_) => PokemonProvider()),
               ChangeNotifierProvider(create: (_) => ThemeProvider()),
@@ -82,6 +105,7 @@ void main() {
       }
     },
     (error, stack) {
+      // Log any unhandled errors that occur in the Zone
       MonitoringManager().logError(
         'Uncaught Error',
         error: error,

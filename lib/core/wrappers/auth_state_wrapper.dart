@@ -1,12 +1,6 @@
 // lib/core/wrappers/auth_state_wrapper.dart
 
-/// Authentication state wrapper to manage user authentication state.
-/// Provides unified authentication state management across the application.
-library;
-
-import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:provider/provider.dart';
 
 import '../config/firebase_config.dart';
@@ -32,6 +26,7 @@ class _AuthStateWrapperState extends State<AuthStateWrapper> {
   late final FirebaseConfig _firebaseConfig;
   late final AuthService _authService;
   bool _isInitialized = false;
+  String? _error;
 
   @override
   void initState() {
@@ -52,9 +47,16 @@ class _AuthStateWrapperState extends State<AuthStateWrapper> {
       if (mounted) {
         setState(() {
           _isInitialized = true;
+          _error = null;
         });
       }
     } catch (e) {
+      if (mounted) {
+        setState(() {
+          _error = e.toString();
+          _isInitialized = false;
+        });
+      }
       debugPrint('Failed to initialize auth services: $e');
     }
   }
@@ -62,10 +64,27 @@ class _AuthStateWrapperState extends State<AuthStateWrapper> {
   @override
   Widget build(BuildContext context) {
     if (!_isInitialized) {
-      return const MaterialApp(
+      return MaterialApp(
         home: Scaffold(
           body: Center(
-            child: CircularProgressIndicator(),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const CircularProgressIndicator(),
+                if (_error != null) ...[
+                  const SizedBox(height: 16),
+                  Text(
+                    'Error: $_error',
+                    style: const TextStyle(color: Colors.red),
+                    textAlign: TextAlign.center,
+                  ),
+                  TextButton(
+                    onPressed: _initializeServices,
+                    child: const Text('Retry'),
+                  ),
+                ],
+              ],
+            ),
           ),
         ),
       );
@@ -84,18 +103,15 @@ class _AuthStateWrapperState extends State<AuthStateWrapper> {
           );
         }
 
-        // Convert Firebase User to UserModel
         final UserModel? user = snapshot.hasData
             ? UserModel.fromFirebaseUser(snapshot.data!)
             : null;
 
-        // Provide user model to app
         return Provider<UserModel?>.value(
           value: user,
           child: StreamBuilder<bool>(
             stream: _authService.isInitializedStream,
             builder: (context, initSnapshot) {
-              // Wait for auth service initialization
               if (!initSnapshot.hasData || !initSnapshot.data!) {
                 return const MaterialApp(
                   home: Scaffold(
@@ -131,11 +147,9 @@ extension AuthStateWrapperExtension on BuildContext {
 
   /// Stream of authentication state changes
   Stream<UserModel?> get authStateChanges {
-    final user = Provider.of<UserModel?>(this, listen: true);
-    if (user == null) {
-      return Stream.value(null);
-    }
-    return Stream.value(user);
+    return Provider.of<UserModel?>(this, listen: true) == null
+        ? Stream.value(null)
+        : Stream.value(Provider.of<UserModel?>(this, listen: true));
   }
 }
 
