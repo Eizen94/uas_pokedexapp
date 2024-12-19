@@ -1,5 +1,7 @@
 // lib/core/wrappers/auth_state_wrapper.dart
 
+import 'dart:async';
+import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -7,7 +9,8 @@ import '../config/firebase_config.dart';
 import '../../features/auth/models/user_model.dart';
 import '../../features/auth/services/auth_service.dart';
 
-/// Wrapper for authentication state management
+/// Wrapper widget for managing authentication state.
+/// Provides user state and authentication flow management across the app.
 class AuthStateWrapper extends StatefulWidget {
   /// Child widget to be wrapped
   final Widget child;
@@ -34,6 +37,7 @@ class _AuthStateWrapperState extends State<AuthStateWrapper> {
     _initializeServices();
   }
 
+  /// Initialize Firebase and Auth services
   Future<void> _initializeServices() async {
     try {
       _firebaseConfig = FirebaseConfig();
@@ -90,7 +94,7 @@ class _AuthStateWrapperState extends State<AuthStateWrapper> {
       );
     }
 
-    return StreamBuilder<User?>(
+    return StreamBuilder<firebase_auth.User?>(
       stream: _firebaseConfig.auth.authStateChanges(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
@@ -137,7 +141,7 @@ class _AuthStateWrapperState extends State<AuthStateWrapper> {
   }
 }
 
-/// Extension methods for AuthStateWrapper
+/// Extension methods for accessing auth state from context
 extension AuthStateWrapperExtension on BuildContext {
   /// Get current user model
   UserModel? get currentUser => Provider.of<UserModel?>(this, listen: false);
@@ -159,7 +163,7 @@ typedef AuthStateChangeCallback = void Function(UserModel? user);
 /// Authentication error callback type
 typedef AuthErrorCallback = void Function(String error);
 
-/// Mixin for handling auth state changes
+/// Mixin for handling auth state changes in widgets
 mixin AuthStateHandler<T extends StatefulWidget> on State<T> {
   StreamSubscription<UserModel?>? _authSubscription;
 
