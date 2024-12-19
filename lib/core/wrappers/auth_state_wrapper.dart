@@ -89,43 +89,46 @@ class _AuthStateWrapperState extends State<AuthStateWrapper> {
       );
     }
 
-    return StreamBuilder<auth.User?>(
-      stream: _firebaseConfig.auth.authStateChanges(),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const MaterialApp(
-            home: Scaffold(
-              body: Center(
-                child: CircularProgressIndicator(),
+    return GestureDetector(
+      onTap: () => debugPrint('Gesture detected in AuthStateWrapper'),
+      child: StreamBuilder<auth.User?>(
+        stream: _firebaseConfig.auth.authStateChanges(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const MaterialApp(
+              home: Scaffold(
+                body: Center(
+                  child: CircularProgressIndicator(),
+                ),
               ),
+            );
+          }
+
+          final UserModel? user = snapshot.hasData
+              ? UserModel.fromFirebaseUser(snapshot.data!)
+              : null;
+
+          return Provider<UserModel?>.value(
+            value: user,
+            child: StreamBuilder<bool>(
+              stream: _authService.isInitializedStream,
+              builder: (context, initSnapshot) {
+                if (!initSnapshot.hasData || !initSnapshot.data!) {
+                  return const MaterialApp(
+                    home: Scaffold(
+                      body: Center(
+                        child: CircularProgressIndicator(),
+                      ),
+                    ),
+                  );
+                }
+
+                return widget.child;
+              },
             ),
           );
-        }
-
-        final UserModel? user = snapshot.hasData
-            ? UserModel.fromFirebaseUser(snapshot.data!)
-            : null;
-
-        return Provider<UserModel?>.value(
-          value: user,
-          child: StreamBuilder<bool>(
-            stream: _authService.isInitializedStream,
-            builder: (context, initSnapshot) {
-              if (!initSnapshot.hasData || !initSnapshot.data!) {
-                return const MaterialApp(
-                  home: Scaffold(
-                    body: Center(
-                      child: CircularProgressIndicator(),
-                    ),
-                  ),
-                );
-              }
-
-              return widget.child;
-            },
-          ),
-        );
-      },
+        },
+      ),
     );
   }
 }
