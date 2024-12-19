@@ -80,6 +80,21 @@ class AuthService {
     }
   }
 
+  /// Verify user's email address
+  Future<void> verifyEmail() async {
+    try {
+      final user = _firebaseConfig.auth.currentUser;
+      if (user != null) {
+        await user.sendEmailVerification();
+      } else {
+        throw AuthError.userNotFound;
+      }
+    } catch (e) {
+      _monitoringManager.logError('Email verification failed', error: e);
+      throw AuthError.unknownError;
+    }
+  }
+
   /// Sign in with email and password
   Future<UserModel> signInWithEmail({
     required String email,

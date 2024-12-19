@@ -1,7 +1,7 @@
 // lib/core/wrappers/auth_state_wrapper.dart
 
 import 'dart:async';
-import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
+import 'package:firebase_auth/firebase_auth.dart' as auth;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -94,7 +94,7 @@ class _AuthStateWrapperState extends State<AuthStateWrapper> {
       );
     }
 
-    return StreamBuilder<firebase_auth.User?>(
+    return StreamBuilder<auth.User?>(
       stream: _firebaseConfig.auth.authStateChanges(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
