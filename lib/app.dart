@@ -66,7 +66,7 @@ class _AuthenticationHandler extends StatelessWidget {
 
         // Show main navigation for authenticated users
         debugPrint(
-            'User authenticated: ${user.name}. Showing MainBottomNavigation.');
+            'User authenticated: ${user.displayName}. Showing MainBottomNavigation.');
         return MainBottomNavigation(user: user);
       },
     );
