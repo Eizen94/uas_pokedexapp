@@ -16,10 +16,12 @@ import '../features/pokemon/screens/pokemon_list_screen.dart';
 class MainBottomNavigation extends StatefulWidget {
   /// Current user
   final UserModel user;
+  final AuthService authService;
 
   /// Constructor
   const MainBottomNavigation({
     required this.user,
+    required this.authService,
     super.key,
   });
 
