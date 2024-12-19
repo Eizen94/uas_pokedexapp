@@ -38,7 +38,7 @@ class _AuthStateWrapperState extends State<AuthStateWrapper> {
 
   Future<void> _initializeServices() async {
     try {
-      debugPrint('Initializing FirebaseConfig and AuthService...');
+      // Get already initialized instances from provider
       _firebaseConfig = Provider.of<FirebaseConfig>(context, listen: false);
       _authService = Provider.of<AuthService>(context, listen: false);
       await _authService.initialize();
@@ -49,7 +49,6 @@ class _AuthStateWrapperState extends State<AuthStateWrapper> {
           _error = null;
         });
       }
-      debugPrint('AuthStateWrapper: Initialization complete.');
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -63,8 +62,6 @@ class _AuthStateWrapperState extends State<AuthStateWrapper> {
 
   @override
   Widget build(BuildContext context) {
-    debugPrint('Building AuthStateWrapper...');
-
     if (!_isInitialized) {
       return MaterialApp(
         home: Scaffold(
@@ -92,55 +89,43 @@ class _AuthStateWrapperState extends State<AuthStateWrapper> {
       );
     }
 
-    return GestureDetector(
-      onTap: () => debugPrint('Gesture detected in AuthStateWrapper!'),
-      child: StreamBuilder<auth.User?>(
-        stream: _firebaseConfig.auth.authStateChanges(),
-        builder: (context, snapshot) {
-          debugPrint(
-              'AuthStateWrapper: StreamBuilder snapshot state: ${snapshot.connectionState}');
-
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const MaterialApp(
-              home: Scaffold(
-                body: Center(
-                  child: CircularProgressIndicator(),
-                ),
+    return StreamBuilder<auth.User?>(
+      stream: _firebaseConfig.auth.authStateChanges(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const MaterialApp(
+            home: Scaffold(
+              body: Center(
+                child: CircularProgressIndicator(),
               ),
-            );
-          }
-
-          final UserModel? user = snapshot.hasData
-              ? UserModel.fromFirebaseUser(snapshot.data!)
-              : null;
-
-          debugPrint(
-              'AuthStateWrapper: Current user: ${user?.displayName ?? "None"}');
-
-          return Provider<UserModel?>.value(
-            value: user,
-            child: StreamBuilder<bool>(
-              stream: _authService.isInitializedStream,
-              builder: (context, initSnapshot) {
-                debugPrint(
-                    'AuthStateWrapper: Initialization Stream state: ${initSnapshot.connectionState}');
-
-                if (!initSnapshot.hasData || !initSnapshot.data!) {
-                  return const MaterialApp(
-                    home: Scaffold(
-                      body: Center(
-                        child: CircularProgressIndicator(),
-                      ),
-                    ),
-                  );
-                }
-
-                return widget.child;
-              },
             ),
           );
-        },
-      ),
+        }
+
+        final UserModel? user = snapshot.hasData
+            ? UserModel.fromFirebaseUser(snapshot.data!)
+            : null;
+
+        return Provider<UserModel?>.value(
+          value: user,
+          child: StreamBuilder<bool>(
+            stream: _authService.isInitializedStream,
+            builder: (context, initSnapshot) {
+              if (!initSnapshot.hasData || !initSnapshot.data!) {
+                return const MaterialApp(
+                  home: Scaffold(
+                    body: Center(
+                      child: CircularProgressIndicator(),
+                    ),
+                  ),
+                );
+              }
+
+              return widget.child;
+            },
+          ),
+        );
+      },
     );
   }
 }
