@@ -12,20 +12,21 @@ import 'package:flutter/foundation.dart';
 /// Firebase configuration manager
 class FirebaseConfig {
   static final FirebaseConfig _instance = FirebaseConfig._internal();
-
-  /// Singleton instance
   factory FirebaseConfig() => _instance;
-
   FirebaseConfig._internal();
 
-  /// Firebase Auth instance
-  late final FirebaseAuth _auth;
+  FirebaseAuth? _auth;
+  FirebaseFirestore? _firestore;
+  bool _isInitialized = false;
+  final Completer<void> _initCompleter = Completer<void>();
 
-  /// Firestore instance
-  late final FirebaseFirestore _firestore;
+  Future<void> get initialized => _initCompleter.future;
 
-  /// Initialize Firebase
   Future<void> initialize() async {
+    if (_isInitialized) {
+      return await initialized;
+    }
+
     try {
       await Firebase.initializeApp(
         options: _getFirebaseOptions(),
@@ -35,12 +36,36 @@ class FirebaseConfig {
       _firestore = FirebaseFirestore.instance;
 
       await _configureFirestore();
+      _isInitialized = true;
+      _initCompleter.complete();
 
       debugPrint('Firebase initialized successfully');
     } catch (e) {
+      _initCompleter.completeError(e);
       debugPrint('Failed to initialize Firebase: $e');
       rethrow;
     }
+  }
+
+  FirebaseAuth get auth {
+    assert(_isInitialized,
+        'FirebaseConfig must be initialized before accessing auth');
+    return _auth!;
+  }
+
+  FirebaseFirestore get firestore {
+    assert(_isInitialized,
+        'FirebaseConfig must be initialized before accessing firestore');
+    return _firestore!;
+  }
+
+  FirebaseOptions _getFirebaseOptions() {
+    return const FirebaseOptions(
+        apiKey: "AIzaSyA788aYkne3gRiwAtZLtsVMRl5reUPMcXg",
+        appId: "1:631128211674:android:f88221525f9e09b7f465e3",
+        messagingSenderId: "631128211674",
+        projectId: "uas-pokedexapp",
+        storageBucket: "uas-pokedexapp.firebasestorage.app");
   }
 
   /// Get Firebase options based on platform
