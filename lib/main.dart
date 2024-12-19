@@ -31,11 +31,12 @@ void main() {
         final firebaseConfig = FirebaseConfig();
         await firebaseConfig.initialize();
 
-        final authService = AuthService(firebaseConfig: firebaseConfig);
-        await authService.initialize();
-
+        // Initialize managers
         final performanceManager = PerformanceManager();
         final monitoringManager = MonitoringManager();
+
+        // Initialize auth service with initialized firebase config
+        final authService = AuthService(firebaseConfig: firebaseConfig);
 
         // Set global error handlers for Flutter errors
         FlutterError.onError = (FlutterErrorDetails details) {

@@ -1,16 +1,15 @@
 // lib/core/wrappers/auth_state_wrapper.dart
 
 import 'dart:async';
-import 'package:firebase_auth/firebase_auth.dart' as auth;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:firebase_auth/firebase_auth.dart' as auth;
 
 import '../config/firebase_config.dart';
 import '../../features/auth/models/user_model.dart';
 import '../../features/auth/services/auth_service.dart';
 
-/// Wrapper widget for managing authentication state.
-/// Provides user state and authentication flow management across the app.
+/// Wrapper for authentication state management
 class AuthStateWrapper extends StatefulWidget {
   /// Child widget to be wrapped
   final Widget child;
@@ -37,16 +36,12 @@ class _AuthStateWrapperState extends State<AuthStateWrapper> {
     _initializeServices();
   }
 
-  /// Initialize Firebase and Auth services
   Future<void> _initializeServices() async {
     try {
-      _firebaseConfig = FirebaseConfig();
-      await _firebaseConfig.initialize();
-
-      _authService = AuthService(
-        firebaseConfig: _firebaseConfig,
-      );
-      await _authService.initialize();
+      // Get already initialized instances from provider
+      _firebaseConfig = Provider.of<FirebaseConfig>(context, listen: false);
+      _authService = Provider.of<AuthService>(context, listen: false);
+      await _authService.initialized;
 
       if (mounted) {
         setState(() {
@@ -133,15 +128,9 @@ class _AuthStateWrapperState extends State<AuthStateWrapper> {
       },
     );
   }
-
-  @override
-  void dispose() {
-    _authService.dispose();
-    super.dispose();
-  }
 }
 
-/// Extension methods for accessing auth state from context
+/// Extension methods for AuthStateWrapper
 extension AuthStateWrapperExtension on BuildContext {
   /// Get current user model
   UserModel? get currentUser => Provider.of<UserModel?>(this, listen: false);
@@ -163,7 +152,7 @@ typedef AuthStateChangeCallback = void Function(UserModel? user);
 /// Authentication error callback type
 typedef AuthErrorCallback = void Function(String error);
 
-/// Mixin for handling auth state changes in widgets
+/// Mixin for handling auth state changes
 mixin AuthStateHandler<T extends StatefulWidget> on State<T> {
   StreamSubscription<UserModel?>? _authSubscription;
 
