@@ -64,13 +64,19 @@ class CacheManager {
 
       try {
         debugPrint('📦 CacheManager: Getting SharedPreferences instance...');
-        final prefs = await SharedPreferences.getInstance();
+        final prefs = await SharedPreferences.getInstance().timeout(
+            const Duration(seconds: 5),
+            onTimeout: () => throw TimeoutException(
+                'Failed to get SharedPreferences instance'));
 
         debugPrint('📦 CacheManager: Creating new instance...');
         _instance = CacheManager._internal(prefs);
 
         debugPrint('📦 CacheManager: Loading persisted cache...');
-        await _instance!._loadPersistedCache();
+        await _instance!._loadPersistedCache().timeout(
+            const Duration(seconds: 15),
+            onTimeout: () => debugPrint(
+                '📦 CacheManager: Cache load timeout, continuing with empty cache'));
 
         _instance!._isInitialized = true;
         debugPrint('✅ CacheManager: Initialization complete');
@@ -84,6 +90,14 @@ class CacheManager {
         debugPrint('❌ CacheManager: Initialization failed');
         debugPrint('Error: $e');
         debugPrint('Stack trace: $stack');
+
+        if (_instance == null) {
+          debugPrint(
+              '📦 CacheManager: Creating fallback instance with empty cache...');
+          final prefs = await SharedPreferences.getInstance();
+          _instance = CacheManager._internal(prefs);
+          _instance!._isInitialized = true;
+        }
 
         // Try to handle specific errors
         if (e is MissingPluginException) {
