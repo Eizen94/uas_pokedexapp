@@ -62,7 +62,6 @@ class FirebaseConfig {
       if (e is FirebaseException) {
         debugPrint('Firebase Error Code: ${e.code}');
         debugPrint('Firebase Error Message: ${e.message}');
-        debugPrint('Firebase Error Details: ${e.details}');
       }
 
       _initCompleter.completeError(e);
@@ -163,7 +162,7 @@ class FirebaseConfig {
       case 'unauthenticated':
         return 'Authentication required';
       default:
-        return error ?? 'An error occurred';
+        return 'An error occurred';
     }
   }
 }
