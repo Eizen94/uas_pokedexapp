@@ -104,11 +104,8 @@ class CacheManager {
           debugPrint('❌ SharedPreferences plugin not available');
         }
 
-        rethrow;
+        return _instance!;
       }
-    }).timeout(const Duration(seconds: 10), onTimeout: () {
-      throw TimeoutException(
-          'CacheManager initialization timeout after 10 seconds');
     });
   }
 

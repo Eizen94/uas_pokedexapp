@@ -34,80 +34,54 @@ void main() {
         ]);
         debugPrint('Device orientation locked');
 
-        // Initialize managers first with timeout
+        // Initialize managers first
         debugPrint('Initializing managers...');
-        PerformanceManager? performanceManager;
-        MonitoringManager? monitoringManager;
+        final performanceManager = PerformanceManager();
+        debugPrint('Performance manager initialized');
 
-        await Future.wait([
-          Future(() {
-            performanceManager = PerformanceManager();
-            debugPrint('Performance manager initialized');
-          }).timeout(
-            const Duration(seconds: 5),
-            onTimeout: () => throw TimeoutException(
-                'Performance manager initialization timeout'),
-          ),
-          Future(() {
-            monitoringManager = MonitoringManager();
-            debugPrint('Monitoring manager initialized');
-          }).timeout(
-            const Duration(seconds: 5),
-            onTimeout: () => throw TimeoutException(
-                'Monitoring manager initialization timeout'),
-          ),
-        ]);
+        final monitoringManager = MonitoringManager();
+        debugPrint('Monitoring manager initialized');
         debugPrint('All managers initialized successfully');
 
-        // Initialize core services in order with timeouts
+        // Initialize core services
         debugPrint('Initializing core services...');
 
-        final cacheManager = await Future.any([
-          CacheManager.initialize(),
-          Future.delayed(
-            const Duration(seconds: 10),
-            () => throw TimeoutException('CacheManager initialization timeout'),
-          ),
-        ]);
-        debugPrint('Cache manager initialized successfully');
+        // Try to initialize cache with timeout fallback
+        CacheManager? cacheManager;
+        try {
+          cacheManager = await Future.any([
+            CacheManager.initialize(),
+            Future.delayed(const Duration(seconds: 15), () => null),
+          ]);
+          if (cacheManager != null) {
+            debugPrint('Cache manager initialized successfully');
+          } else {
+            debugPrint(
+                'Cache initialization timed out, continuing without cache');
+          }
+        } catch (e) {
+          debugPrint(
+              'Cache initialization failed, continuing without cache: $e');
+        }
 
         final firebaseConfig = FirebaseConfig();
-        await Future.any([
-          firebaseConfig.initialize(),
-          Future.delayed(
-            const Duration(seconds: 10),
-            () => throw TimeoutException('Firebase initialization timeout'),
-          ),
-        ]);
+        await firebaseConfig.initialize();
         debugPrint('Firebase initialized successfully');
 
-        // Initialize feature services with timeouts
+        // Initialize feature services
         debugPrint('Initializing feature services...');
         final authService = AuthService(firebaseConfig: firebaseConfig);
-        await Future.any([
-          authService.initialize(),
-          Future.delayed(
-            const Duration(seconds: 10),
-            () => throw TimeoutException('Auth service initialization timeout'),
-          ),
-        ]);
+        await authService.initialize();
         debugPrint('Auth service initialized');
 
-        final pokemonService = await Future.any([
-          PokemonService.initialize(),
-          Future.delayed(
-            const Duration(seconds: 10),
-            () => throw TimeoutException(
-                'Pokemon service initialization timeout'),
-          ),
-        ]);
+        final pokemonService = await PokemonService.initialize();
         debugPrint('Pokemon service initialized');
-        debugPrint('All feature services initialized successfully');
+        debugPrint('All services initialized successfully');
 
         // Set global error handlers for Flutter errors
         FlutterError.onError = (FlutterErrorDetails details) {
           debugPrint('Flutter error occurred: ${details.exception}');
-          monitoringManager?.logError(
+          monitoringManager.logError(
             'Flutter Error',
             error: details.exception,
             additionalData: {
@@ -120,7 +94,7 @@ void main() {
         // Set error widget builder for Framework errors
         ErrorWidget.builder = (FlutterErrorDetails details) {
           debugPrint('Framework error occurred: ${details.exception}');
-          monitoringManager?.logError(
+          monitoringManager.logError(
             'Framework Error',
             error: details.exception,
             stackTrace: details.stack,
@@ -165,8 +139,9 @@ void main() {
             providers: [
               // Core providers
               Provider<FirebaseConfig>.value(value: firebaseConfig),
-              Provider<MonitoringManager>.value(value: monitoringManager!),
-              Provider<CacheManager>.value(value: cacheManager),
+              Provider<MonitoringManager>.value(value: monitoringManager),
+              Provider<CacheManager?>.value(
+                  value: cacheManager), // Nullable provider
 
               // Service providers
               Provider<AuthService>.value(value: authService),
@@ -177,7 +152,7 @@ void main() {
               ChangeNotifierProvider(create: (_) => PokemonProvider()),
               ChangeNotifierProvider(create: (_) => ThemeProvider()),
             ],
-            child: performanceManager!.enableSmoothAnimations(
+            child: performanceManager.enableSmoothAnimations(
               const PokemonApp(),
             ),
           ),
