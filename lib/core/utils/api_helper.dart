@@ -1,9 +1,5 @@
 // lib/core/utils/api_helper.dart
 
-/// API helper utility for handling HTTP requests with caching.
-/// Provides centralized API access with error handling and caching support.
-library;
-
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
@@ -30,6 +26,9 @@ class ApiResponse<T> {
   /// Error message if any
   final String? message;
 
+  /// Response metadata
+  final Map<String, dynamic>? metadata;
+
   /// Constructor
   const ApiResponse({
     this.data,
@@ -37,6 +36,7 @@ class ApiResponse<T> {
     required this.status,
     this.error,
     this.message,
+    this.metadata,
   });
 
   /// Whether response is successful
@@ -78,12 +78,11 @@ class ApiHelper {
   final _client = http.Client();
   late final MonitoringManager _monitoring;
   late final ConnectivityManager _connectivity;
-  late final CacheManager _cache;
+  CacheManager? _cache; // Make nullable
 
   // State management
   bool _isInitialized = false;
   bool _isDisposed = false;
-  final _initCompleter = Completer<void>();
 
   // Timeouts and retry configuration
   static const Duration _defaultTimeout = Duration(seconds: 30);
@@ -94,21 +93,26 @@ class ApiHelper {
     if (_isInitialized || _isDisposed) return;
 
     try {
+      debugPrint('🌐 ApiHelper: Starting initialization...');
+
       _monitoring = MonitoringManager();
       _connectivity = ConnectivityManager();
-      _cache = await CacheManager.initialize();
+
+      // Try to get CacheManager if available
+      try {
+        debugPrint('🌐 ApiHelper: Initializing cache...');
+        _cache = await CacheManager.initialize();
+        debugPrint('✅ ApiHelper: Cache initialized');
+      } catch (e) {
+        debugPrint(
+            '⚠️ ApiHelper: Cache not available, continuing without cache: $e');
+        _cache = null;
+      }
 
       _isInitialized = true;
-      _initCompleter.complete();
-
-      if (kDebugMode) {
-        print('✅ ApiHelper initialized');
-      }
+      debugPrint('✅ ApiHelper fully initialized');
     } catch (e) {
-      _initCompleter.completeError(e);
-      if (kDebugMode) {
-        print('❌ ApiHelper initialization failed: $e');
-      }
+      debugPrint('❌ ApiHelper initialization failed: $e');
       rethrow;
     }
   }
@@ -125,7 +129,7 @@ class ApiHelper {
     _throwIfNotInitialized();
 
     try {
-      // Check network state
+      // Check network state and try cache
       if (!_connectivity.hasConnection) {
         final cached = await _getCachedResponse<T>(endpoint, parser);
         if (cached != null) {
@@ -133,39 +137,37 @@ class ApiHelper {
             data: cached,
             source: DataSource.cache,
             status: ApiStatus.success,
+            metadata: {'cached': true, 'offline': true},
           );
         }
         throw 'No network connection and no cached data available';
       }
 
-      // Try to get from cache if allowed
-      if (!forceRefresh && useCache) {
+      // Try cache if allowed and available
+      if (!forceRefresh && useCache && _cache != null) {
         final cached = await _getCachedResponse<T>(endpoint, parser);
         if (cached != null) {
           return ApiResponse(
             data: cached,
             source: DataSource.cache,
             status: ApiStatus.success,
+            metadata: {'cached': true},
           );
         }
       }
 
-      // Execute network request with retry
+      // Execute network request
       final response = await _executeWithRetry(
-        () => _client
-            .get(
-              Uri.parse(endpoint),
-              headers: headers,
-            )
-            .timeout(timeout),
+        () =>
+            _client.get(Uri.parse(endpoint), headers: headers).timeout(timeout),
       );
 
       if (response.statusCode == 200) {
         final jsonData = json.decode(response.body) as Map<String, dynamic>;
         final data = parser(jsonData);
 
-        // Cache successful response
-        if (useCache) {
+        // Cache if available
+        if (useCache && _cache != null) {
           await _cacheResponse(endpoint, jsonData);
         }
 
@@ -173,26 +175,39 @@ class ApiHelper {
           data: data,
           source: DataSource.network,
           status: ApiStatus.success,
+          metadata: {'statusCode': response.statusCode},
         );
       }
 
       throw _handleHttpError(response.statusCode);
     } catch (e) {
+      _monitoring.logError(
+        'API Request Failed',
+        error: e,
+        additionalData: {'endpoint': endpoint},
+      );
+
       return ApiResponse(
         status: ApiStatus.error,
         error: e,
         message: e.toString(),
+        metadata: {'endpoint': endpoint},
       );
     }
   }
 
-  /// Get cached response
+  /// Get cached response with null safety
   Future<T?> _getCachedResponse<T>(
     String endpoint,
     T Function(Map<String, dynamic>) parser,
   ) async {
+    if (_cache == null) {
+      debugPrint('⚠️ ApiHelper: Cache not available, skipping cache check');
+      return null;
+    }
+
     try {
-      final cached = await _cache.get<Map<String, dynamic>>(endpoint);
+      final cached = await _cache?.get<Map<String, dynamic>>(endpoint);
       return cached != null ? parser(cached) : null;
     } catch (e) {
       _monitoring.logError('Cache read error', error: e);
@@ -200,13 +215,18 @@ class ApiHelper {
     }
   }
 
-  /// Cache response data
+  /// Cache response data if cache available
   Future<void> _cacheResponse(
     String endpoint,
     Map<String, dynamic> data,
   ) async {
+    if (_cache == null) {
+      debugPrint('⚠️ ApiHelper: Cache not available, skipping cache write');
+      return;
+    }
+
     try {
-      await _cache.put(endpoint, data);
+      await _cache?.put(endpoint, data);
     } catch (e) {
       _monitoring.logError('Cache write error', error: e);
     }
@@ -265,9 +285,6 @@ class ApiHelper {
 
     _isDisposed = true;
     _client.close();
-
-    if (kDebugMode) {
-      print('🧹 ApiHelper disposed');
-    }
+    debugPrint('🧹 ApiHelper disposed');
   }
 }
