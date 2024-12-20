@@ -1,20 +1,17 @@
 // lib/core/utils/request_manager.dart
 
-/// Request manager utility to track and optimize API requests.
-/// Handles request deduplication, batching, and prioritization.
-library;
-
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:rxdart/subjects.dart';
 
-/// Priority levels for requests
+/// Request priority levels
 enum RequestPriority {
   /// High priority - immediate execution
   high,
-  
+
   /// Normal priority - standard execution
   normal,
-  
+
   /// Low priority - can be delayed
   low
 }
@@ -23,16 +20,16 @@ enum RequestPriority {
 enum RequestStatus {
   /// Request is pending
   pending,
-  
+
   /// Request is currently executing
   executing,
-  
+
   /// Request completed successfully
   completed,
-  
+
   /// Request failed
   failed,
-  
+
   /// Request was cancelled
   cancelled
 }
@@ -41,22 +38,22 @@ enum RequestStatus {
 class RequestEntry {
   /// Unique request identifier
   final String id;
-  
+
   /// Request priority
   final RequestPriority priority;
-  
+
   /// Request type/endpoint
   final String type;
-  
+
   /// Request parameters
   final Map<String, dynamic> parameters;
-  
+
   /// Creation timestamp
   final DateTime timestamp;
-  
+
   /// Current status
   RequestStatus status;
-  
+
   /// Error message if failed
   String? errorMessage;
 
@@ -74,27 +71,34 @@ class RequestEntry {
 /// Manages API request tracking and optimization
 class RequestManager {
   static final RequestManager _instance = RequestManager._internal();
-  
+
   /// Singleton instance
   factory RequestManager() => _instance;
 
-  RequestManager._internal();
+  RequestManager._internal() {
+    // Setup periodic cleanup
+    _cleanupTimer = Timer.periodic(
+      const Duration(minutes: 5),
+      (_) => _checkExpiredRequests(),
+    );
+  }
 
   final Map<String, RequestEntry> _activeRequests = {};
-  final BehaviorSubject<List<RequestEntry>> _requestsController = 
+  final BehaviorSubject<List<RequestEntry>> _requestsController =
       BehaviorSubject<List<RequestEntry>>.seeded([]);
-  
+  Timer? _cleanupTimer;
+
   /// Maximum concurrent requests
   static const int _maxConcurrentRequests = 3;
-  
+
   /// Request timeout duration
   static const Duration _requestTimeout = Duration(seconds: 30);
 
   /// Stream of active requests
   Stream<List<RequestEntry>> get requestsStream => _requestsController.stream;
-  
+
   /// Current active requests
-  List<RequestEntry> get activeRequests => 
+  List<RequestEntry> get activeRequests =>
       List.unmodifiable(_activeRequests.values.toList());
 
   /// Track new request
@@ -126,7 +130,7 @@ class RequestManager {
       request.errorMessage = error;
       _updateRequests();
 
-      if (status == RequestStatus.completed || 
+      if (status == RequestStatus.completed ||
           status == RequestStatus.failed ||
           status == RequestStatus.cancelled) {
         _cleanupRequest(id);
@@ -143,11 +147,24 @@ class RequestManager {
   RequestEntry? getRequest(String id) => _activeRequests[id];
 
   /// Get number of executing requests
-  int get executingRequestsCount => 
-      _activeRequests.values.where((r) => r.status == RequestStatus.executing).length;
+  int get executingRequestsCount => _activeRequests.values
+      .where((r) => r.status == RequestStatus.executing)
+      .length;
 
   /// Check if new request can be executed
   bool canExecuteRequest() => executingRequestsCount < _maxConcurrentRequests;
+
+  /// Check for expired requests
+  void _checkExpiredRequests() {
+    final now = DateTime.now();
+    _activeRequests.forEach((id, request) {
+      if (request.status == RequestStatus.executing &&
+          now.difference(request.timestamp) > _requestTimeout) {
+        updateRequestStatus(
+            id, RequestStatus.failed, 'Request timeout exceeded');
+      }
+    });
+  }
 
   /// Clean up completed/failed requests
   void _cleanupRequest(String id) {
@@ -158,7 +175,7 @@ class RequestManager {
   }
 
   /// Generate unique request ID
-  String _generateRequestId() => 
+  String _generateRequestId() =>
       '${DateTime.now().millisecondsSinceEpoch}_${_activeRequests.length}';
 
   /// Update requests stream
@@ -168,23 +185,9 @@ class RequestManager {
     }
   }
 
-  /// Check for expired requests
-  void _checkExpiredRequests() {
-    final now = DateTime.now();
-    _activeRequests.forEach((id, request) {
-      if (request.status == RequestStatus.executing &&
-          now.difference(request.timestamp) > _requestTimeout) {
-        updateRequestStatus(
-          id, 
-          RequestStatus.failed, 
-          'Request timeout exceeded'
-        );
-      }
-    });
-  }
-
   /// Clean up resources
   void dispose() {
+    _cleanupTimer?.cancel();
     _activeRequests.clear();
     _requestsController.close();
   }
@@ -195,16 +198,16 @@ extension RequestManagerExtension on RequestManager {
   /// Get requests by status
   List<RequestEntry> getRequestsByStatus(RequestStatus status) =>
       _activeRequests.values.where((r) => r.status == status).toList();
-  
+
   /// Get requests by priority
   List<RequestEntry> getRequestsByPriority(RequestPriority priority) =>
       _activeRequests.values.where((r) => r.priority == priority).toList();
-  
+
   /// Get failed requests
-  List<RequestEntry> get failedRequests => 
+  List<RequestEntry> get failedRequests =>
       getRequestsByStatus(RequestStatus.failed);
-  
+
   /// Get pending requests count
-  int get pendingRequestsCount => 
+  int get pendingRequestsCount =>
       getRequestsByStatus(RequestStatus.pending).length;
 }
