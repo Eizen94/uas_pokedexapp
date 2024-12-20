@@ -91,6 +91,9 @@ class CacheManager {
 
         rethrow;
       }
+    }).timeout(const Duration(seconds: 10), onTimeout: () {
+      throw TimeoutException(
+          'CacheManager initialization timeout after 10 seconds');
     });
   }
 
@@ -213,33 +216,41 @@ class CacheManager {
   Future<void> _loadPersistedCache() async {
     await _initLock.synchronized(() {
       try {
-        debugPrint('📦 CacheManager: Loading persisted cache...');
+        debugPrint('📦 CacheManager: Starting to load persisted cache...');
+
+        debugPrint('📦 CacheManager: Getting string from SharedPreferences...');
         final String? serialized = _prefs.getString('cache_data');
 
         if (serialized != null) {
+          debugPrint('📦 CacheManager: Found persisted data, decoding JSON...');
           final List<dynamic> data = json.decode(serialized);
-          debugPrint('📦 CacheManager: Found ${data.length} persisted entries');
+          debugPrint('📦 CacheManager: JSON decoded successfully');
 
           _cache.clear();
           _currentSize = 0;
 
+          debugPrint('📦 CacheManager: Processing ${data.length} entries...');
+          var processedCount = 0;
           for (final item in data) {
+            debugPrint(
+                '📦 CacheManager: Processing entry ${++processedCount}/${data.length}');
             final entry = CacheEntry.fromJson(item as Map<String, dynamic>);
             _cache[entry.key] = entry;
             _currentSize += entry.size;
+            debugPrint('📦 CacheManager: Entry processed successfully');
           }
 
-          debugPrint('✅ CacheManager: Persisted cache loaded successfully');
-          debugPrint('- Entries loaded: ${_cache.length}');
-          debugPrint('- Total size: $_currentSize bytes');
+          debugPrint('✅ CacheManager: All entries processed');
         } else {
-          debugPrint('📦 CacheManager: No persisted cache found');
+          debugPrint(
+              '📦 CacheManager: No persisted cache found, starting fresh');
         }
+
+        debugPrint('✅ CacheManager: Load complete');
       } catch (e, stack) {
-        debugPrint('❌ CacheManager: Failed to load persisted cache');
-        debugPrint('Error: $e');
-        debugPrint('Stack trace: $stack');
-        // Continue with empty cache on load error
+        debugPrint('❌ CacheManager: Error loading persisted cache: $e');
+        debugPrint(stack.toString());
+        // Continue with empty cache
         _cache.clear();
         _currentSize = 0;
       }
@@ -249,6 +260,7 @@ class CacheManager {
   /// Verify manager is initialized
   void _verifyInitialized() {
     if (!_isInitialized) {
+      debugPrint('❌ CacheManager: Attempting to use uninitialized instance');
       throw StateError('CacheManager must be initialized before use');
     }
   }
