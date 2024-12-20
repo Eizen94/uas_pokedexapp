@@ -65,7 +65,6 @@ class PokemonApp extends StatelessWidget {
 
                   return MainBottomNavigation(
                     user: user,
-                    authService: authService,
                   );
                 },
               );
