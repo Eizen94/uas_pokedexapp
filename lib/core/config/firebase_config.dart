@@ -26,45 +26,73 @@ class FirebaseConfig {
   /// Initialize Firebase services
   Future<void> initialize() async {
     if (_isInitialized) {
+      debugPrint('Firebase already initialized, returning existing instance');
       return await _initCompleter.future;
     }
 
     try {
+      debugPrint('Starting Firebase.initializeApp()');
+      debugPrint('Using Firebase Options: ${_getFirebaseOptions().toString()}');
+
       await Firebase.initializeApp(
         options: _getFirebaseOptions(),
       );
 
+      debugPrint('Firebase.initializeApp() completed');
+      debugPrint('Initializing Auth instance');
       _auth = FirebaseAuth.instance;
+
+      debugPrint('Initializing Firestore instance');
       _firestore = FirebaseFirestore.instance;
 
+      debugPrint('Configuring Firestore settings');
       await _configureFirestore();
+
       _isInitialized = true;
       _initCompleter.complete();
 
-      debugPrint('Firebase initialized successfully');
-    } catch (e) {
+      debugPrint('✅ Firebase initialization complete');
+      debugPrint('Auth initialized: ${_auth != null}');
+      debugPrint('Firestore initialized: ${_firestore != null}');
+    } catch (e, stack) {
+      debugPrint('❌ Firebase initialization failed with error: $e');
+      debugPrint('Stack trace: $stack');
+
+      // Log specific configuration errors
+      if (e is FirebaseException) {
+        debugPrint('Firebase Error Code: ${e.code}');
+        debugPrint('Firebase Error Message: ${e.message}');
+        debugPrint('Firebase Error Details: ${e.details}');
+      }
+
       _initCompleter.completeError(e);
-      debugPrint('Failed to initialize Firebase: $e');
       rethrow;
     }
   }
 
   /// Get Firebase Auth instance
   FirebaseAuth get auth {
-    assert(_isInitialized,
-        'FirebaseConfig must be initialized before accessing auth');
+    if (!_isInitialized) {
+      debugPrint('❌ Attempting to access auth before initialization');
+      throw StateError(
+          'FirebaseConfig must be initialized before accessing auth');
+    }
     return _auth!;
   }
 
   /// Get Firestore instance
   FirebaseFirestore get firestore {
-    assert(_isInitialized,
-        'FirebaseConfig must be initialized before accessing firestore');
+    if (!_isInitialized) {
+      debugPrint('❌ Attempting to access firestore before initialization');
+      throw StateError(
+          'FirebaseConfig must be initialized before accessing firestore');
+    }
     return _firestore!;
   }
 
   /// Get Firebase configuration options
   FirebaseOptions _getFirebaseOptions() {
+    debugPrint('Getting Firebase Options');
     return const FirebaseOptions(
         apiKey: "AIzaSyA788aYkne3gRiwAtZLtsVMRl5reUPMcXg",
         appId: "1:631128211674:android:f88221525f9e09b7f465e3",
@@ -75,10 +103,17 @@ class FirebaseConfig {
 
   /// Configure Firestore settings
   Future<void> _configureFirestore() async {
-    _firestore!.settings = const Settings(
-      persistenceEnabled: true,
-      cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
-    );
+    debugPrint('Setting up Firestore persistence and cache settings');
+    try {
+      _firestore!.settings = const Settings(
+        persistenceEnabled: true,
+        cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
+      );
+      debugPrint('✅ Firestore settings configured successfully');
+    } catch (e) {
+      debugPrint('❌ Failed to configure Firestore settings: $e');
+      rethrow;
+    }
   }
 
   /// Collection references
@@ -86,7 +121,15 @@ class FirebaseConfig {
 
   /// Firebase error handler
   static String handleError(FirebaseException error) {
-    switch (error.code) {
+    debugPrint('Handling Firebase error: ${error.code}');
+    final message = _getErrorMessage(error.code);
+    debugPrint('Translated error message: $message');
+    return message;
+  }
+
+  /// Get error message based on code
+  static String _getErrorMessage(String code) {
+    switch (code) {
       case 'permission-denied':
         return 'You don\'t have permission to perform this action';
       case 'unavailable':
@@ -120,7 +163,7 @@ class FirebaseConfig {
       case 'unauthenticated':
         return 'Authentication required';
       default:
-        return error.message ?? 'An error occurred';
+        return error ?? 'An error occurred';
     }
   }
 }

@@ -21,29 +21,47 @@ void main() {
   runZonedGuarded(
     () async {
       try {
+        debugPrint('Starting app initialization...');
+
+        // Initialize Flutter bindings
         WidgetsFlutterBinding.ensureInitialized();
+        debugPrint('Flutter binding initialized');
 
         // Lock orientation to portrait
         await SystemChrome.setPreferredOrientations([
           DeviceOrientation.portraitUp,
           DeviceOrientation.portraitDown,
         ]);
+        debugPrint('Device orientation locked');
 
         // Initialize managers first
+        debugPrint('Initializing managers...');
         final performanceManager = PerformanceManager();
         final monitoringManager = MonitoringManager();
+        debugPrint('Managers initialized');
 
         // Initialize core services in order
+        debugPrint('Initializing core services...');
         final cacheManager = await CacheManager.initialize();
+        debugPrint('Cache manager initialized');
+
         final firebaseConfig = FirebaseConfig();
+        debugPrint('Firebase initialization started');
         await firebaseConfig.initialize();
+        debugPrint('Firebase initialized successfully');
 
         // Initialize feature services
+        debugPrint('Initializing feature services...');
         final authService = AuthService(firebaseConfig: firebaseConfig);
+        await authService.initialize();
+        debugPrint('Auth service initialized');
+
         final pokemonService = await PokemonService.initialize();
+        debugPrint('Pokemon service initialized');
 
         // Set global error handlers for Flutter errors
         FlutterError.onError = (FlutterErrorDetails details) {
+          debugPrint('Flutter error occurred: ${details.exception}');
           monitoringManager.logError(
             'Flutter Error',
             error: details.exception,
@@ -56,6 +74,7 @@ void main() {
 
         // Set error widget builder for Framework errors
         ErrorWidget.builder = (FlutterErrorDetails details) {
+          debugPrint('Framework error occurred: ${details.exception}');
           monitoringManager.logError(
             'Framework Error',
             error: details.exception,
@@ -93,6 +112,8 @@ void main() {
           );
         };
 
+        debugPrint('Starting app with providers...');
+
         // Run app with all required providers
         runApp(
           MultiProvider(
@@ -116,8 +137,11 @@ void main() {
             ),
           ),
         );
+
+        debugPrint('App started successfully');
       } catch (e, stack) {
         debugPrint('Error during initialization: $e');
+        debugPrint('Stack trace: $stack');
         MonitoringManager().logError(
           'Initialization Error',
           error: e,
@@ -127,6 +151,8 @@ void main() {
       }
     },
     (error, stack) {
+      debugPrint('Uncaught error: $error');
+      debugPrint('Stack trace: $stack');
       MonitoringManager().logError(
         'Uncaught Error',
         error: error,
