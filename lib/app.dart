@@ -9,7 +9,6 @@ import 'core/constants/colors.dart';
 import 'core/wrappers/auth_state_wrapper.dart';
 import 'features/auth/models/user_model.dart';
 import 'features/auth/screens/login_screen.dart';
-import 'features/auth/services/auth_service.dart';
 import 'navigation/bottom_navigation.dart';
 import 'navigation/routes.dart';
 
@@ -58,10 +57,6 @@ class PokemonApp extends StatelessWidget {
                   if (user == null) {
                     return const LoginScreen();
                   }
-
-                  // Get auth service instance
-                  final authService =
-                      Provider.of<AuthService>(context, listen: false);
 
                   return MainBottomNavigation(
                     user: user,
