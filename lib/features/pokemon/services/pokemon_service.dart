@@ -212,10 +212,13 @@ class PokemonService {
     final abilities =
         await _mapAbilities(pokemonData['abilities'] as List<dynamic>);
     final moves = await _mapMoves(pokemonData['moves'] as List<dynamic>);
-    final evolutionChain = evolutionData != null
-        ? await _mapEvolutionChain(
-            evolutionData['chain'] as Map<String, dynamic>)
-        : [];
+
+    // Fix type casting here
+    List<EvolutionStage> evolutionChain = [];
+    if (evolutionData != null) {
+      evolutionChain = await _mapEvolutionChain(
+          evolutionData['chain'] as Map<String, dynamic>);
+    }
 
     return PokemonDetailModel(
       id: basicPokemon.id,
@@ -229,7 +232,7 @@ class PokemonService {
       species: basicPokemon.species,
       abilities: abilities,
       moves: moves,
-      evolutionChain: evolutionChain,
+      evolutionChain: evolutionChain, // Now with proper type
       description: _getEnglishDescription(
           speciesData['flavor_text_entries'] as List<dynamic>),
       catchRate: speciesData['capture_rate'] as int,
