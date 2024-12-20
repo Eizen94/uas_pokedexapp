@@ -34,35 +34,80 @@ void main() {
         ]);
         debugPrint('Device orientation locked');
 
-        // Initialize managers first
+        // Initialize managers first with timeout
         debugPrint('Initializing managers...');
-        final performanceManager = PerformanceManager();
-        final monitoringManager = MonitoringManager();
-        debugPrint('Managers initialized');
+        PerformanceManager? performanceManager;
+        MonitoringManager? monitoringManager;
 
-        // Initialize core services in order
+        await Future.wait([
+          Future(() {
+            performanceManager = PerformanceManager();
+            debugPrint('Performance manager initialized');
+          }).timeout(
+            const Duration(seconds: 5),
+            onTimeout: () => throw TimeoutException(
+                'Performance manager initialization timeout'),
+          ),
+          Future(() {
+            monitoringManager = MonitoringManager();
+            debugPrint('Monitoring manager initialized');
+          }).timeout(
+            const Duration(seconds: 5),
+            onTimeout: () => throw TimeoutException(
+                'Monitoring manager initialization timeout'),
+          ),
+        ]);
+        debugPrint('All managers initialized successfully');
+
+        // Initialize core services in order with timeouts
         debugPrint('Initializing core services...');
-        final cacheManager = await CacheManager.initialize();
-        debugPrint('Cache manager initialized');
+
+        final cacheManager = await Future.any([
+          CacheManager.initialize(),
+          Future.delayed(
+            const Duration(seconds: 10),
+            () => throw TimeoutException('CacheManager initialization timeout'),
+          ),
+        ]);
+        debugPrint('Cache manager initialized successfully');
 
         final firebaseConfig = FirebaseConfig();
-        debugPrint('Firebase initialization started');
-        await firebaseConfig.initialize();
+        await Future.any([
+          firebaseConfig.initialize(),
+          Future.delayed(
+            const Duration(seconds: 10),
+            () => throw TimeoutException('Firebase initialization timeout'),
+          ),
+        ]);
         debugPrint('Firebase initialized successfully');
 
-        // Initialize feature services
+        // Initialize feature services with timeouts
         debugPrint('Initializing feature services...');
         final authService = AuthService(firebaseConfig: firebaseConfig);
-        await authService.initialize();
+        await Future.any([
+          authService.initialize(),
+          Future.delayed(
+            const Duration(seconds: 10),
+            () => throw TimeoutException('Auth service initialization timeout'),
+          ),
+        ]);
         debugPrint('Auth service initialized');
 
-        final pokemonService = await PokemonService.initialize();
+        final pokemonService = await Future.any([
+          PokemonService.initialize(),
+          Future.delayed(
+            const Duration(seconds: 10),
+            () => throw TimeoutException(
+                'Pokemon service initialization timeout'),
+          ),
+        ]);
         debugPrint('Pokemon service initialized');
+        debugPrint('All feature services initialized successfully');
 
         // Set global error handlers for Flutter errors
         FlutterError.onError = (FlutterErrorDetails details) {
           debugPrint('Flutter error occurred: ${details.exception}');
-          monitoringManager.logError(
+          monitoringManager?.logError(
             'Flutter Error',
             error: details.exception,
             additionalData: {
@@ -75,7 +120,7 @@ void main() {
         // Set error widget builder for Framework errors
         ErrorWidget.builder = (FlutterErrorDetails details) {
           debugPrint('Framework error occurred: ${details.exception}');
-          monitoringManager.logError(
+          monitoringManager?.logError(
             'Framework Error',
             error: details.exception,
             stackTrace: details.stack,
@@ -120,7 +165,7 @@ void main() {
             providers: [
               // Core providers
               Provider<FirebaseConfig>.value(value: firebaseConfig),
-              Provider<MonitoringManager>.value(value: monitoringManager),
+              Provider<MonitoringManager>.value(value: monitoringManager!),
               Provider<CacheManager>.value(value: cacheManager),
 
               // Service providers
@@ -132,7 +177,7 @@ void main() {
               ChangeNotifierProvider(create: (_) => PokemonProvider()),
               ChangeNotifierProvider(create: (_) => ThemeProvider()),
             ],
-            child: performanceManager.enableSmoothAnimations(
+            child: performanceManager!.enableSmoothAnimations(
               const PokemonApp(),
             ),
           ),
