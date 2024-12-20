@@ -78,7 +78,7 @@ class ApiHelper {
   final _client = http.Client();
   late final MonitoringManager _monitoring;
   late final ConnectivityManager _connectivity;
-  CacheManager? _cache;
+  late final CacheManager _cache;
 
   // State management
   bool _isInitialized = false;
