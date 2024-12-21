@@ -300,6 +300,7 @@ class PokemonService {
   }
 
   /// Build complete Pokemon detail model
+  /// Build complete Pokemon detail model
   Future<PokemonDetailModel> _buildPokemonDetail({
     required Map<String, dynamic> pokemonData,
     required Map<String, dynamic> speciesData,
@@ -314,10 +315,18 @@ class PokemonService {
       final abilities =
           await _mapAbilities(pokemonData['abilities'] as List<dynamic>);
       final moves = await _mapMoves(pokemonData['moves'] as List<dynamic>);
-      final evolutionChain = evolutionData != null
-          ? await _mapEvolutionChain(
-              evolutionData['chain'] as Map<String, dynamic>)
-          : [];
+
+      // Fix evolution chain type conversion
+      List<EvolutionStage> evolutionChain = [];
+      if (evolutionData != null) {
+        try {
+          evolutionChain = await _mapEvolutionChain(
+              evolutionData['chain'] as Map<String, dynamic>);
+        } catch (e) {
+          debugPrint('Error mapping evolution chain: $e');
+          // Continue with empty evolution chain rather than failing
+        }
+      }
 
       return PokemonDetailModel(
         id: basicPokemon.id,
@@ -331,7 +340,8 @@ class PokemonService {
         species: basicPokemon.species,
         abilities: abilities,
         moves: moves,
-        evolutionChain: evolutionChain,
+        evolutionChain:
+            evolutionChain, // Now properly typed as List<EvolutionStage>
         description: _getEnglishDescription(
             speciesData['flavor_text_entries'] as List<dynamic>),
         catchRate: speciesData['capture_rate'] as int,

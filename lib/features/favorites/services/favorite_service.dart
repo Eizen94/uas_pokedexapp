@@ -1,20 +1,31 @@
 // lib/features/favorites/services/favorite_service.dart
 
-/// Favorite service to manage user's favorite Pokemon.
-/// Handles favorite operations and synchronization with Firestore.
-library;
-
+import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 
 import '../../../core/config/firebase_config.dart';
 import '../../../core/utils/monitoring_manager.dart';
 import '../../../core/utils/connectivity_manager.dart';
 import '../../../core/utils/offline_operation.dart';
+import '../../../core/utils/cache_manager.dart';
+import '../../pokemon/services/pokemon_service.dart';
 import '../../pokemon/models/pokemon_model.dart';
 import '../models/favorite_model.dart';
 
 /// Favorite service error messages
-class FavoriteServiceError {
+class FavoriteServiceError implements Exception {
+  final String message;
+  final dynamic originalError;
+
+  const FavoriteServiceError({
+    required this.message,
+    this.originalError,
+  });
+
+  @override
+  String toString() => message;
+
   static const String notFound = 'Favorite not found';
   static const String alreadyExists = 'Pokemon already in favorites';
   static const String saveFailed = 'Failed to save favorite';
@@ -25,37 +36,110 @@ class FavoriteServiceError {
 
 /// Service class for managing favorites
 class FavoriteService {
-  final ConnectivityManager _connectivityManager;
-  final MonitoringManager _monitoringManager;
-  final OfflineOperationManager _offlineManager;
+  static final FavoriteService _instance = FavoriteService._internal();
+  static bool _initializing = false;
+  static bool _initialized = false;
 
-  FavoriteService._({
-    required ConnectivityManager connectivityManager,
-    required MonitoringManager monitoringManager,
-    required OfflineOperationManager offlineManager,
-  })  : _connectivityManager = connectivityManager,
-        _monitoringManager = monitoringManager,
-        _offlineManager = offlineManager;
+  // Dependencies
+  late final FirebaseConfig _firebaseConfig;
+  late final MonitoringManager _monitoringManager;
+  late final ConnectivityManager _connectivityManager;
+  late final OfflineOperationManager _offlineManager;
+  late final CacheManager _cacheManager;
+  late final PokemonService _pokemonService;
 
+  // Internal state
+  bool _isDisposed = false;
+  final _favoritesController =
+      StreamController<List<FavoriteModel>>.broadcast();
+
+  /// Private constructor
+  FavoriteService._internal();
+
+  /// Initialize service as singleton
   static Future<FavoriteService> initialize() async {
-    final offlineManager = await OfflineOperationManager.initialize();
+    if (_initialized && !_instance._isDisposed) {
+      return _instance;
+    }
 
-    return FavoriteService._(
-      connectivityManager: ConnectivityManager(),
-      monitoringManager: MonitoringManager(),
-      offlineManager: offlineManager,
-    );
+    if (_initializing) {
+      while (_initializing) {
+        await Future.delayed(const Duration(milliseconds: 100));
+      }
+      if (_initialized) return _instance;
+    }
+
+    _initializing = true;
+
+    try {
+      debugPrint('🎯 FavoriteService: Starting initialization...');
+
+      // Initialize dependencies
+      _instance._firebaseConfig = FirebaseConfig();
+      await _instance._firebaseConfig.initialize();
+
+      _instance._monitoringManager = MonitoringManager();
+      _instance._connectivityManager = ConnectivityManager();
+      _instance._cacheManager = await CacheManager.initialize();
+      _instance._offlineManager = await OfflineOperationManager.initialize();
+      _instance._pokemonService = await PokemonService.initialize();
+
+      _initialized = true;
+      _initializing = false;
+
+      debugPrint('✅ FavoriteService initialized');
+      return _instance;
+    } catch (e, stack) {
+      _initializing = false;
+      debugPrint('❌ FavoriteService initialization failed: $e');
+      debugPrint(stack.toString());
+      rethrow;
+    }
   }
 
-  /// Get user's favorites stream
+  /// Stream of user's favorites
   Stream<List<FavoriteModel>> getFavoritesStream(String userId) {
-    return FirebaseConfig
-        .collections // Changed from _firebaseConfig.collections
-        .getFavorites(userId)
+    _verifyState();
+
+    return _firebaseConfig.firestore
+        .collection('users')
+        .doc(userId)
+        .collection('favorites')
         .snapshots()
-        .map((snapshot) => snapshot.docs
-            .map((doc) => FavoriteModel.fromJson(doc.data()))
-            .toList());
+        .asyncMap((snapshot) async {
+      try {
+        final favorites = <FavoriteModel>[];
+
+        for (var doc in snapshot.docs) {
+          try {
+            final data = doc.data();
+            final pokemonId = data['pokemonId'] as int;
+
+            // Get Pokemon data
+            final pokemon = await _getPokemonData(pokemonId);
+            if (pokemon != null) {
+              favorites.add(await FavoriteModel.fromFirestore(
+                data: data,
+                pokemon: pokemon,
+              ));
+            }
+          } catch (e) {
+            debugPrint('Error processing favorite: $e');
+            continue;
+          }
+        }
+
+        _favoritesController.add(favorites);
+        return favorites;
+      } catch (e, stack) {
+        _monitoringManager.logError(
+          'Error fetching favorites',
+          error: e,
+          stackTrace: stack,
+        );
+        return [];
+      }
+    });
   }
 
   /// Add Pokemon to favorites
@@ -65,6 +149,8 @@ class FavoriteService {
     String? note,
     String? nickname,
   }) async {
+    _verifyState();
+
     try {
       final favorite = FavoriteModel.fromPokemon(
         userId: userId,
@@ -76,31 +162,46 @@ class FavoriteService {
       if (!_connectivityManager.hasConnection) {
         await _offlineManager.addOperation(
           type: OfflineOperationType.addFavorite,
-          data: favorite.toJson(),
+          data: favorite.toFirestore(),
         );
         return;
       }
 
       // Check if already exists
-      final docRef =
-          FirebaseConfig.collections.getFavorites(userId).doc(favorite.id);
-      final doc = await docRef.get();
+      final docRef = _firebaseConfig.firestore
+          .collection('users')
+          .doc(userId)
+          .collection('favorites')
+          .doc(favorite.id);
 
+      final doc = await docRef.get();
       if (doc.exists) {
-        throw FavoriteServiceError.alreadyExists;
+        throw const FavoriteServiceError(
+          message: FavoriteServiceError.alreadyExists,
+        );
       }
 
-      await docRef.set(favorite.toJson());
-    } catch (e) {
+      await docRef.set(favorite.toFirestore());
+
+      // Cache favorite
+      await _cacheManager.put(
+        'favorite_${favorite.id}',
+        favorite.toJson(),
+      );
+    } catch (e, stack) {
       _monitoringManager.logError(
         'Failed to add favorite',
         error: e,
+        stackTrace: stack,
         additionalData: {
           'userId': userId,
           'pokemonId': pokemon.id,
         },
       );
-      rethrow;
+      throw FavoriteServiceError(
+        message: FavoriteServiceError.saveFailed,
+        originalError: e,
+      );
     }
   }
 
@@ -109,6 +210,8 @@ class FavoriteService {
     required String userId,
     required String favoriteId,
   }) async {
+    _verifyState();
+
     try {
       if (!_connectivityManager.hasConnection) {
         await _offlineManager.addOperation(
@@ -121,24 +224,33 @@ class FavoriteService {
         return;
       }
 
-      await FirebaseConfig.collections
-          .getFavorites(userId)
+      await _firebaseConfig.firestore
+          .collection('users')
+          .doc(userId)
+          .collection('favorites')
           .doc(favoriteId)
           .delete();
-    } catch (e) {
+
+      // Remove from cache
+      await _cacheManager.remove('favorite_$favoriteId');
+    } catch (e, stack) {
       _monitoringManager.logError(
         'Failed to remove favorite',
         error: e,
+        stackTrace: stack,
         additionalData: {
           'userId': userId,
           'favoriteId': favoriteId,
         },
       );
-      rethrow;
+      throw FavoriteServiceError(
+        message: FavoriteServiceError.deleteFailed,
+        originalError: e,
+      );
     }
   }
 
-  /// Update favorite note/nickname
+  /// Update favorite details
   Future<void> updateFavorite({
     required String userId,
     required String favoriteId,
@@ -146,6 +258,8 @@ class FavoriteService {
     String? nickname,
     int? teamPosition,
   }) async {
+    _verifyState();
+
     try {
       if (!_connectivityManager.hasConnection) {
         await _offlineManager.addOperation(
@@ -161,13 +275,17 @@ class FavoriteService {
         return;
       }
 
-      final docRef =
-          FirebaseConfig.collections.getFavorites(userId).doc(favoriteId);
+      final docRef = _firebaseConfig.firestore
+          .collection('users')
+          .doc(userId)
+          .collection('favorites')
+          .doc(favoriteId);
 
       final doc = await docRef.get();
-
       if (!doc.exists) {
-        throw FavoriteServiceError.notFound;
+        throw const FavoriteServiceError(
+          message: FavoriteServiceError.notFound,
+        );
       }
 
       final favorite = FavoriteModel.fromJson(doc.data()!);
@@ -182,63 +300,76 @@ class FavoriteService {
         teamPosition: teamPosition,
       );
 
-      await docRef.update(updated.toJson());
-    } catch (e) {
+      await docRef.update(updated.toFirestore());
+
+      // Update cache
+      await _cacheManager.put(
+        'favorite_$favoriteId',
+        updated.toJson(),
+      );
+    } catch (e, stack) {
       _monitoringManager.logError(
         'Failed to update favorite',
         error: e,
+        stackTrace: stack,
         additionalData: {
           'userId': userId,
           'favoriteId': favoriteId,
         },
       );
-      rethrow;
+      throw FavoriteServiceError(
+        message: FavoriteServiceError.saveFailed,
+        originalError: e,
+      );
     }
   }
 
-  /// Get user's team Pokemon (favorites with team positions)
-  Stream<List<TeamMemberModel>> getTeamStream(String userId) {
-    return FirebaseConfig.collections
-        .getFavorites(userId)
-        .where('teamPosition', isNull: false)
-        .snapshots()
-        .map((snapshot) {
-      final favorites = snapshot.docs
-          .map((doc) => FavoriteModel.fromJson(doc.data()))
-          .where((favorite) => favorite.teamPosition != null)
-          .toList();
+  /// Get Pokemon data with caching
+  Future<PokemonModel?> _getPokemonData(int pokemonId) async {
+    try {
+      final cacheKey = 'pokemon_$pokemonId';
 
-      favorites
-          .sort((a, b) => (a.teamPosition ?? 0).compareTo(b.teamPosition ?? 0));
+      // Try cache first
+      final cached = await _cacheManager.get<Map<String, dynamic>>(cacheKey);
+      if (cached != null) {
+        return PokemonModel.fromJson(cached);
+      }
 
-      return favorites
-          .map((favorite) => TeamMemberModel(
-                position: favorite.teamPosition!,
-                favorite: favorite,
-                selectedMoves: const [], // Can be extended for move selection
-              ))
-          .toList();
-    });
+      // Fetch from API
+      final detail = await _pokemonService.getPokemonDetail(pokemonId);
+
+      // Cache result
+      await _cacheManager.put(cacheKey, detail.toJson());
+
+      return detail;
+    } catch (e) {
+      debugPrint('Error getting Pokemon data: $e');
+      return null;
+    }
   }
 
-  /// Validate team position (max 6 Pokemon, no duplicates)
+  /// Validate team position
   Future<void> _validateTeamPosition(
     String userId,
     int position,
     String excludeFavoriteId,
   ) async {
     if (position < 1 || position > 6) {
-      throw FavoriteServiceError.maxTeamSize;
+      throw const FavoriteServiceError(
+        message: FavoriteServiceError.maxTeamSize,
+      );
     }
 
-    final existing = await FirebaseConfig.collections
-        .getFavorites(userId)
+    final existing = await _firebaseConfig.firestore
+        .collection('users')
+        .doc(userId)
+        .collection('favorites')
         .where('teamPosition', isEqualTo: position)
         .where(FieldPath.documentId, isNotEqualTo: excludeFavoriteId)
         .get();
 
     if (existing.docs.isNotEmpty) {
-      // Remove existing Pokemon from that position
+      // Remove position from existing Pokemon
       await updateFavorite(
         userId: userId,
         favoriteId: existing.docs.first.id,
@@ -252,23 +383,69 @@ class FavoriteService {
     required String userId,
     required String favoriteId,
   }) async {
+    _verifyState();
+
     try {
-      final doc = await FirebaseConfig.collections
-          .getFavorites(userId)
+      // Try cache first
+      final cached =
+          await _cacheManager.get<Map<String, dynamic>>('favorite_$favoriteId');
+      if (cached != null) {
+        return FavoriteModel.fromJson(cached);
+      }
+
+      final doc = await _firebaseConfig.firestore
+          .collection('users')
+          .doc(userId)
+          .collection('favorites')
           .doc(favoriteId)
           .get();
 
-      return doc.exists ? FavoriteModel.fromJson(doc.data()!) : null;
-    } catch (e) {
+      if (!doc.exists) return null;
+
+      final favorite = FavoriteModel.fromJson(doc.data()!);
+
+      // Cache result
+      await _cacheManager.put(
+        'favorite_$favoriteId',
+        favorite.toJson(),
+      );
+
+      return favorite;
+    } catch (e, stack) {
       _monitoringManager.logError(
         'Failed to get favorite',
         error: e,
+        stackTrace: stack,
         additionalData: {
           'userId': userId,
           'favoriteId': favoriteId,
         },
       );
-      rethrow;
+      return null;
     }
   }
+
+  /// Verify service state
+  void _verifyState() {
+    if (_isDisposed) {
+      throw StateError('FavoriteService has been disposed');
+    }
+    if (!_initialized) {
+      throw StateError('FavoriteService not initialized');
+    }
+  }
+
+  /// Clean up resources
+  Future<void> dispose() async {
+    if (_isDisposed) return;
+
+    await _favoritesController.close();
+    _isDisposed = true;
+  }
+
+  /// Check if service is initialized
+  bool get isInitialized => _initialized;
+
+  /// Check if service is disposed
+  bool get isDisposed => _isDisposed;
 }

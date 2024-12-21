@@ -162,7 +162,7 @@ class CacheManager {
       final int size = utf8.encode(serialized).length;
 
       if (size > _maxCacheSize) {
-        throw const StateError('Value too large for cache');
+        throw StateError('Value too large for cache');
       }
 
       if (_cache.containsKey(key)) {
