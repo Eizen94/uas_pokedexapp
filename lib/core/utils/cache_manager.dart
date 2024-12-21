@@ -39,23 +39,22 @@ class CacheEntry {
 
 /// Cache manager implementing LRU strategy with size limits
 class CacheManager {
-  // Singleton instance
   static CacheManager? _instance;
   static final _initLock = Lock();
   static bool _initializing = false;
 
-  // Internal state
+  // Constants
+  static const int maxCacheSize = 5 * 1024 * 1024; // 5MB
+  static const Duration defaultExpiry = Duration(hours: 24);
+
   final LinkedHashMap<String, CacheEntry> _cache = LinkedHashMap();
   late final SharedPreferences _prefs;
   int _currentSize = 0;
   bool _isInitialized = false;
-  
-  // Private constructor
+
   CacheManager._internal();
 
-  /// Initialize cache manager as singleton
   static Future<CacheManager> initialize() async {
-    // If already initializing, wait
     if (_initializing) {
       while (_initializing) {
         await Future.delayed(const Duration(milliseconds: 100));
@@ -65,7 +64,6 @@ class CacheManager {
       }
     }
 
-    // If already initialized, return instance
     if (_instance != null && _instance!._isInitialized) {
       debugPrint('📦 CacheManager: Returning existing initialized instance');
       return _instance!;
@@ -82,7 +80,6 @@ class CacheManager {
           _instance = CacheManager._internal();
         }
 
-        // Initialize preferences
         final prefs = await SharedPreferences.getInstance().timeout(
           const Duration(seconds: 5),
           onTimeout: () => throw TimeoutException(
@@ -104,10 +101,11 @@ class CacheManager {
         debugPrint('✅ CacheManager: Initialization complete');
         debugPrint('📊 CacheManager Stats:');
         debugPrint('- Current Size: ${_instance!._currentSize} bytes');
-        debugPrint('- Max Size: $_maxCacheSize bytes');
+        debugPrint('- Max Size: $maxCacheSize bytes');
         debugPrint('- Items in cache: ${_instance!._cache.length}');
 
         return _instance!;
+
       } catch (e, stack) {
         _initializing = false;
         debugPrint('❌ CacheManager: Initialization failed');
@@ -122,14 +120,14 @@ class CacheManager {
           _instance!._isInitialized = true;
         }
 
-        if (e is MissingPluginException) {
-          debugPrint('❌ SharedPreferences plugin not available');
-        }
-
         return _instance!;
       }
     });
   }
+
+  // Getter for cache size limits
+  int get currentSize => _currentSize;
+  int get maxSize => maxCacheSize;
 
   /// Get cached data
   Future<T?> get<T>(String key) async {

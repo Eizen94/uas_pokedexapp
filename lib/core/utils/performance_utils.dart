@@ -6,7 +6,6 @@ import 'package:flutter/widgets.dart';
 
 /// Utility class for performance monitoring
 class PerformanceUtils {
-  // Private constructor to prevent instantiation
   const PerformanceUtils._();
 
   /// Get current frame time in milliseconds
@@ -15,11 +14,14 @@ class PerformanceUtils {
       if (!SchedulerBinding.instance.hasScheduledFrame) {
         return 0.0;
       }
-      final frameTimeStamp = SchedulerBinding.instance.currentFrameTimeStamp;
-      if (frameTimeStamp == null) {
+      
+      // Safe access to frameTimeStamp
+      final binding = SchedulerBinding.instance;
+      if (!binding.framesEnabled) {
         return 0.0;
       }
-      return frameTimeStamp.inMilliseconds.toDouble();
+      
+      return binding.currentFrameTimeStamp.inMilliseconds.toDouble();
     } catch (e) {
       debugPrint('Error getting frame time: $e');
       return 0.0;
@@ -32,15 +34,14 @@ class PerformanceUtils {
 
     try {
       final binding = WidgetsBinding.instance;
-      final renderViews = binding.renderViews;
-      if (renderViews.isEmpty) return 25.0;
+      if (!binding.renderViews.isNotEmpty) return 25.0;
       
-      final rootView = renderViews.first;
-      final usedLayerBytes = rootView.debugLayer?.debugSize ?? 0;
-      final totalBytes = usedLayerBytes + (binding.pipelineOwner.debugOutstandingObjectCount ?? 0);
+      // Simple memory estimation based on elements
+      final elementCount = binding.buildOwner?.debugElementCount ?? 0;
+      final estimatedMemory = elementCount * 1024; // Rough estimation
       
       // Return normalized value between 0-100
-      return (totalBytes / (1024 * 1024) * 10).clamp(0.0, 100.0);
+      return (estimatedMemory / (1024 * 1024) * 10).clamp(0.0, 100.0);
     } catch (e) {
       debugPrint('Error getting memory usage: $e');
       return 0.0; 
