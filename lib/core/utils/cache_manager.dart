@@ -39,63 +39,77 @@ class CacheEntry {
 
 /// Cache manager implementing LRU strategy with size limits
 class CacheManager {
+  // Singleton instance
   static CacheManager? _instance;
   static final _initLock = Lock();
+  static bool _initializing = false;
 
-  static const int _maxCacheSize = 5 * 1024 * 1024; // 5MB
-  static const Duration _defaultExpiry = Duration(hours: 24);
-
+  // Internal state
   final LinkedHashMap<String, CacheEntry> _cache = LinkedHashMap();
   late final SharedPreferences _prefs;
   int _currentSize = 0;
   bool _isInitialized = false;
-
+  
+  // Private constructor
   CacheManager._internal();
 
   /// Initialize cache manager as singleton
   static Future<CacheManager> initialize() async {
+    // If already initializing, wait
+    if (_initializing) {
+      while (_initializing) {
+        await Future.delayed(const Duration(milliseconds: 100));
+      }
+      if (_instance != null) {
+        return _instance!;
+      }
+    }
+
+    // If already initialized, return instance
     if (_instance != null && _instance!._isInitialized) {
       debugPrint('📦 CacheManager: Returning existing initialized instance');
       return _instance!;
     }
 
-    return await _initLock.synchronized(() async {
-      if (_instance != null && _instance!._isInitialized) {
-        return _instance!;
-      }
+    _initializing = true;
 
+    return await _initLock.synchronized(() async {
       try {
         debugPrint('📦 CacheManager: Starting initialization...');
 
+        if (_instance == null) {
+          debugPrint('📦 CacheManager: Creating new instance...');
+          _instance = CacheManager._internal();
+        }
+
+        // Initialize preferences
         final prefs = await SharedPreferences.getInstance().timeout(
           const Duration(seconds: 5),
           onTimeout: () => throw TimeoutException(
               'Failed to get SharedPreferences instance'),
         );
 
-        if (_instance == null) {
-          debugPrint('📦 CacheManager: Creating new instance...');
-          _instance = CacheManager._internal();
-          _instance!._prefs = prefs;
-        }
+        _instance!._prefs = prefs;
 
-        if (!_instance!._isInitialized) {
-          debugPrint('📦 CacheManager: Loading persisted cache...');
-          await _instance!._loadPersistedCache().timeout(
-              const Duration(seconds: 15),
-              onTimeout: () => debugPrint(
-                  '📦 CacheManager: Cache load timeout, continuing with empty cache'));
+        debugPrint('📦 CacheManager: Loading persisted cache...');
+        await _instance!._loadPersistedCache().timeout(
+          const Duration(seconds: 15),
+          onTimeout: () => debugPrint(
+              '📦 CacheManager: Cache load timeout, continuing with empty cache'),
+        );
 
-          _instance!._isInitialized = true;
-          debugPrint('✅ CacheManager: Initialization complete');
-          debugPrint('📊 CacheManager Stats:');
-          debugPrint('- Current Size: ${_instance!._currentSize} bytes');
-          debugPrint('- Max Size: $_maxCacheSize bytes');
-          debugPrint('- Items in cache: ${_instance!._cache.length}');
-        }
+        _instance!._isInitialized = true;
+        _initializing = false;
+
+        debugPrint('✅ CacheManager: Initialization complete');
+        debugPrint('📊 CacheManager Stats:');
+        debugPrint('- Current Size: ${_instance!._currentSize} bytes');
+        debugPrint('- Max Size: $_maxCacheSize bytes');
+        debugPrint('- Items in cache: ${_instance!._cache.length}');
 
         return _instance!;
       } catch (e, stack) {
+        _initializing = false;
         debugPrint('❌ CacheManager: Initialization failed');
         debugPrint('Error: $e');
         debugPrint('Stack trace: $stack');

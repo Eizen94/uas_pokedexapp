@@ -1,10 +1,7 @@
 // lib/core/utils/performance_utils.dart
 
-/// Performance utility functions for monitoring app metrics.
-/// Provides centralized performance measurement methods.
-library;
-
 import 'package:flutter/foundation.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/widgets.dart';
 
 /// Utility class for performance monitoring
@@ -13,41 +10,49 @@ class PerformanceUtils {
   const PerformanceUtils._();
 
   /// Get current frame time in milliseconds
-  /// Returns the timestamp of current frame in milliseconds
   static double getCurrentFrameTime() {
-    final binding = WidgetsBinding.instance;
-    if (!binding.hasScheduledFrame) {
+    try {
+      if (!SchedulerBinding.instance.hasScheduledFrame) {
+        return 0.0;
+      }
+      final frameTimeStamp = SchedulerBinding.instance.currentFrameTimeStamp;
+      if (frameTimeStamp == null) {
+        return 0.0;
+      }
+      return frameTimeStamp.inMilliseconds.toDouble();
+    } catch (e) {
+      debugPrint('Error getting frame time: $e');
       return 0.0;
     }
-    return binding.currentFrameTimeStamp.inMilliseconds.toDouble();
   }
 
   /// Get current memory usage indicator
-  /// Returns an approximate memory usage value (0-100) in debug mode,
-  /// or 0.0 in release mode
   static double getMemoryUsage() {
     if (!kDebugMode) return 0.0;
 
     try {
       final binding = WidgetsBinding.instance;
-      if (!binding.rootElement!.dirty) {
-        // If view is clean, return lower baseline
-        return 25.0;
-      }
-      // Approximate based on dirty elements count
-      return 50.0;
-    } catch (_) {
-      return 0.0;
+      final renderViews = binding.renderViews;
+      if (renderViews.isEmpty) return 25.0;
+      
+      final rootView = renderViews.first;
+      final usedLayerBytes = rootView.debugLayer?.debugSize ?? 0;
+      final totalBytes = usedLayerBytes + (binding.pipelineOwner.debugOutstandingObjectCount ?? 0);
+      
+      // Return normalized value between 0-100
+      return (totalBytes / (1024 * 1024) * 10).clamp(0.0, 100.0);
+    } catch (e) {
+      debugPrint('Error getting memory usage: $e');
+      return 0.0; 
     }
   }
 
   /// Check if performance monitoring is available
-  /// Returns true if the app is in debug mode and has an active widget binding
   static bool get isAvailable {
     if (!kDebugMode) return false;
     try {
-      return WidgetsBinding.instance.rootElement != null;
-    } catch (_) {
+      return WidgetsBinding.instance.renderViews.isNotEmpty;
+    } catch (e) {
       return false;
     }
   }
