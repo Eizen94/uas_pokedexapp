@@ -39,6 +39,7 @@ class CacheEntry {
 
 /// Cache manager implementing LRU strategy with size limits
 class CacheManager {
+  // Singleton implementation
   static CacheManager? _instance;
   static final _initLock = Lock();
   static bool _initializing = false;
@@ -47,13 +48,16 @@ class CacheManager {
   static const int maxCacheSize = 5 * 1024 * 1024; // 5MB
   static const Duration defaultExpiry = Duration(hours: 24);
 
+  // Internal state
   final LinkedHashMap<String, CacheEntry> _cache = LinkedHashMap();
   late final SharedPreferences _prefs;
   int _currentSize = 0;
   bool _isInitialized = false;
 
+  // Private constructor
   CacheManager._internal();
 
+  /// Initialize cache manager as singleton
   static Future<CacheManager> initialize() async {
     if (_initializing) {
       while (_initializing) {
@@ -90,10 +94,10 @@ class CacheManager {
 
         debugPrint('📦 CacheManager: Loading persisted cache...');
         await _instance!._loadPersistedCache().timeout(
-          const Duration(seconds: 15),
-          onTimeout: () => debugPrint(
-              '📦 CacheManager: Cache load timeout, continuing with empty cache'),
-        );
+              const Duration(seconds: 15),
+              onTimeout: () => debugPrint(
+                  '📦 CacheManager: Cache load timeout, continuing with empty cache'),
+            );
 
         _instance!._isInitialized = true;
         _initializing = false;
@@ -105,7 +109,6 @@ class CacheManager {
         debugPrint('- Items in cache: ${_instance!._cache.length}');
 
         return _instance!;
-
       } catch (e, stack) {
         _initializing = false;
         debugPrint('❌ CacheManager: Initialization failed');
@@ -125,10 +128,6 @@ class CacheManager {
     });
   }
 
-  // Getter for cache size limits
-  int get currentSize => _currentSize;
-  int get maxSize => maxCacheSize;
-
   /// Get cached data
   Future<T?> get<T>(String key) async {
     _verifyInitialized();
@@ -141,7 +140,7 @@ class CacheManager {
       return null;
     }
 
-    if (DateTime.now().difference(entry.timestamp) > _defaultExpiry) {
+    if (DateTime.now().difference(entry.timestamp) > defaultExpiry) {
       debugPrint('📦 CacheManager: Expired data for key: $key');
       _remove(key);
       return null;
@@ -163,7 +162,7 @@ class CacheManager {
       final String serialized = json.encode(data);
       final int size = utf8.encode(serialized).length;
 
-      if (size > _maxCacheSize) {
+      if (size > maxCacheSize) {
         debugPrint('❌ CacheManager: Data too large for cache');
         return;
       }
@@ -173,7 +172,7 @@ class CacheManager {
         _remove(key);
       }
 
-      while (_currentSize + size > _maxCacheSize && _cache.isNotEmpty) {
+      while (_currentSize + size > maxCacheSize && _cache.isNotEmpty) {
         debugPrint('📦 CacheManager: Evicting old cache entries');
         _remove(_cache.keys.first);
       }
@@ -202,6 +201,7 @@ class CacheManager {
     }
   }
 
+  /// Remove item from cache
   void _remove(String key) {
     final entry = _cache.remove(key);
     if (entry != null) {
@@ -221,6 +221,7 @@ class CacheManager {
     _persistCache();
   }
 
+  /// Persist cache to storage
   Future<void> _persistCache() async {
     try {
       debugPrint('📦 CacheManager: Persisting cache to storage...');
@@ -235,6 +236,7 @@ class CacheManager {
     }
   }
 
+  /// Load persisted cache
   Future<void> _loadPersistedCache() async {
     try {
       debugPrint('📦 CacheManager: Starting to load persisted cache...');
@@ -270,13 +272,12 @@ class CacheManager {
     } catch (e, stack) {
       debugPrint('❌ CacheManager: Error loading persisted cache: $e');
       debugPrint(stack.toString());
-      // Continue with empty cache
       _cache.clear();
       _currentSize = 0;
     }
   }
 
-  /// Verify manager is initialized
+  /// Verify initialized state
   void _verifyInitialized() {
     if (!_isInitialized) {
       debugPrint('❌ CacheManager: Attempting to use uninitialized instance');
@@ -284,9 +285,9 @@ class CacheManager {
     }
   }
 
-  /// Get current cache size in bytes
+  /// Get current cache size
   int get currentSize => _currentSize;
 
-  /// Get maximum cache size in bytes
-  int get maxSize => _maxCacheSize;
+  /// Get maximum cache size
+  int get maxSize => maxCacheSize;
 }
