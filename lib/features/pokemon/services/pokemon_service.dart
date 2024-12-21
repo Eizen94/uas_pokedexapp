@@ -1,7 +1,6 @@
 // lib/features/pokemon/services/pokemon_service.dart
 
 import 'dart:async';
-import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:synchronized/synchronized.dart';
 
