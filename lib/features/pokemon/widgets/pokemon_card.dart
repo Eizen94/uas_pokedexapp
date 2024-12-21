@@ -7,10 +7,8 @@ import '../../../core/constants/colors.dart';
 import '../../../core/constants/text_styles.dart';
 import '../../../core/utils/string_helper.dart';
 import '../models/pokemon_model.dart';
-import 'pokemon_type_badge.dart';
 
-/// Pokemon card widget for displaying Pokemon in grid/list views.
-/// Provides consistent Pokemon representation across the app.
+/// Pokemon card widget for displaying Pokemon in grid/list views
 class PokemonCard extends StatelessWidget {
   /// Pokemon data
   final PokemonModel pokemon;
@@ -33,7 +31,7 @@ class PokemonCard extends StatelessWidget {
     super.key,
   });
 
-  /// Get background color based on Pokemon's primary type
+  /// Get color based on Pokemon's primary type
   Color _getTypeColor() {
     final primaryType = pokemon.types.first.toLowerCase();
     switch (primaryType) {
@@ -82,105 +80,126 @@ class PokemonCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final color = _getTypeColor();
 
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(16),
-        child: Container(
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: [
-              BoxShadow(
-                color: color.withOpacity(0.2),
-                blurRadius: 8,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              // Pokemon image and favorite button
-              Expanded(
-                child: Column(
-                  children: [
-                    // Favorite button
-                    if (onFavorite != null)
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          IconButton(
-                            icon: Icon(
-                              isFavorite
-                                  ? Icons.favorite
-                                  : Icons.favorite_border,
-                              color: isFavorite ? Colors.red : Colors.grey,
-                            ),
-                            onPressed: onFavorite,
-                          ),
-                        ],
-                      ),
-                    // Pokemon image
-                    Expanded(
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Hero(
-                          tag: 'pokemon_${pokemon.id}',
-                          child: CachedNetworkImage(
-                            imageUrl: pokemon.spriteUrl,
-                            placeholder: (context, url) => const Center(
-                              child: CircularProgressIndicator(),
-                            ),
-                            errorWidget: (context, url, error) => const Icon(
-                              Icons.error_outline,
-                              size: 48,
-                              color: Colors.red,
-                            ),
-                          ),
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        decoration: BoxDecoration(
+          color: AppColors.cardBackground,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: color.withOpacity(0.2),
+              blurRadius: 8,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Stack(
+          children: [
+            // Pokemon content
+            Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                // Pokemon image
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Hero(
+                      tag: 'pokemon_${pokemon.id}',
+                      child: CachedNetworkImage(
+                        imageUrl: pokemon.spriteUrl,
+                        placeholder: (context, url) => const Center(
+                          child: CircularProgressIndicator(),
+                        ),
+                        errorWidget: (context, url, error) => const Icon(
+                          Icons.error_outline,
+                          size: 48,
+                          color: AppColors.error,
                         ),
                       ),
                     ),
-                  ],
+                  ),
                 ),
-              ),
 
-              // Pokemon info
-              Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  children: [
-                    Text(
-                      StringHelper.formatPokemonId(pokemon.id),
-                      style: AppTextStyles.pokemonNumber,
+                // Pokemon info
+                Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    children: [
+                      Text(
+                        StringHelper.formatPokemonId(pokemon.id),
+                        style: AppTextStyles.pokemonNumber,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        StringHelper.formatPokemonName(pokemon.name),
+                        style: AppTextStyles.pokemonName,
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: pokemon.types.map((type) {
+                          final typeColor = _getTypeColor();
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 4),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: typeColor,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Text(
+                                type,
+                                style: AppTextStyles.typeBadge,
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+
+            // Favorite button positioned in top right
+            if (onFavorite != null)
+              Positioned(
+                top: 8,
+                right: 8,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.1),
+                        blurRadius: 4,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: IconButton(
+                    icon: Icon(
+                      isFavorite ? Icons.favorite : Icons.favorite_border,
+                      color: isFavorite ? Colors.red : Colors.grey,
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      StringHelper.formatPokemonName(pokemon.name),
-                      style: AppTextStyles.pokemonName,
-                      textAlign: TextAlign.center,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+                    onPressed: onFavorite,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(
+                      minWidth: 36,
+                      minHeight: 36,
                     ),
-                    const SizedBox(height: 8),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: pokemon.types.map((type) {
-                        return Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 4),
-                          child: PokemonTypeBadge(
-                            type: type,
-                            size: BadgeSize.small,
-                          ),
-                        );
-                      }).toList(),
-                    ),
-                  ],
+                    iconSize: 20,
+                  ),
                 ),
               ),
-            ],
-          ),
+          ],
         ),
       ),
     );

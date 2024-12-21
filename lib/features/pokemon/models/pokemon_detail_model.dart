@@ -32,7 +32,7 @@ class PokemonDetailModel extends PokemonModel {
 
   /// Pokemon gender ratio (female percentage)
   final double genderRatio;
-  
+
   /// Pokemon generation number
   final int generation;
 
@@ -65,7 +65,7 @@ class PokemonDetailModel extends PokemonModel {
   factory PokemonDetailModel.fromJson(Map<String, dynamic> json) {
     // First create base pokemon model
     final basePokemon = PokemonModel.fromJson(json);
-    
+
     return PokemonDetailModel(
       id: basePokemon.id,
       name: basePokemon.name,
@@ -87,9 +87,8 @@ class PokemonDetailModel extends PokemonModel {
           .toList(),
       description: json['description'] as String,
       catchRate: json['catchRate'] as int,
-      eggGroups: (json['eggGroups'] as List<dynamic>)
-          .map((e) => e as String)
-          .toList(),
+      eggGroups:
+          (json['eggGroups'] as List<dynamic>).map((e) => e as String).toList(),
       genderRatio: (json['genderRatio'] as num).toDouble(),
       generation: json['generation'] as int,
       habitat: json['habitat'] as String,
@@ -99,7 +98,7 @@ class PokemonDetailModel extends PokemonModel {
   @override
   Map<String, dynamic> toJson() {
     final baseJson = super.toJson();
-    
+
     return {
       ...baseJson,
       'abilities': abilities.map((e) => e.toJson()).toList(),
@@ -123,7 +122,7 @@ class PokemonDetailModel extends PokemonModel {
     PokemonStats? stats,
     int? height,
     int? weight,
-    int? baseExperience, 
+    int? baseExperience,
     String? species,
     List<PokemonAbility>? abilities,
     List<PokemonMove>? moves,
@@ -145,7 +144,7 @@ class PokemonDetailModel extends PokemonModel {
       weight: weight ?? this.weight,
       baseExperience: baseExperience ?? this.baseExperience,
       species: species ?? this.species,
-      abilities: abilities ?? this.abilities,  
+      abilities: abilities ?? this.abilities,
       moves: moves ?? this.moves,
       evolutionChain: evolutionChain ?? this.evolutionChain,
       description: description ?? this.description,
@@ -164,7 +163,7 @@ class PokemonAbility {
   /// Ability name
   final String name;
 
-  /// Ability description 
+  /// Ability description
   final String description;
 
   /// Whether this is a hidden ability
@@ -173,7 +172,7 @@ class PokemonAbility {
   /// Constructor
   const PokemonAbility({
     required this.name,
-    required this.description, 
+    required this.description,
     required this.isHidden,
   });
 
@@ -181,7 +180,7 @@ class PokemonAbility {
   factory PokemonAbility.fromJson(Map<String, dynamic> json) {
     final ability = json['ability'] as Map<String, dynamic>;
     final isHidden = json['is_hidden'] as bool;
-    
+
     return PokemonAbility(
       name: ability['name'] as String,
       // Description will be set later from ability details API
@@ -192,27 +191,27 @@ class PokemonAbility {
 
   /// Convert to JSON
   Map<String, dynamic> toJson() => {
-    'ability': {'name': name},
-    'description': description,
-    'is_hidden': isHidden,
-  };
+        'ability': {'name': name},
+        'description': description,
+        'is_hidden': isHidden,
+      };
 }
 
 /// Pokemon move model
-@JsonSerializable() 
+@JsonSerializable()
 class PokemonMove {
   /// Move name
   final String name;
 
   /// Move type
   final String type;
-  
+
   /// Move power
   final int? power;
 
   /// Move accuracy
   final int? accuracy;
-  
+
   /// Move PP (Power Points)
   final int pp;
 
@@ -243,15 +242,15 @@ class PokemonMove {
     );
   }
 
-  /// Convert to JSON 
+  /// Convert to JSON
   Map<String, dynamic> toJson() => {
-    'move': {'name': name},
-    'type': type,
-    'power': power,
-    'accuracy': accuracy,
-    'pp': pp,
-    'description': description,
-  };
+        'move': {'name': name},
+        'type': type,
+        'power': power,
+        'accuracy': accuracy,
+        'pp': pp,
+        'description': description,
+      };
 }
 
 /// Evolution stage model
@@ -261,3 +260,86 @@ class EvolutionStage {
   final int pokemonId;
 
   /// Pokemon name
+  final String name;
+
+  /// Sprite URL
+  final String spriteUrl;
+
+  /// Evolution level
+  final int? level;
+
+  /// Evolution trigger
+  final String? trigger;
+
+  /// Evolution item
+  final String? item;
+
+  /// Constructor
+  const EvolutionStage({
+    required this.pokemonId,
+    required this.name,
+    required this.spriteUrl,
+    this.level,
+    this.trigger,
+    this.item,
+  });
+
+  /// Create from JSON with proper validation
+  factory EvolutionStage.fromJson(Map<String, dynamic> json) {
+    return EvolutionStage(
+      pokemonId: json['pokemonId'] as int,
+      name: json['name'] as String,
+      spriteUrl: json['spriteUrl'] as String,
+      level: json.containsKey('level') ? json['level'] as int? : null,
+      trigger: json.containsKey('trigger') ? json['trigger'] as String? : null,
+      item: json.containsKey('item') ? json['item'] as String? : null,
+    );
+  }
+
+  /// Convert to JSON with null safety
+  Map<String, dynamic> toJson() {
+    final Map<String, dynamic> data = {
+      'pokemonId': pokemonId,
+      'name': name,
+      'spriteUrl': spriteUrl,
+    };
+
+    if (level != null) data['level'] = level;
+    if (trigger != null) data['trigger'] = trigger;
+    if (item != null) data['item'] = item;
+
+    return data;
+  }
+
+  /// Equals operator for comparison
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is EvolutionStage &&
+          runtimeType == other.runtimeType &&
+          pokemonId == other.pokemonId &&
+          name == name &&
+          spriteUrl == spriteUrl &&
+          level == level &&
+          trigger == trigger &&
+          item == item;
+
+  /// Hash code for set operations
+  @override
+  int get hashCode =>
+      pokemonId.hashCode ^
+      name.hashCode ^
+      spriteUrl.hashCode ^
+      level.hashCode ^
+      trigger.hashCode ^
+      item.hashCode;
+
+  /// String representation for debugging
+  @override
+  String toString() => 'EvolutionStage('
+      'pokemonId: $pokemonId, '
+      'name: $name, '
+      'level: $level, '
+      'trigger: $trigger, '
+      'item: $item)';
+}
