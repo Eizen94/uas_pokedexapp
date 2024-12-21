@@ -50,40 +50,49 @@ class CacheManager {
   int _currentSize = 0;
   bool _isInitialized = false;
 
+  CacheManager._internal();
+
   /// Initialize cache manager as singleton
   static Future<CacheManager> initialize() async {
-    if (_instance != null) {
-      debugPrint('📦 CacheManager: Returning existing instance');
+    if (_instance != null && _instance!._isInitialized) {
+      debugPrint('📦 CacheManager: Returning existing initialized instance');
       return _instance!;
     }
 
     return await _initLock.synchronized(() async {
-      if (_instance != null) return _instance!;
-
-      debugPrint('📦 CacheManager: Starting initialization...');
+      if (_instance != null && _instance!._isInitialized) {
+        return _instance!;
+      }
 
       try {
-        debugPrint('📦 CacheManager: Getting SharedPreferences instance...');
+        debugPrint('📦 CacheManager: Starting initialization...');
+
         final prefs = await SharedPreferences.getInstance().timeout(
-            const Duration(seconds: 5),
-            onTimeout: () => throw TimeoutException(
-                'Failed to get SharedPreferences instance'));
+          const Duration(seconds: 5),
+          onTimeout: () => throw TimeoutException(
+              'Failed to get SharedPreferences instance'),
+        );
 
-        debugPrint('📦 CacheManager: Creating new instance...');
-        _instance = CacheManager._internal(prefs);
+        if (_instance == null) {
+          debugPrint('📦 CacheManager: Creating new instance...');
+          _instance = CacheManager._internal();
+          _instance!._prefs = prefs;
+        }
 
-        debugPrint('📦 CacheManager: Loading persisted cache...');
-        await _instance!._loadPersistedCache().timeout(
-            const Duration(seconds: 15),
-            onTimeout: () => debugPrint(
-                '📦 CacheManager: Cache load timeout, continuing with empty cache'));
+        if (!_instance!._isInitialized) {
+          debugPrint('📦 CacheManager: Loading persisted cache...');
+          await _instance!._loadPersistedCache().timeout(
+              const Duration(seconds: 15),
+              onTimeout: () => debugPrint(
+                  '📦 CacheManager: Cache load timeout, continuing with empty cache'));
 
-        _instance!._isInitialized = true;
-        debugPrint('✅ CacheManager: Initialization complete');
-        debugPrint('📊 CacheManager Stats:');
-        debugPrint('- Current Size: ${_instance!._currentSize} bytes');
-        debugPrint('- Max Size: $_maxCacheSize bytes');
-        debugPrint('- Items in cache: ${_instance!._cache.length}');
+          _instance!._isInitialized = true;
+          debugPrint('✅ CacheManager: Initialization complete');
+          debugPrint('📊 CacheManager Stats:');
+          debugPrint('- Current Size: ${_instance!._currentSize} bytes');
+          debugPrint('- Max Size: $_maxCacheSize bytes');
+          debugPrint('- Items in cache: ${_instance!._cache.length}');
+        }
 
         return _instance!;
       } catch (e, stack) {
@@ -91,15 +100,14 @@ class CacheManager {
         debugPrint('Error: $e');
         debugPrint('Stack trace: $stack');
 
-        if (_instance == null) {
+        if (_instance == null || !_instance!._isInitialized) {
           debugPrint(
               '📦 CacheManager: Creating fallback instance with empty cache...');
-          final prefs = await SharedPreferences.getInstance();
-          _instance = CacheManager._internal(prefs);
+          _instance = CacheManager._internal();
+          _instance!._prefs = await SharedPreferences.getInstance();
           _instance!._isInitialized = true;
         }
 
-        // Try to handle specific errors
         if (e is MissingPluginException) {
           debugPrint('❌ SharedPreferences plugin not available');
         }
@@ -109,85 +117,77 @@ class CacheManager {
     });
   }
 
-  CacheManager._internal(this._prefs) {
-    debugPrint('📦 CacheManager: Internal constructor called');
-  }
-
   /// Get cached data
   Future<T?> get<T>(String key) async {
-    return await _initLock.synchronized(() {
-      _verifyInitialized();
+    _verifyInitialized();
 
-      debugPrint('📦 CacheManager: Getting data for key: $key');
+    debugPrint('📦 CacheManager: Getting data for key: $key');
 
-      final entry = _cache[key];
-      if (entry == null) {
-        debugPrint('📦 CacheManager: Cache miss for key: $key');
-        return null;
-      }
+    final entry = _cache[key];
+    if (entry == null) {
+      debugPrint('📦 CacheManager: Cache miss for key: $key');
+      return null;
+    }
 
-      if (DateTime.now().difference(entry.timestamp) > _defaultExpiry) {
-        debugPrint('📦 CacheManager: Expired data for key: $key');
-        _remove(key);
-        return null;
-      }
+    if (DateTime.now().difference(entry.timestamp) > _defaultExpiry) {
+      debugPrint('📦 CacheManager: Expired data for key: $key');
+      _remove(key);
+      return null;
+    }
 
-      debugPrint('📦 CacheManager: Cache hit for key: $key');
-      _cache.remove(key);
-      _cache[key] = entry;
-      return entry.data as T?;
-    });
+    debugPrint('📦 CacheManager: Cache hit for key: $key');
+    _cache.remove(key);
+    _cache[key] = entry;
+    return entry.data as T?;
   }
 
   /// Put data in cache
   Future<void> put<T>(String key, T data) async {
-    await _initLock.synchronized(() {
-      _verifyInitialized();
+    _verifyInitialized();
 
-      debugPrint('📦 CacheManager: Putting data for key: $key');
+    debugPrint('📦 CacheManager: Putting data for key: $key');
 
-      try {
-        final String serialized = json.encode(data);
-        final int size = utf8.encode(serialized).length;
+    try {
+      final String serialized = json.encode(data);
+      final int size = utf8.encode(serialized).length;
 
-        if (size > _maxCacheSize) {
-          debugPrint('❌ CacheManager: Data too large for cache');
-          return;
-        }
-
-        if (_cache.containsKey(key)) {
-          debugPrint('📦 CacheManager: Removing existing data for key: $key');
-          _remove(key);
-        }
-
-        while (_currentSize + size > _maxCacheSize && _cache.isNotEmpty) {
-          debugPrint('📦 CacheManager: Evicting old cache entries');
-          _remove(_cache.keys.first);
-        }
-
-        final entry = CacheEntry(
-          key: key,
-          data: data,
-          size: size,
-          timestamp: DateTime.now(),
-        );
-
-        _cache[key] = entry;
-        _currentSize += size;
-
-        debugPrint('📦 CacheManager: Successfully cached data');
-        debugPrint('- Key: $key');
-        debugPrint('- Size: $size bytes');
-        debugPrint('- Total Cache Size: $_currentSize bytes');
-
-        _persistCache();
-      } catch (e, stack) {
-        debugPrint('❌ CacheManager: Failed to cache data');
-        debugPrint('Error: $e');
-        debugPrint('Stack trace: $stack');
-        rethrow;
+      if (size > _maxCacheSize) {
+        debugPrint('❌ CacheManager: Data too large for cache');
+        return;
       }
-    });
+
+      if (_cache.containsKey(key)) {
+        debugPrint('📦 CacheManager: Removing existing data for key: $key');
+        _remove(key);
+      }
+
+      while (_currentSize + size > _maxCacheSize && _cache.isNotEmpty) {
+        debugPrint('📦 CacheManager: Evicting old cache entries');
+        _remove(_cache.keys.first);
+      }
+
+      final entry = CacheEntry(
+        key: key,
+        data: data,
+        size: size,
+        timestamp: DateTime.now(),
+      );
+
+      _cache[key] = entry;
+      _currentSize += size;
+
+      debugPrint('📦 CacheManager: Successfully cached data');
+      debugPrint('- Key: $key');
+      debugPrint('- Size: $size bytes');
+      debugPrint('- Total Cache Size: $_currentSize bytes');
+
+      _persistCache();
+    } catch (e, stack) {
+      debugPrint('❌ CacheManager: Failed to cache data');
+      debugPrint('Error: $e');
+      debugPrint('Stack trace: $stack');
+      rethrow;
+    }
   }
 
   void _remove(String key) {
@@ -202,13 +202,11 @@ class CacheManager {
 
   /// Clear all cached data
   Future<void> clear() async {
-    await _initLock.synchronized(() {
-      _verifyInitialized();
-      debugPrint('📦 CacheManager: Clearing all cache data');
-      _cache.clear();
-      _currentSize = 0;
-      _persistCache();
-    });
+    _verifyInitialized();
+    debugPrint('📦 CacheManager: Clearing all cache data');
+    _cache.clear();
+    _currentSize = 0;
+    _persistCache();
   }
 
   Future<void> _persistCache() async {
@@ -226,47 +224,44 @@ class CacheManager {
   }
 
   Future<void> _loadPersistedCache() async {
-    await _initLock.synchronized(() {
-      try {
-        debugPrint('📦 CacheManager: Starting to load persisted cache...');
+    try {
+      debugPrint('📦 CacheManager: Starting to load persisted cache...');
 
-        debugPrint('📦 CacheManager: Getting string from SharedPreferences...');
-        final String? serialized = _prefs.getString('cache_data');
+      debugPrint('📦 CacheManager: Getting string from SharedPreferences...');
+      final String? serialized = _prefs.getString('cache_data');
 
-        if (serialized != null) {
-          debugPrint('📦 CacheManager: Found persisted data, decoding JSON...');
-          final List<dynamic> data = json.decode(serialized);
-          debugPrint('📦 CacheManager: JSON decoded successfully');
+      if (serialized != null) {
+        debugPrint('📦 CacheManager: Found persisted data, decoding JSON...');
+        final List<dynamic> data = json.decode(serialized);
+        debugPrint('📦 CacheManager: JSON decoded successfully');
 
-          _cache.clear();
-          _currentSize = 0;
-
-          debugPrint('📦 CacheManager: Processing ${data.length} entries...');
-          var processedCount = 0;
-          for (final item in data) {
-            debugPrint(
-                '📦 CacheManager: Processing entry ${++processedCount}/${data.length}');
-            final entry = CacheEntry.fromJson(item as Map<String, dynamic>);
-            _cache[entry.key] = entry;
-            _currentSize += entry.size;
-            debugPrint('📦 CacheManager: Entry processed successfully');
-          }
-
-          debugPrint('✅ CacheManager: All entries processed');
-        } else {
-          debugPrint(
-              '📦 CacheManager: No persisted cache found, starting fresh');
-        }
-
-        debugPrint('✅ CacheManager: Load complete');
-      } catch (e, stack) {
-        debugPrint('❌ CacheManager: Error loading persisted cache: $e');
-        debugPrint(stack.toString());
-        // Continue with empty cache
         _cache.clear();
         _currentSize = 0;
+
+        debugPrint('📦 CacheManager: Processing ${data.length} entries...');
+        var processedCount = 0;
+        for (final item in data) {
+          debugPrint(
+              '📦 CacheManager: Processing entry ${++processedCount}/${data.length}');
+          final entry = CacheEntry.fromJson(item as Map<String, dynamic>);
+          _cache[entry.key] = entry;
+          _currentSize += entry.size;
+          debugPrint('📦 CacheManager: Entry processed successfully');
+        }
+
+        debugPrint('✅ CacheManager: All entries processed');
+      } else {
+        debugPrint('📦 CacheManager: No persisted cache found, starting fresh');
       }
-    });
+
+      debugPrint('✅ CacheManager: Load complete');
+    } catch (e, stack) {
+      debugPrint('❌ CacheManager: Error loading persisted cache: $e');
+      debugPrint(stack.toString());
+      // Continue with empty cache
+      _cache.clear();
+      _currentSize = 0;
+    }
   }
 
   /// Verify manager is initialized

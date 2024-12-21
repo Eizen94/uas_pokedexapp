@@ -1,8 +1,4 @@
-// lib/widgets/pokemon_card.dart
-
-/// Pokemon card widget for displaying Pokemon in grid/list views.
-/// Provides consistent Pokemon representation across the app.
-library;
+// lib/features/pokemon/widgets/pokemon_card.dart
 
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -13,7 +9,8 @@ import '../../../core/utils/string_helper.dart';
 import '../models/pokemon_model.dart';
 import 'pokemon_type_badge.dart';
 
-/// Pokemon card widget
+/// Pokemon card widget for displaying Pokemon in grid/list views.
+/// Provides consistent Pokemon representation across the app.
 class PokemonCard extends StatelessWidget {
   /// Pokemon data
   final PokemonModel pokemon;
@@ -105,39 +102,46 @@ class PokemonCard extends StatelessWidget {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              // Pokemon image
+              // Pokemon image and favorite button
               Expanded(
-                child: Stack(
+                child: Column(
                   children: [
-                    Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Hero(
-                        tag: 'pokemon_${pokemon.id}',
-                        child: CachedNetworkImage(
-                          imageUrl: pokemon.spriteUrl,
-                          placeholder: (context, url) => const Center(
-                            child: CircularProgressIndicator(),
+                    // Favorite button
+                    if (onFavorite != null)
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          IconButton(
+                            icon: Icon(
+                              isFavorite
+                                  ? Icons.favorite
+                                  : Icons.favorite_border,
+                              color: isFavorite ? Colors.red : Colors.grey,
+                            ),
+                            onPressed: onFavorite,
                           ),
-                          errorWidget: (context, url, error) => const Icon(
-                            Icons.error_outline,
-                            size: 48,
-                            color: Colors.red,
+                        ],
+                      ),
+                    // Pokemon image
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Hero(
+                          tag: 'pokemon_${pokemon.id}',
+                          child: CachedNetworkImage(
+                            imageUrl: pokemon.spriteUrl,
+                            placeholder: (context, url) => const Center(
+                              child: CircularProgressIndicator(),
+                            ),
+                            errorWidget: (context, url, error) => const Icon(
+                              Icons.error_outline,
+                              size: 48,
+                              color: Colors.red,
+                            ),
                           ),
                         ),
                       ),
                     ),
-                    if (onFavorite != null)
-                      Positioned(
-                        top: 8,
-                        right: 8,
-                        child: IconButton(
-                          icon: Icon(
-                            isFavorite ? Icons.favorite : Icons.favorite_border,
-                            color: isFavorite ? Colors.red : Colors.grey,
-                          ),
-                          onPressed: onFavorite,
-                        ),
-                      ),
                   ],
                 ),
               ),

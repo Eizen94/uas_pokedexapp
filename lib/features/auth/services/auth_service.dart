@@ -18,6 +18,7 @@ class AuthError {
   static const String userNotFound = 'User not found';
   static const String networkError = 'Network error occurred';
   static const String unknownError = 'An unknown error occurred';
+  static const String notInitialized = 'Authentication service not initialized';
 }
 
 /// Authentication service class
@@ -83,6 +84,10 @@ class AuthService {
   /// Verify user's email address
   Future<void> verifyEmail() async {
     try {
+      if (!_isInitializedController.value) {
+        throw AuthError.notInitialized;
+      }
+
       final user = _firebaseConfig.auth.currentUser;
       if (user != null) {
         await user.sendEmailVerification();
@@ -91,7 +96,7 @@ class AuthService {
       }
     } catch (e) {
       _monitoringManager.logError('Email verification failed', error: e);
-      throw AuthError.unknownError;
+      throw _handleError(e);
     }
   }
 
@@ -101,6 +106,10 @@ class AuthService {
     required String password,
   }) async {
     try {
+      if (!_isInitializedController.value) {
+        throw AuthError.notInitialized;
+      }
+
       final userCredential =
           await _firebaseConfig.auth.signInWithEmailAndPassword(
         email: email,
@@ -121,18 +130,7 @@ class AuthService {
         error: e,
         additionalData: {'email': email},
       );
-
-      switch (e.code) {
-        case 'user-not-found':
-        case 'wrong-password':
-          throw AuthError.invalidCredentials;
-        case 'invalid-email':
-          throw AuthError.invalidEmail;
-        case 'network-request-failed':
-          throw AuthError.networkError;
-        default:
-          throw AuthError.unknownError;
-      }
+      throw _handleAuthError(e);
     }
   }
 
@@ -142,6 +140,10 @@ class AuthService {
     required String password,
   }) async {
     try {
+      if (!_isInitializedController.value) {
+        throw AuthError.notInitialized;
+      }
+
       final userCredential =
           await _firebaseConfig.auth.createUserWithEmailAndPassword(
         email: email,
@@ -163,35 +165,31 @@ class AuthService {
         error: e,
         additionalData: {'email': email},
       );
-
-      switch (e.code) {
-        case 'email-already-in-use':
-          throw AuthError.emailInUse;
-        case 'invalid-email':
-          throw AuthError.invalidEmail;
-        case 'weak-password':
-          throw AuthError.weakPassword;
-        case 'network-request-failed':
-          throw AuthError.networkError;
-        default:
-          throw AuthError.unknownError;
-      }
+      throw _handleAuthError(e);
     }
   }
 
   /// Sign out current user
   Future<void> signOut() async {
     try {
+      if (!_isInitializedController.value) {
+        throw AuthError.notInitialized;
+      }
+
       await _firebaseConfig.auth.signOut();
     } catch (e) {
       _monitoringManager.logError('Sign out failed', error: e);
-      throw AuthError.unknownError;
+      throw _handleError(e);
     }
   }
 
   /// Send password reset email
   Future<void> sendPasswordResetEmail(String email) async {
     try {
+      if (!_isInitializedController.value) {
+        throw AuthError.notInitialized;
+      }
+
       await _firebaseConfig.auth.sendPasswordResetEmail(email: email);
     } on FirebaseAuthException catch (e) {
       _monitoringManager.logError(
@@ -199,17 +197,7 @@ class AuthService {
         error: e,
         additionalData: {'email': email},
       );
-
-      switch (e.code) {
-        case 'user-not-found':
-          throw AuthError.userNotFound;
-        case 'invalid-email':
-          throw AuthError.invalidEmail;
-        case 'network-request-failed':
-          throw AuthError.networkError;
-        default:
-          throw AuthError.unknownError;
-      }
+      throw _handleAuthError(e);
     }
   }
 
@@ -219,6 +207,10 @@ class AuthService {
     String? photoUrl,
   }) async {
     try {
+      if (!_isInitializedController.value) {
+        throw AuthError.notInitialized;
+      }
+
       final user = _firebaseConfig.auth.currentUser;
       if (user == null) {
         throw AuthError.userNotFound;
@@ -231,11 +223,48 @@ class AuthService {
         await user.updatePhotoURL(photoUrl);
       }
 
-      return UserModel.fromFirebaseUser(user);
+      // Reload user to get updated data
+      await user.reload();
+      final updatedUser = _firebaseConfig.auth.currentUser;
+      if (updatedUser == null) {
+        throw AuthError.userNotFound;
+      }
+
+      return UserModel.fromFirebaseUser(updatedUser);
     } catch (e) {
       _monitoringManager.logError('Profile update failed', error: e);
-      throw AuthError.unknownError;
+      throw _handleError(e);
     }
+  }
+
+  /// Handle Firebase Auth errors
+  String _handleAuthError(FirebaseAuthException e) {
+    switch (e.code) {
+      case 'user-not-found':
+      case 'wrong-password':
+        return AuthError.invalidCredentials;
+      case 'invalid-email':
+        return AuthError.invalidEmail;
+      case 'weak-password':
+        return AuthError.weakPassword;
+      case 'email-already-in-use':
+        return AuthError.emailInUse;
+      case 'network-request-failed':
+        return AuthError.networkError;
+      default:
+        return AuthError.unknownError;
+    }
+  }
+
+  /// Handle general errors
+  String _handleError(dynamic e) {
+    if (e is FirebaseAuthException) {
+      return _handleAuthError(e);
+    }
+    if (e is String) {
+      return e;
+    }
+    return AuthError.unknownError;
   }
 
   /// Clean up resources
