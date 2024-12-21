@@ -1,10 +1,14 @@
-// android/app/build.gradle
-
 plugins {
     id "com.android.application"
     id "kotlin-android"
     id "dev.flutter.flutter-gradle-plugin"
     id 'com.google.gms.google-services'
+}
+
+def keystoreProperties = new Properties()
+def keystorePropertiesFile = rootProject.file('key.properties')
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
 }
 
 android {
@@ -23,30 +27,39 @@ android {
 
     defaultConfig {
         applicationId = "com.nikolausfranz.uas_pokedexapp"
-        minSdk = 26
-        targetSdk = 35
+        minSdk = 21
+        targetSdk = 33
         versionCode = 1
         versionName = "1.0.0"
         multiDexEnabled true
 
-        // Add MIUI optimization
         ndk {
             abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86_64'
         }
     }
 
+    signingConfigs {
+        release {
+            if (keystorePropertiesFile.exists()) {
+                keyAlias keystoreProperties['keyAlias']
+                keyPassword keystoreProperties['keyPassword']
+                storeFile file(keystoreProperties['storeFile'])
+                storePassword keystoreProperties['storePassword']
+            }
+        }
+    }
+
     buildTypes {
         release {
-            signingConfig = signingConfigs.debug
+            signingConfig signingConfigs.release
             minifyEnabled true
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
-
         debug {
             minifyEnabled false
             shrinkResources false
-            signingConfig = signingConfigs.debug
+            signingConfig signingConfigs.debug
         }
     }
 
@@ -67,18 +80,11 @@ flutter {
 }
 
 dependencies {
-    // Import the Firebase BoM
     implementation platform('com.google.firebase:firebase-bom:32.7.0')
-
-    // Firebase dependencies
     implementation 'com.google.firebase:firebase-analytics'
     implementation 'com.google.firebase:firebase-auth'
     implementation 'com.google.firebase:firebase-firestore'
-
-    // Add multidex support
     implementation 'androidx.multidex:multidex:2.0.1'
-
-    // Add MIUI optimization
     implementation 'androidx.core:core-ktx:1.12.0'
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'com.google.android.material:material:1.10.0'
