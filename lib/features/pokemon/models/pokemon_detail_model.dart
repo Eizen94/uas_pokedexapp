@@ -32,7 +32,7 @@ class PokemonDetailModel extends PokemonModel {
 
   /// Pokemon gender ratio (female percentage)
   final double genderRatio;
-
+  
   /// Pokemon generation number
   final int generation;
 
@@ -61,14 +61,59 @@ class PokemonDetailModel extends PokemonModel {
     required this.habitat,
   });
 
-  /// Create from JSON
-  factory PokemonDetailModel.fromJson(Map<String, dynamic> json) => 
-      _$PokemonDetailModelFromJson(json);
+  /// Create from JSON with proper typing
+  factory PokemonDetailModel.fromJson(Map<String, dynamic> json) {
+    // First create base pokemon model
+    final basePokemon = PokemonModel.fromJson(json);
+    
+    return PokemonDetailModel(
+      id: basePokemon.id,
+      name: basePokemon.name,
+      types: basePokemon.types,
+      spriteUrl: basePokemon.spriteUrl,
+      stats: basePokemon.stats,
+      height: basePokemon.height,
+      weight: basePokemon.weight,
+      baseExperience: basePokemon.baseExperience,
+      species: basePokemon.species,
+      abilities: (json['abilities'] as List<dynamic>)
+          .map((e) => PokemonAbility.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      moves: (json['moves'] as List<dynamic>)
+          .map((e) => PokemonMove.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      evolutionChain: (json['evolutionChain'] as List<dynamic>)
+          .map((e) => EvolutionStage.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      description: json['description'] as String,
+      catchRate: json['catchRate'] as int,
+      eggGroups: (json['eggGroups'] as List<dynamic>)
+          .map((e) => e as String)
+          .toList(),
+      genderRatio: (json['genderRatio'] as num).toDouble(),
+      generation: json['generation'] as int,
+      habitat: json['habitat'] as String,
+    );
+  }
 
   @override
-  Map<String, dynamic> toJson() => _$PokemonDetailModelToJson(this);
+  Map<String, dynamic> toJson() {
+    final baseJson = super.toJson();
+    
+    return {
+      ...baseJson,
+      'abilities': abilities.map((e) => e.toJson()).toList(),
+      'moves': moves.map((e) => e.toJson()).toList(),
+      'evolutionChain': evolutionChain.map((e) => e.toJson()).toList(),
+      'description': description,
+      'catchRate': catchRate,
+      'eggGroups': eggGroups,
+      'genderRatio': genderRatio,
+      'generation': generation,
+      'habitat': habitat,
+    };
+  }
 
-  /// Create copy with updated fields
   @override
   PokemonDetailModel copyWith({
     int? id,
@@ -78,7 +123,7 @@ class PokemonDetailModel extends PokemonModel {
     PokemonStats? stats,
     int? height,
     int? weight,
-    int? baseExperience,
+    int? baseExperience, 
     String? species,
     List<PokemonAbility>? abilities,
     List<PokemonMove>? moves,
@@ -100,7 +145,7 @@ class PokemonDetailModel extends PokemonModel {
       weight: weight ?? this.weight,
       baseExperience: baseExperience ?? this.baseExperience,
       species: species ?? this.species,
-      abilities: abilities ?? this.abilities,
+      abilities: abilities ?? this.abilities,  
       moves: moves ?? this.moves,
       evolutionChain: evolutionChain ?? this.evolutionChain,
       description: description ?? this.description,
@@ -119,7 +164,7 @@ class PokemonAbility {
   /// Ability name
   final String name;
 
-  /// Ability description
+  /// Ability description 
   final String description;
 
   /// Whether this is a hidden ability
@@ -128,33 +173,46 @@ class PokemonAbility {
   /// Constructor
   const PokemonAbility({
     required this.name,
-    required this.description,
+    required this.description, 
     required this.isHidden,
   });
 
   /// Create from JSON
-  factory PokemonAbility.fromJson(Map<String, dynamic> json) => 
-      _$PokemonAbilityFromJson(json);
+  factory PokemonAbility.fromJson(Map<String, dynamic> json) {
+    final ability = json['ability'] as Map<String, dynamic>;
+    final isHidden = json['is_hidden'] as bool;
+    
+    return PokemonAbility(
+      name: ability['name'] as String,
+      // Description will be set later from ability details API
+      description: json['description'] as String? ?? '',
+      isHidden: isHidden,
+    );
+  }
 
   /// Convert to JSON
-  Map<String, dynamic> toJson() => _$PokemonAbilityToJson(this);
+  Map<String, dynamic> toJson() => {
+    'ability': {'name': name},
+    'description': description,
+    'is_hidden': isHidden,
+  };
 }
 
 /// Pokemon move model
-@JsonSerializable()
+@JsonSerializable() 
 class PokemonMove {
   /// Move name
   final String name;
 
   /// Move type
   final String type;
-
+  
   /// Move power
   final int? power;
 
   /// Move accuracy
   final int? accuracy;
-
+  
   /// Move PP (Power Points)
   final int pp;
 
@@ -172,11 +230,28 @@ class PokemonMove {
   });
 
   /// Create from JSON
-  factory PokemonMove.fromJson(Map<String, dynamic> json) => 
-      _$PokemonMoveFromJson(json);
+  factory PokemonMove.fromJson(Map<String, dynamic> json) {
+    final move = json['move'] as Map<String, dynamic>;
+    return PokemonMove(
+      name: move['name'] as String,
+      // These fields will be set later from move details API
+      type: json['type'] as String? ?? '',
+      power: json['power'] as int?,
+      accuracy: json['accuracy'] as int?,
+      pp: json['pp'] as int? ?? 0,
+      description: json['description'] as String? ?? '',
+    );
+  }
 
-  /// Convert to JSON
-  Map<String, dynamic> toJson() => _$PokemonMoveToJson(this);
+  /// Convert to JSON 
+  Map<String, dynamic> toJson() => {
+    'move': {'name': name},
+    'type': type,
+    'power': power,
+    'accuracy': accuracy,
+    'pp': pp,
+    'description': description,
+  };
 }
 
 /// Evolution stage model
@@ -186,34 +261,3 @@ class EvolutionStage {
   final int pokemonId;
 
   /// Pokemon name
-  final String name;
-
-  /// Sprite URL
-  final String spriteUrl;
-
-  /// Evolution level
-  final int? level;
-
-  /// Evolution trigger
-  final String? trigger;
-
-  /// Evolution item
-  final String? item;
-
-  /// Constructor
-  const EvolutionStage({
-    required this.pokemonId,
-    required this.name,
-    required this.spriteUrl,
-    this.level,
-    this.trigger,
-    this.item,
-  });
-
-  /// Create from JSON
-  factory EvolutionStage.fromJson(Map<String, dynamic> json) => 
-      _$EvolutionStageFromJson(json);
-
-  /// Convert to JSON
-  Map<String, dynamic> toJson() => _$EvolutionStageToJson(this);
-}

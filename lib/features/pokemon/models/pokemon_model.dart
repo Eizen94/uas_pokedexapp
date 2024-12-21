@@ -51,12 +51,48 @@ class PokemonModel {
     required this.species,
   });
 
-  /// Create from JSON
-  factory PokemonModel.fromJson(Map<String, dynamic> json) =>
-      _$PokemonModelFromJson(json);
+  /// Create from JSON - with proper type safety
+  factory PokemonModel.fromJson(Map<String, dynamic> json) {
+    return PokemonModel(
+      id: json['id'] as int,
+      name: json['name'] as String,
+      types: (json['types'] as List<dynamic>)
+          .map((t) => t['type']['name'] as String)
+          .toList(),
+      spriteUrl: json['sprites']['other']['official-artwork']['front_default']
+              as String? ??
+          json['sprites']['front_default'] as String,
+      stats: json['stats'] is PokemonStats
+          ? json['stats'] as PokemonStats
+          : PokemonStats.fromJson(json['stats'] as Map<String, dynamic>),
+      height: json['height'] as int,
+      weight: json['weight'] as int,
+      baseExperience: json['base_experience'] as int? ?? 0,
+      species: json['species']['name'] as String,
+    );
+  }
 
   /// Convert to JSON
-  Map<String, dynamic> toJson() => _$PokemonModelToJson(this);
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'name': name,
+        'types': types
+            .map((type) => {
+                  'type': {'name': type}
+                })
+            .toList(),
+        'sprites': {
+          'front_default': spriteUrl,
+          'other': {
+            'official-artwork': {'front_default': spriteUrl}
+          }
+        },
+        'stats': stats.toJson(),
+        'height': height,
+        'weight': weight,
+        'base_experience': baseExperience,
+        'species': {'name': species},
+      };
 
   /// Create copy with updated fields
   PokemonModel copyWith({
@@ -129,11 +165,53 @@ class PokemonStats {
   });
 
   /// Create from JSON
-  factory PokemonStats.fromJson(Map<String, dynamic> json) =>
-      _$PokemonStatsFromJson(json);
+  factory PokemonStats.fromJson(Map<String, dynamic> json) {
+    if (json is List) {
+      // Handle list format from API
+      final statsList = json as List;
+      return PokemonStats(
+        hp: _findStat(statsList, 'hp'),
+        attack: _findStat(statsList, 'attack'),
+        defense: _findStat(statsList, 'defense'),
+        specialAttack: _findStat(statsList, 'special-attack'),
+        specialDefense: _findStat(statsList, 'special-defense'),
+        speed: _findStat(statsList, 'speed'),
+      );
+    } else {
+      // Handle map format from cache
+      return PokemonStats(
+        hp: json['hp'] as int? ?? 0,
+        attack: json['attack'] as int? ?? 0,
+        defense: json['defense'] as int? ?? 0,
+        specialAttack: json['specialAttack'] as int? ?? 0,
+        specialDefense: json['specialDefense'] as int? ?? 0,
+        speed: json['speed'] as int? ?? 0,
+      );
+    }
+  }
+
+  /// Helper to find stat value from list
+  static int _findStat(List<dynamic> stats, String name) {
+    try {
+      return stats.firstWhere(
+            (s) => s['stat']['name'] == name,
+            orElse: () => {'base_stat': 0},
+          )['base_stat'] as int? ??
+          0;
+    } catch (e) {
+      return 0;
+    }
+  }
 
   /// Convert to JSON
-  Map<String, dynamic> toJson() => _$PokemonStatsToJson(this);
+  Map<String, dynamic> toJson() => {
+        'hp': hp,
+        'attack': attack,
+        'defense': defense,
+        'specialAttack': specialAttack,
+        'specialDefense': specialDefense,
+        'speed': speed,
+      };
 
   /// Get total stats
   int get total =>
